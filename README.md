@@ -32,3 +32,28 @@ free.
 
 Levels follow the C4 model: purpose = context, system = containers,
 module = components, code = code.
+
+## E2: project map
+
+A map of a Rust project. The structure comes from tools, the names and groups
+come from the agent, and your corrections override both.
+
+```sh
+npm run map -- ~/Projects/slipangle            # writes out/slipangle/map.html (read-only)
+npm run map -- ~/Projects/slipangle --serve    # http://127.0.0.1:4173, editable
+```
+
+- **Skeleton** (`src/skeleton.ts`): `cargo metadata` gives crates and their
+  dependencies. A SCIP index from `rust-analyzer scip` gives modules, items,
+  doc comments, libraries used, and reference counts between modules. It is
+  rebuilt whenever a source file is newer than the index.
+- **Agent layer** (`src/overlay.ts`): one Haiku call groups modules into
+  components and writes a one-line role for each module.
+- **Your corrections**: move a module, rename a component, or rewrite a
+  description or role from the page. They are saved to
+  `data/<project>/overrides.json` (versioned) and always beat the agent's
+  proposal, including on future runs. Corrections that point to deleted
+  modules show up as warnings.
+- **Page** (`src/maprender.ts`): two zoom levels (System, Modules) with the
+  same positions at both. Components that use others are placed higher.
+  Click anything for details down to items and line numbers.

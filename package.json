@@ -6,11 +6,15 @@
   "description": "Experiments in human-AI collaboration on code: decision recaps, depth levels, fog-of-war maps.",
   "scripts": {
     "recap": "tsx src/cli.ts recap",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "map": "tsx src/map.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
+  },
+  "dependencies": {
+    "protobufjs": "^8.8.1"
   }
 }
