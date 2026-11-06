@@ -1,0 +1,16 @@
+{
+  "name": "cockpit",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Experiments in human-AI collaboration on code: decision recaps, depth levels, fog-of-war maps.",
+  "scripts": {
+    "recap": "tsx src/cli.ts recap",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
