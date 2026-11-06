@@ -1,4 +1,5 @@
-// E2 CLI: npm run map -- <project dir> [--name slipangle] [--serve] [--port 4173]
+// E2 CLI: npm run map -- <project dir> [--name slipangle] [--serve] [--port 4173] [--host 127.0.0.1]
+// --host 0.0.0.0 makes the page reachable from other machines on the network (no login: trusted networks only).
 // Generated files go to out/<name>/ (regenerable); your corrections go to
 // data/<name>/overrides.json (versioned).
 
@@ -15,7 +16,7 @@ const flag = (n: string) => args.includes(`--${n}`);
 const opt = (n: string) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : undefined);
 const dir = args.find((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
 if (!dir) {
-  console.error("usage: npm run map -- <project dir> [--name x] [--serve] [--port 4173]");
+  console.error("usage: npm run map -- <project dir> [--name x] [--serve] [--port 4173] [--host 127.0.0.1]");
   process.exit(1);
 }
 
@@ -61,6 +62,7 @@ console.log(`wrote ${resolve(outDir, "map.html")}`);
 
 if (flag("serve")) {
   const port = Number(opt("port") ?? 4173);
+  const host = opt("host") ?? "127.0.0.1";
   createServer((req, res) => {
     if (req.method === "GET" && (req.url === "/" || req.url === "/index.html")) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page().html);
@@ -80,5 +82,5 @@ if (flag("serve")) {
         }
       });
     } else res.writeHead(404).end();
-  }).listen(port, "127.0.0.1", () => console.log(`serving on http://127.0.0.1:${port} (Ctrl+C to stop)`));
+  }).listen(port, host, () => console.log(`serving on http://${host}:${port} (Ctrl+C to stop)`));
 }

@@ -41,6 +41,7 @@ come from the agent, and your corrections override both.
 ```sh
 npm run map -- ~/Projects/slipangle            # writes out/slipangle/map.html (read-only)
 npm run map -- ~/Projects/slipangle --serve    # http://127.0.0.1:4173, editable
+npm run map -- ~/Projects/slipangle --serve --host 0.0.0.0   # reachable from your network, no login
 ```
 
 - **Skeleton** (`src/skeleton.ts`): `cargo metadata` gives crates and their
