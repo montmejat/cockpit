@@ -59,13 +59,27 @@ npm run map -- ~/Projects/slipangle --serve --host 0.0.0.0   # reachable from yo
   same positions at both. Components that use others are placed higher.
   Click anything for details down to items and line numbers.
 
+## E5: work view (map + turns)
+
+`npm run serve -- <project>` now opens on one page that merges the map and the
+turns: turns on the left, the map in the middle, details on the right.
+
+- Pick a turn: what it changed lights up on the map (green = new, amber =
+  changed, blue = being edited right now); untouched parts fade. New or
+  changed dependencies show as colored arrows.
+- Click a component, then a module: the panel goes one level deeper each time,
+  ending with that module's items and its own diff. Breadcrumbs go back up.
+- "Just the map" shows the plain map. The old pages stay at `/turns` and `/map`.
+- The URL keeps the turn and what you clicked (`?turn=…#m:game/sim`), so a
+  view can be linked or reloaded.
+
 ## E4: agent turns, reviewed by layer
 
 Use Claude Code as usual in a project; cockpit records each request ("turn")
 and shows what changed at every layer.
 
 ```sh
-npm run serve -- ~/Projects/slipangle                   # http://127.0.0.1:4173: turns at /, map at /map
+npm run serve -- ~/Projects/slipangle                   # http://127.0.0.1:4173: work view at /, turns at /turns, map at /map
 npm run serve -- ~/Projects/slipangle --host 0.0.0.0    # reachable from your network, no login
 ```
 

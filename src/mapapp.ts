@@ -57,6 +57,10 @@ export function createMapApp(root: string, name: string, log = console.log) {
   return {
     outDir,
     render,
+    // Skeleton and grouping (with your corrections), for pages that draw the map themselves.
+    data() {
+      return { skeleton: state.skeleton, model: applyOverrides(state.skeleton, state.overlay, overrides) };
+    },
     rebuild() {
       state = build();
       return render();

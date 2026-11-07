@@ -1,4 +1,4 @@
-// One server for a project: the review page (agent turns, by layer) and the map.
+// One server for a project: the work view (map + turns), the turns page, and the map.
 //   npm run serve -- <project dir> [--port 4173] [--host 127.0.0.1]
 // --host 0.0.0.0 makes it reachable from other machines on the network (no login).
 
@@ -49,6 +49,26 @@ const reviewPage = (url: URL) => `<!doctype html>
 <script>${readFileSync(join(COCKPIT, "src", "review-client.js"), "utf8")}</script>
 </body></html>`;
 
+// Work page: the map is the main view; a selected turn lights up what it changed, down to the diff.
+const workPage = (url: URL) => {
+  const init = { ...initData(url), map: map.data() };
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cockpit</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/css/diff2html.min.css">
+<script src="https://cdn.jsdelivr.net/npm/diff2html@3.4.48/bundles/js/diff2html-ui-base.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<style>${readFileSync(join(COCKPIT, "src", "review.css"), "utf8")}${readFileSync(join(COCKPIT, "src", "work.css"), "utf8")}</style></head><body>
+<header><h1>${name}</h1><span class="muted" id="stats"></span><span style="flex:1"></span>
+<span class="muted">Zoom</span><button data-zoom="system">System</button><button data-zoom="module">Modules</button>
+<a href="turns">Turns</a><a href="map">Map</a></header>
+<div class="wrap work"><nav id="list"></nav><div id="cy"></div><aside id="panel"></aside></div>
+<script>window.INIT = ${JSON.stringify(init).replace(/</g, "\\u003c")};</script>
+<script>${readFileSync(join(COCKPIT, "src", "map-layout.js"), "utf8")}</script>
+<script>${readFileSync(join(COCKPIT, "src", "work-client.js"), "utf8")}</script>
+</body></html>`;
+};
+
 const json = (res: any, data: unknown, code = 200) =>
   res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(data));
 
@@ -56,7 +76,12 @@ createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
   try {
     if (req.method === "GET" && url.pathname === "/") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(workPage(url));
+    } else if (req.method === "GET" && url.pathname === "/turns") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(reviewPage(url));
+    } else if (req.method === "GET" && url.pathname === "/api/map") {
+      if (url.searchParams.get("fresh")) map.rebuild(); // reindexes only if the code changed
+      json(res, map.data());
     } else if (req.method === "GET" && url.pathname === "/map") {
       // Rebuilds only what is stale: reindexes if code changed; the agent's grouping is cached.
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(map.rebuild().html);
@@ -81,5 +106,5 @@ createServer((req, res) => {
     res.writeHead(500).end(String(e));
   }
 }).listen(Number(opt("port") ?? 4173), opt("host") ?? "127.0.0.1", () =>
-  console.log(`serving ${name} on http://${opt("host") ?? "127.0.0.1"}:${opt("port") ?? 4173} (turns at /, map at /map)`),
+  console.log(`serving ${name} on http://${opt("host") ?? "127.0.0.1"}:${opt("port") ?? 4173} (work view at /, turns at /turns, map at /map)`),
 );
