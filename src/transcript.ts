@@ -43,7 +43,8 @@ function resultText(content: unknown): string {
   return "";
 }
 
-export function readTranscript(path: string): Event[] {
+// from/to: 0-based line range of the JSONL to read (one agent turn, say).
+export function readTranscript(path: string, from = 0, to = Infinity): Event[] {
   const events: Event[] = [];
   const push = (kind: EventKind, full: string, short: number) => {
     const trimmed = full.trim();
@@ -56,7 +57,7 @@ export function readTranscript(path: string): Event[] {
     });
   };
 
-  for (const line of readFileSync(path, "utf8").split("\n")) {
+  for (const line of readFileSync(path, "utf8").split("\n").slice(from, to)) {
     if (!line.trim()) continue;
     let rec: any;
     try {

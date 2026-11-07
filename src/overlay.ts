@@ -62,7 +62,7 @@ export function proposeOverlay(sk: Skeleton, overrides: Overrides, cacheDir: str
     id: m.id,
     lines: m.lines,
     doc: m.doc,
-    items: m.items.slice(0, 12).map((i) => i.name),
+    items: m.items.filter((i) => !i.owner).slice(0, 12).map((i) => i.name),
     libs: Object.entries(m.libs).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([l]) => l),
     uses: out(m.id),
   }));

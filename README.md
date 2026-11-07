@@ -58,3 +58,38 @@ npm run map -- ~/Projects/slipangle --serve --host 0.0.0.0   # reachable from yo
 - **Page** (`src/maprender.ts`): two zoom levels (System, Modules) with the
   same positions at both. Components that use others are placed higher.
   Click anything for details down to items and line numbers.
+
+## E4: agent turns, reviewed by layer
+
+Use Claude Code as usual in a project; cockpit records each request ("turn")
+and shows what changed at every layer.
+
+```sh
+npm run serve -- ~/Projects/slipangle                   # http://127.0.0.1:4173: turns at /, map at /map
+npm run serve -- ~/Projects/slipangle --host 0.0.0.0    # reachable from your network, no login
+```
+
+Setup: hooks in the project's `.claude/settings.local.json` (not committed)
+call `src/hook.ts`:
+
+- **UserPromptSubmit** (`start`): snapshots the working copy and opens a turn.
+- **PostToolUse** on file edits (`tool`): records the file, for the live view.
+- **Stop** (`stop`): snapshots again and starts `src/analyze.ts` in the background.
+
+Snapshots (`src/snapshot.ts`) are commits built with a temporary index,
+kept under `refs/cockpit/snap/*`. They include untracked files and never touch
+your branch, index or files. Delete them anytime with
+`git for-each-ref --format='%(refname)' refs/cockpit | xargs -n1 git update-ref -d`.
+
+Each turn is shown in four layers:
+
+| Layer | Shows | From |
+|---|---|---|
+| Purpose | your request, a short summary, decisions made | one Haiku call on the turn's transcript |
+| System | components touched, dependencies that appeared/disappeared | code index before vs after, map components |
+| Module | per module: functions, types, methods added / removed / changed | SCIP definition ranges vs diff lines |
+| Code | the diff | git, rendered with diff2html |
+
+The code index of each snapshot is built in a temporary worktree (sharing
+`target/`), so it never races with the agent, and cached by tree hash.
+Turns live in `out/<project>/turns/`.

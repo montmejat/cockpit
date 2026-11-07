@@ -13,6 +13,8 @@ export interface Item {
   kind: string; // Struct, Enum, Trait, Function, ...
   doc: string; // first line of the doc comment
   line: number; // 1-based
+  end: number; // last line of the definition, 1-based
+  owner?: string; // for methods: the type they belong to ("Curve" for Curve::eval)
 }
 
 export interface Module {
@@ -35,6 +37,9 @@ export interface Crate {
   name: string;
   deps: string[]; // declared dependencies (workspace and external)
 }
+
+// Bump when the skeleton's shape or rules change, so cached skeletons are rebuilt.
+export const SKELETON_VERSION = 2;
 
 export interface Skeleton {
   root: string;
@@ -101,21 +106,30 @@ export function buildSkeleton(root: string, scipPath: string, protoPath: string)
     const crate = parsed.pkg;
     const id = moduleId(crate, parsed.modulePath === "crate" ? "" : parsed.modulePath);
 
-    const defLine = new Map<string, number>();
-    for (const o of doc.occurrences) if (o.symbolRoles & 1) defLine.set(o.symbol, o.range[0] + 1);
+    // Definition ranges: [start, end] lines, 1-based, from SCIP's enclosing range.
+    const defRange = new Map<string, [number, number]>();
+    for (const o of doc.occurrences)
+      if (o.symbolRoles & 1) {
+        const r = o.enclosingRange?.length ? o.enclosingRange : o.range;
+        defRange.set(o.symbol, [r[0] + 1, (r.length === 4 ? r[2] : r[0]) + 1]);
+      }
 
     const items: Item[] = [];
     for (const s of doc.symbols) {
       const p = parseSymbol(s.symbol);
-      if (!p || !s.displayName || !TOP_KINDS.has(s.kind)) continue;
-      // Top level only: "tire/Curve#", not "tire/impl#[Curve]from_peak()."
-      if (p.descriptor.slice(p.modulePath.length + 1).match(/[#.(]/g)?.length !== 1) continue;
-      items.push({
-        name: s.displayName,
-        kind: s.kind,
-        doc: (s.documentation[0] ?? "").split("\n")[0].slice(0, 200),
-        line: defLine.get(s.symbol) ?? 0,
-      });
+      if (!p || !s.displayName) continue;
+      const rest = p.descriptor.slice(p.modulePath.length + 1);
+      const range = defRange.get(s.symbol) ?? [0, 0];
+      if (range[0] === 0) continue; // generated (e.g. derived impls): no source to point at
+      const base = { name: s.displayName, kind: s.kind, doc: (s.documentation[0] ?? "").split("\n")[0].slice(0, 200), line: range[0], end: range[1] };
+      // Top level: "tire/Curve#". Methods: "tire/impl#[Curve]eval()." (owner Curve).
+      // Drop "()" / "(+1)" from functions first: "cockpit_probe()." is still one level deep.
+      const depth = rest.replace(/\([^)]*\)/g, "").match(/[#.]/g)?.length;
+      if (TOP_KINDS.has(s.kind) && depth === 1) items.push(base);
+      else if (/Method$/.test(s.kind)) {
+        const owner = rest.match(/^impl#\[([^\]]+)\]/)?.[1];
+        if (owner) items.push({ ...base, owner });
+      }
     }
 
     const libs: Record<string, number> = {};
