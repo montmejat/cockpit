@@ -35,6 +35,31 @@ function readSource(path: string) {
   const text = readFileSync(full, "utf8");
   return text.includes("\u0000") ? { path, text: null, note: "binary file" } : { path, text };
 }
+// The repo's git state: branch, upstream, uncommitted files, recent commits, other branches.
+const git = (...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20 });
+const tryGit = (...a: string[]) => { try { return git(...a).trim(); } catch { return ""; } };
+function gitState() {
+  const branch = tryGit("symbolic-ref", "--short", "-q", "HEAD") || null;
+  const upstream = tryGit("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") || null;
+  const [behind, ahead] = upstream ? tryGit("rev-list", "--left-right", "--count", "@{u}...HEAD").split(/\s+/).map(Number) : [0, 0];
+  // Porcelain v1: XY path, X = staged, Y = unstaged; "??" = untracked.
+  const status = tryGit("status", "--porcelain=v1", "-z", "--untracked-files=all").split("\0").filter(Boolean).flatMap((e, i, arr) => {
+    if (i > 0 && /^R|^C/.test(arr[i - 1] ?? "") && !/^.. /.test(e)) return []; // rename source, already used
+    return [{ x: e[0], y: e[1], path: e.slice(3) }];
+  });
+  const log = (rev: string, n: number) => tryGit("log", rev, "-n", String(n), "--format=%h%x1f%s%x1f%an%x1f%aI%x1f%D").split("\n").filter(Boolean)
+    .map((l) => { const [sha, subject, author, date, refs] = l.split("\x1f"); return { sha, subject, author, date, refs: refs.split(", ").filter((r) => r && !r.startsWith("refs/cockpit")) }; });
+  const branches = tryGit("for-each-ref", "--sort=-committerdate", "--format=%(refname:short)%1f%(objectname:short)%1f%(committerdate:iso-strict)%1f%(subject)", "refs/heads")
+    .split("\n").filter(Boolean).map((l) => { const [name, sha, date, subject] = l.split("\x1f"); return { name, sha, date, subject, current: name === branch }; });
+  return { branch, head: tryGit("rev-parse", "--short", "HEAD"), upstream, ahead, behind, status, commits: log("HEAD", 30), branches };
+}
+// Uncommitted changes of one file (staged + unstaged, against HEAD); new files against nothing.
+function workingDiff(path: string) {
+  const st = gitState().status.find((f) => f.path === path);
+  if (!st) throw new Error("no uncommitted changes in that file");
+  if (st.x === "?") { try { git("diff", "--no-index", "--", "/dev/null", path); } catch (e: any) { return String(e.stdout ?? ""); } return ""; }
+  return git("diff", "HEAD", "--", path);
+}
 const readBody = (req: any) => new Promise<string>((ok) => { let b = ""; req.on("data", (c: any) => (b += c)); req.on("end", () => ok(b)); });
 
 // First paint uses embedded data (no wait for the first poll). ?turn=<id>&depth=1-4 pick what to show.
@@ -69,7 +94,7 @@ const reviewPage = (url: URL) => `<!doctype html>
 
 // Work page: the map is the main view; a selected turn lights up what it changed, down to the diff.
 const workPage = (url: URL) => {
-  const init = { ...initData(url), map: map.data(), layout: readLayout(), files: listFiles() };
+  const init = { ...initData(url), map: map.data(), layout: readLayout(), files: listFiles(), git: gitState() };
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cockpit</title>
@@ -79,7 +104,7 @@ const workPage = (url: URL) => {
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
 <style>${readFileSync(join(COCKPIT, "src", "review.css"), "utf8")}${readFileSync(join(COCKPIT, "src", "work.css"), "utf8")}</style></head><body>
-<header><h1>${name}</h1><span class="muted" id="stats"></span><span style="flex:1"></span>
+<header><h1>${name}</h1><a id="gitbar" class="gitbar"></a><span class="muted" id="stats"></span><span style="flex:1"></span>
 <label class="muted"><input type="checkbox" id="arrows"> all arrows</label>
 <button id="reset" title="Forget where you placed the blocks at this zoom level">reset layout</button>
 <span class="muted">zoom</span><button data-zoom="system">system</button><button data-zoom="module">modules</button></header>
@@ -106,6 +131,18 @@ createServer((req, res) => {
     } else if (req.method === "GET" && url.pathname === "/map") {
       // Rebuilds only what is stale: reindexes if code changed; the agent's grouping is cached.
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(map.rebuild().html);
+    } else if (req.method === "GET" && url.pathname === "/api/git") {
+      json(res, gitState());
+    } else if (req.method === "GET" && url.pathname === "/api/git/diff") {
+      try { json(res, { patch: workingDiff(url.searchParams.get("path") ?? "") }); } catch (e) { json(res, { error: String(e) }, 400); }
+    } else if (req.method === "GET" && url.pathname === "/api/git/commit") {
+      const sha = url.searchParams.get("sha") ?? "";
+      if (!/^[0-9a-f]{4,40}$/.test(sha)) return json(res, { error: "bad sha" }, 400);
+      try {
+        const [meta, ...rest] = git("show", "--format=%H%x1f%s%x1f%an%x1f%aI%x1f%b%x1e", "--patch", sha).split("\x1e");
+        const [full, subject, author, date, body] = meta.split("\x1f");
+        json(res, { sha: full, subject, author, date, body: body.trim(), patch: rest.join("\x1e").replace(/^\n+/, "") });
+      } catch (e) { json(res, { error: String(e) }, 400); }
     } else if (req.method === "GET" && url.pathname === "/api/files") {
       json(res, listFiles());
     } else if (req.method === "GET" && url.pathname === "/api/file") {

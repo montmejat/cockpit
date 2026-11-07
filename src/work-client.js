@@ -10,6 +10,7 @@ const FONT = '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace';
 const NUL = "\u0000";
 const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
 
+let GIT = INIT.git, gitTick = 0;
 let SK = INIT.map.skeleton, MODEL = INIT.map.model, LAYOUT = INIT.layout || {}, FILES = INIT.files || [];
 let turns = INIT.turns, selected = INIT.selected, detail = INIT.detail;
 let zoom = store.get("cockpit-zoom", "system"), tab = new URLSearchParams(location.search).get("tab") || store.get("cockpit-tab", "turns"), allArrows = store.get("cockpit-arrows", "") === "1";
@@ -162,7 +163,7 @@ function saveLayout() {
 function focusNode() {
   if (!focusId) return null;
   let id = focusId;
-  if (/^[fs]:/.test(id)) { const m = modOfFile(id.slice(2).replace(/:\d+$/, "")); if (!m) return null; id = "m:" + m.id; }
+  if (/^[fsw]:/.test(id)) { const m = modOfFile(id.slice(2).replace(/:\d+$/, "")); if (!m) return null; id = "m:" + m.id; }
   if (id.startsWith("m:") && zoom === "system") id = "c:" + (compOf(id.slice(2))?.name ?? "");
   return id;
 }
@@ -185,27 +186,72 @@ function setZoom(z) {
 }
 
 // ---- navigation ----
+// "w:<path>" = a file's uncommitted changes, "k:<sha>" = a commit.
 // null = the turn, "c:<component>", "m:<module>", "f:<path>" (a file's diff, "*" = all), "s:<path>[:<line>]" (a file's source).
 
 function go(id) {
   focusId = id;
   history.replaceState(null, "", location.search + (id ? "#" + encodeURIComponent(id) : ""));
-  const path = /^[fs]:/.test(id ?? "") ? id.slice(2).replace(/:\d+$/, "") : null;
+  const path = /^[fsw]:/.test(id ?? "") ? id.slice(2).replace(/:\d+$/, "") : null;
   if (path) for (let d = path; d.includes("/"); ) openDirs.add((d = d.slice(0, d.lastIndexOf("/"))));
   const wantsModule = (id?.startsWith("m:") && SK.modules.some((m) => m.id === id.slice(2))) || (path && modOfFile(path));
   if (wantsModule && zoom === "system") setZoom("module");
   else markFocus();
   drawPanel();
-  if (tab === "files") drawNav();
+  if (tab !== "turns") drawNav();
 }
 
 function drawNav() {
-  $("#tabs").innerHTML = ["turns", "files"].map((t) => "<button data-tab=" + t + (t === tab ? " class=on" : "") + ">" + t + "</button>").join("");
+  $("#tabs").innerHTML = ["turns", "files", "git"].map((t) => "<button data-tab=" + t + (t === tab ? " class=on" : "") + ">" + t + "</button>").join("");
   document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; store.set("cockpit-tab", tab); drawNav(); });
-  $("#navbody").innerHTML = tab === "turns" ? turnsHtml() : filesHtml();
+  $("#navbody").innerHTML = tab === "turns" ? turnsHtml() : tab === "files" ? filesHtml() : gitHtml();
   document.querySelectorAll(".turn").forEach((el) => el.onclick = () => selectTurn(el.dataset.id || null));
   document.querySelectorAll("#navbody details[data-dir]").forEach((d) => d.ontoggle = () => d.open ? openDirs.add(d.dataset.dir) : openDirs.delete(d.dataset.dir));
   wireGo($("#navbody"));
+}
+
+// ---- git ----
+
+function drawGitBar() {
+  const g = GIT, n = g.status.length;
+  $("#gitbar").innerHTML = "⎇ " + esc(g.branch ?? "detached @ " + g.head) +
+    (n ? " <span class=chg title='uncommitted files'>●" + n + "</span>" : " <span class=add title='clean'>✓</span>") +
+    (g.upstream ? (g.ahead ? " <span title='ahead of " + esc(g.upstream) + "'>↑" + g.ahead + "</span>" : "") + (g.behind ? " <span title='behind " + esc(g.upstream) + "'>↓" + g.behind + "</span>" : "") : " <span class=muted title='no upstream branch'>local</span>");
+  $("#gitbar").onclick = () => { tab = "git"; store.set("cockpit-tab", tab); drawNav(); };
+}
+
+const XY = { M: "modified", A: "added", D: "deleted", R: "renamed", C: "copied", U: "conflict", "?": "new" };
+function gitHtml() {
+  const g = GIT, cur = focusId ?? "";
+  const when = (d) => ago(d);
+  const staged = g.status.filter((f) => f.x !== " " && f.x !== "?"), unstaged = g.status.filter((f) => f.y !== " " || f.x === "?");
+  const fileRow = (f, code) => "<a class='file" + (cur === "w:" + f.path ? " sel" : "") + "' data-go='w:" + esc(f.path) + "'><span class=gitmark title='" + (XY[code] ?? code) + "'>" + esc(code) + "</span>" + esc(f.path) + "</a>";
+  return "<div class=gitpane>" +
+    "<div class=gitsec><div class=branch>⎇ " + esc(g.branch ?? "(detached)") + " <span class=muted>@ " + esc(g.head) + "</span></div>" +
+    "<div class=muted>" + (g.upstream ? "tracks " + esc(g.upstream) + " · " + (g.ahead || g.behind ? "↑" + g.ahead + " ↓" + g.behind : "in sync") : "no upstream (local only)") + "</div></div>" +
+    "<h5>uncommitted · " + g.status.length + "</h5>" +
+    (g.status.length ? (staged.length ? "<div class=muted>staged</div>" + staged.map((f) => fileRow(f, f.x)).join("") : "") +
+      (unstaged.length ? (staged.length ? "<div class=muted>not staged</div>" : "") + unstaged.map((f) => fileRow(f, f.x === "?" ? "?" : f.y)).join("") : "")
+      : "<p class='muted pad'>working tree clean</p>") +
+    "<h5>commits</h5>" + g.commits.map((c) =>
+      "<a class='commit" + (cur === "k:" + c.sha ? " sel" : "") + "' data-go='k:" + c.sha + "'><span class=sha>" + c.sha + "</span> " + esc(c.subject) +
+      (c.refs.length ? " " + c.refs.map((r) => "<span class=ref>" + esc(r.replace("HEAD -> ", "")) + "</span>").join(" ") : "") +
+      "<span class=muted> · " + when(c.date) + "</span></a>").join("") +
+    "<h5>branches · " + g.branches.length + "</h5>" + g.branches.map((b) =>
+      "<div class='br" + (b.current ? " cur" : "") + "'>" + (b.current ? "● " : "  ") + esc(b.name) + " <span class=muted>" + when(b.date) + "</span><div class=muted>" + esc(b.subject) + "</div></div>").join("") +
+    "</div>";
+}
+
+async function loadGitDiff(el) {
+  const kind = el.dataset.kind, arg = el.dataset.arg;
+  const r = await (await fetch(kind === "w" ? "api/git/diff?path=" + encodeURIComponent(arg) : "api/git/commit?sha=" + encodeURIComponent(arg))).json();
+  if (r.error) { el.innerHTML = "<p class=empty>" + esc(r.error) + "</p>"; return; }
+  let head = "";
+  if (kind === "k") head = "<h2>" + esc(r.subject) + "</h2><p class=muted>" + esc(r.sha.slice(0, 10)) + " · " + esc(r.author) + " · " + new Date(r.date).toLocaleString() + "</p>" + (r.body ? "<pre class=body>" + esc(r.body) + "</pre>" : "");
+  el.innerHTML = head + "<div class=d></div>";
+  if (!r.patch.trim()) { el.querySelector(".d").innerHTML = "<p class=empty>No text changes.</p>"; return; }
+  new Diff2HtmlUI(el.querySelector(".d"), r.patch, { drawFileList: kind === "k", matching: "lines", outputFormat: "line-by-line", highlight: false,
+    fileContentToggle: false, colorScheme: "auto", stickyFileHeaders: false }).draw();
 }
 
 function turnsHtml() {
@@ -232,7 +278,7 @@ function filesHtml() {
   const cur = /^[fs]:/.test(focusId ?? "") ? focusId.slice(2).replace(/:\d+$/, "") : null;
   const mark = (f) => {
     const c = ch.files.get(f);
-    if (!c) return "";
+    if (!c) { const g = GIT.status.find((x) => x.path === f); return g ? " <span class=n><span class=gitmark title='uncommitted'>" + esc((g.x + g.y).trim()) + "</span></span>" : ""; }
     if (c.status === "live") return " <span class=live-dot>●</span>";
     return " <span class=n>" + (c.status === "A" ? "<span class=add>new</span>" : c.status === "D" ? "<span class=del>del</span>" : "<span class=add>+" + c.added + "</span><span class=del>−" + c.removed + "</span>") + "</span>";
   };
@@ -270,10 +316,11 @@ function crumbs() {
   };
   if (focusId?.startsWith("c:")) parts.push("<strong>" + esc(focusId.slice(2)) + "</strong>");
   if (focusId?.startsWith("m:")) { modCrumbs(focusId.slice(2)); parts.push("<strong>" + esc(focusId.slice(2)) + "</strong>"); }
-  if (/^[fs]:/.test(focusId ?? "")) {
+  if (focusId?.startsWith("k:")) parts.push("<a data-go='' data-tabto=git>git</a>", "<strong>" + esc(focusId.slice(2)) + "</strong>");
+  if (/^[fsw]:/.test(focusId ?? "")) {
     const path = focusId.slice(2).replace(/:\d+$/, ""), m = modOfFile(path);
     if (m) { modCrumbs(m.id); parts.push("<a data-go='m:" + esc(m.id) + "'>" + esc(m.id) + "</a>"); }
-    parts.push("<strong>" + esc(path === "*" ? "whole diff" : path.split("/").pop()) + "</strong>");
+    parts.push("<strong>" + esc(path === "*" ? "whole diff" : path.split("/").pop()) + (focusId[0] === "w" ? " <span class=muted>(uncommitted)</span>" : "") + "</strong>");
   }
   return "<div class=crumbs>" + parts.join("<span class=sep>/</span>") + "</div>";
 }
@@ -401,13 +448,21 @@ async function loadSource(el) {
 }
 
 function wireGo(root) {
-  root.querySelectorAll("[data-go]").forEach((a) => a.onclick = (e) => { e.preventDefault(); go(a.dataset.go || null); });
+  root.querySelectorAll("[data-go]").forEach((a) => a.onclick = (e) => {
+    e.preventDefault();
+    if (a.dataset.tabto) { tab = a.dataset.tabto; store.set("cockpit-tab", tab); drawNav(); }
+    go(a.dataset.go || null);
+  });
 }
 
 function drawPanel() {
   const f = focusId;
   $("#panel").innerHTML = (f ? crumbs() : "") +
-    (!f ? turnPanel() : f.startsWith("c:") ? compPanel(f.slice(2)) : f.startsWith("m:") ? modPanel(f.slice(2)) : filePanel(f[0], f.slice(2)));
+    (!f ? turnPanel() : f.startsWith("c:") ? compPanel(f.slice(2)) : f.startsWith("m:") ? modPanel(f.slice(2)) :
+    f.startsWith("k:") ? "<div class=gitdiff data-kind=k data-arg='" + esc(f.slice(2)) + "'><p class=muted>loading…</p></div>" :
+    f.startsWith("w:") ? "<h2>" + esc(f.slice(2)) + "</h2><div class=switch><button class=on>uncommitted</button><button data-go='s:" + esc(f.slice(2)) + "'>file</button></div><div class=gitdiff data-kind=w data-arg='" + esc(f.slice(2)) + "'><p class=muted>loading…</p></div>" :
+    filePanel(f[0], f.slice(2)));
+  for (const el of document.querySelectorAll(".gitdiff")) loadGitDiff(el);
   for (const el of document.querySelectorAll(".filediff")) {
     const p = patchFor(el.dataset.path);
     if (!p) { el.innerHTML = "<p class=empty>No diff for this file in this turn.</p>"; continue; }
@@ -422,7 +477,14 @@ function drawPanel() {
 
 // ---- polling ----
 
+async function pollGit() {
+  try { GIT = await (await fetch("api/git")).json(); } catch { return; }
+  drawGitBar();
+  if (tab === "git") { const sc = $("#navbody").scrollTop; drawNav(); $("#navbody").scrollTop = sc; }
+}
+
 async function poll() {
+  if (gitTick++ % 2 === 0) pollGit();
   try { turns = await (await fetch("api/turns")).json(); } catch { return; }
   const t = turns.find((x) => x.id === selected);
   if (!t || stampOf(t) === stamp) { if (tab === "turns") drawNav(); return; }
@@ -450,5 +512,5 @@ if (focusId) {
   if ((focusId.startsWith("m:") && SK.modules.some((m) => m.id === focusId.slice(2))) || (p && modOfFile(p))) zoom = "module";
   if (p) for (let d = p; d.includes("/"); ) openDirs.add((d = d.slice(0, d.lastIndexOf("/"))));
 }
-drawNav(); drawMap(); drawPanel();
+drawGitBar(); drawNav(); drawMap(); drawPanel();
 setInterval(poll, 2000);

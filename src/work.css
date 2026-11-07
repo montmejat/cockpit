@@ -48,3 +48,17 @@ pre.code{margin:0;font:11.5px/1.5 "JetBrains Mono",ui-monospace,monospace;backgr
 pre.code .ln{display:block;padding-right:10px;white-space:pre}
 pre.code .ln.hit{background:var(--hit)}
 pre.code i{display:inline-block;width:42px;padding-right:10px;text-align:right;color:var(--muted);font-style:normal;user-select:none}
+.gitbar{font-size:12px;color:var(--fg);border:1px solid var(--line);padding:1px 8px;border-radius:3px;cursor:pointer;white-space:nowrap}
+.gitbar:hover{border-color:var(--accent)}
+.gitpane{font-size:12px;padding-bottom:40px}
+.gitpane h5{margin:12px 10px 4px;font-size:10.5px;font-weight:500;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.gitpane .gitsec{padding:10px 10px 4px}.gitpane .branch{font-weight:700}
+.gitpane > .muted,.gitpane .pad{padding:0 10px;margin:2px 0}
+.gitpane a.file{display:flex;gap:8px;padding:1px 10px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gitpane a.commit{display:block;padding:3px 10px;color:var(--fg);line-height:1.4}
+.gitpane a.file:hover,.gitpane a.commit:hover{background:var(--sel)}.gitpane .sel{background:var(--sel)}
+.gitmark{color:var(--chg);font-weight:700;width:1.2em;flex-shrink:0}
+.sha{color:var(--accent)}
+.ref{font-size:10.5px;border:1px solid var(--line-strong);padding:0 4px;border-radius:2px;color:var(--muted)}
+.br{padding:3px 10px;white-space:pre-wrap}.br.cur{color:var(--accent)}.br .muted{white-space:normal}
+pre.body{font:inherit;white-space:pre-wrap;background:var(--bg);padding:6px 8px;border:1px solid var(--line)}
