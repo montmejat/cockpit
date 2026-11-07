@@ -29,9 +29,9 @@ blockquote{border-radius:0;border-left-width:2px;font-size:12px}
 .tree .ch{font-weight:700}.tree .n{margin-left:auto;font-weight:400;font-size:11px}
 .live-dot{color:var(--accent);margin-left:auto}
 .work #cy{flex:1;min-width:0;background:var(--bg);background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:20px 20px}
-.work aside{width:480px;max-width:45vw;flex-shrink:0;border-left:1px solid var(--line);overflow:auto;padding:10px 14px 60px;background:var(--card)}
+.work aside{width:460px;flex-shrink:0;overflow:auto;padding:10px 14px 60px;background:var(--card)}
 @media (max-width:900px){.wrap.work{flex-direction:column}.work nav{width:auto;max-height:26vh;border-right:0;border-bottom:1px solid var(--line)}
-  .work #cy{min-height:44vh}.work aside{width:auto;max-width:none;border-left:0;border-top:1px solid var(--line)}}
+  .work #cy{min-height:44vh}.work aside{width:auto!important;border-top:1px solid var(--line)}#split{display:none}}
 .crumbs{font-size:12px;margin-bottom:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;color:var(--muted)}
 aside h2{font-size:13px;margin:4px 0 6px;word-break:break-all}aside h4{margin:14px 0 4px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:500}
 aside p{margin:6px 0}
@@ -62,3 +62,4 @@ pre.code i{display:inline-block;width:42px;padding-right:10px;text-align:right;c
 .ref{font-size:10.5px;border:1px solid var(--line-strong);padding:0 4px;border-radius:2px;color:var(--muted)}
 .br{padding:3px 10px;white-space:pre-wrap}.br.cur{color:var(--accent)}.br .muted{white-space:normal}
 pre.body{font:inherit;white-space:pre-wrap;background:var(--bg);padding:6px 8px;border:1px solid var(--line)}
+#split{width:5px;flex-shrink:0;cursor:col-resize;background:var(--line);touch-action:none}#split:hover{background:var(--accent)}

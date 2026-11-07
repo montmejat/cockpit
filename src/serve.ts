@@ -108,7 +108,7 @@ const workPage = (url: URL) => {
 <label class="muted"><input type="checkbox" id="arrows"> all arrows</label>
 <button id="reset" title="Forget where you placed the blocks at this zoom level">reset layout</button>
 <span class="muted">zoom</span><button data-zoom="system">system</button><button data-zoom="module">modules</button></header>
-<div class="wrap work"><nav><div id="tabs" class="tabs"></div><div id="navbody"></div></nav><div id="cy"></div><aside id="panel"></aside></div>
+<div class="wrap work"><nav><div id="tabs" class="tabs"></div><div id="navbody"></div></nav><div id="cy"></div><div id="split" title="drag to resize"></div><aside id="panel"></aside></div>
 <script>window.INIT = ${JSON.stringify(init).replace(/</g, "\\u003c")};</script>
 <script>${readFileSync(join(COCKPIT, "src", "map-layout.js"), "utf8")}</script>
 <script>${readFileSync(join(COCKPIT, "src", "work-client.js"), "utf8")}</script>

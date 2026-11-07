@@ -1,28 +1,84 @@
 {
- "system": {
-  "c:Vehicle Physics Core": {
-   "x": 432,
-   "y": 486
+ "module": {
+  "m:forza_telemetry": {
+   "x": 545,
+   "y": 31
   },
-  "c:Driver Input & Feedback": {
-   "x": 223,
-   "y": 612
+  "m:game": {
+   "x": 95,
+   "y": 255
   },
-  "c:Parameters & Config": {
-   "x": 220,
-   "y": 790
+  "m:game/camera": {
+   "x": 98,
+   "y": 46
   },
-  "c:Simulation Runtime": {
-   "x": 89,
-   "y": 452
+  "m:game/config": {
+   "x": 95,
+   "y": 927
   },
-  "c:Presentation Layer": {
-   "x": 195,
-   "y": 296
+  "m:game/gamepad": {
+   "x": 95,
+   "y": 703
   },
-  "c:Forza Telemetry (standalone)": {
-   "x": 528,
-   "y": 198
+  "m:game/recording": {
+   "x": 285,
+   "y": 255
+  },
+  "m:game/scene": {
+   "x": 288,
+   "y": 46
+  },
+  "m:game/sim": {
+   "x": 95,
+   "y": 317
+  },
+  "m:game/telemetry": {
+   "x": 285,
+   "y": 317
+  },
+  "m:game/ui": {
+   "x": 98,
+   "y": 108
+  },
+  "m:vehicle_sim": {
+   "x": 91,
+   "y": 458
+  },
+  "m:vehicle_sim/feedback": {
+   "x": 285,
+   "y": 703
+  },
+  "m:vehicle_sim/input": {
+   "x": 95,
+   "y": 765
+  },
+  "m:vehicle_sim/params": {
+   "x": 285,
+   "y": 927
+  },
+  "m:vehicle_sim/powertrain": {
+   "x": 281,
+   "y": 458
+  },
+  "m:vehicle_sim/recording": {
+   "x": 471,
+   "y": 458
+  },
+  "m:vehicle_sim/steering": {
+   "x": 285,
+   "y": 765
+  },
+  "m:vehicle_sim/terrain": {
+   "x": 91,
+   "y": 520
+  },
+  "m:vehicle_sim/tire": {
+   "x": 281,
+   "y": 520
+  },
+  "m:vehicle_sim/vehicle": {
+   "x": 471,
+   "y": 520
   }
  }
 }

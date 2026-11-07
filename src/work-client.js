@@ -455,8 +455,40 @@ function wireGo(root) {
   });
 }
 
+// Code views (diffs, files, commits) get a wide panel, structure views a narrow one.
+// Each width is yours to drag and is remembered separately.
+const isCodeView = () => /^[fswk]:/.test(focusId ?? "");
+const widthKey = () => (isCodeView() ? "cockpit-w-code" : "cockpit-w");
+function applyWidth() {
+  if (matchMedia("(max-width:900px)").matches) { $("#panel").style.width = ""; return; }
+  const def = isCodeView() ? Math.round(innerWidth * 0.62) : 460;
+  const w = Math.min(Math.max(Number(store.get(widthKey(), def)) || def, 280), innerWidth - 320);
+  if ($("#panel").style.width !== w + "px") { $("#panel").style.width = w + "px"; refit(); }
+}
+$("#split").onpointerdown = (e) => {
+  e.preventDefault();
+  $("#split").setPointerCapture(e.pointerId);
+  const move = (ev) => { $("#panel").style.width = Math.min(Math.max(innerWidth - ev.clientX, 280), innerWidth - 320) + "px"; };
+  const up = () => {
+    $("#split").removeEventListener("pointermove", move);
+    store.set(widthKey(), parseInt($("#panel").style.width));
+    refit();
+  };
+  $("#split").addEventListener("pointermove", move);
+  $("#split").addEventListener("pointerup", up, { once: true });
+};
+addEventListener("resize", applyWidth);
+// After the map area changes size, keep the focused block in view.
+function refit() {
+  if (!cy) return;
+  cy.resize();
+  const id = focusNode(), n = id && cy.getElementById(id);
+  if (n?.length) cy.center(n);
+}
+
 function drawPanel() {
   const f = focusId;
+  applyWidth();
   $("#panel").innerHTML = (f ? crumbs() : "") +
     (!f ? turnPanel() : f.startsWith("c:") ? compPanel(f.slice(2)) : f.startsWith("m:") ? modPanel(f.slice(2)) :
     f.startsWith("k:") ? "<div class=gitdiff data-kind=k data-arg='" + esc(f.slice(2)) + "'><p class=muted>loading…</p></div>" :
