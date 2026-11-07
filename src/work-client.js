@@ -384,12 +384,31 @@ function turnPanel() {
       "<div class=tchg><a data-go='c:" + esc(c) + "'><strong>" + esc(c) + "</strong></a><span class=n>" +
       ms.map((m) => "<a data-go='m:" + esc(m.id) + "'>" + esc(m.id.split("/").pop()) + "</a>" + (m.status === "added" ? " <span class=add>new</span>" : "")).join(", ") + "</span></div>").join("");
   } else h += "<p class=empty>Nothing on the map changed (only tests or files outside the modules).</p>";
+  if (a.arch) h += archTurnHtml(a.arch);
   const modFiles = new Set(a.modules.map((m) => m.file));
   const other = a.files.filter((f) => !modFiles.has(f.path));
   if (other.length) h += "<h4>other files</h4><ul>" + other.map((f) => "<li><a data-go='f:" + esc(f.path) + "'>" + esc(f.path) + "</a> <span class=add>+" + f.added + "</span> <span class=del>−" + f.removed + "</span></li>").join("") + "</ul>";
   if (a.componentDeps.length) h += "<h4>between components</h4><ul>" + a.componentDeps.map((d) => depLine(d, (x) => "<a data-go='c:" + esc(x) + "'>" + esc(x) + "</a>")).join("") + "</ul>";
   const byYou = a.decisions.filter((d) => d.decided_by === "user").length;
   h += "<h4>decisions <span class=muted>(" + a.decisions.length + ", " + byYou + " by you)</span></h4>" + decisionsHtml(a);
+  return h;
+}
+
+// The agent's own account of the architecture in this turn (E7), and what the checks say about it.
+function archTurnHtml(x) {
+  const KIND = { groups: "group", capabilities: "capability", entry_points: "entry point", flows: "flow", data: "data", summary: "summary" };
+  const target = (c) => c.kind === "groups" ? "c:" + (MODEL.components.find((m) => m.name.endsWith(" · " + c.name))?.name ?? c.name)
+    : c.kind === "summary" ? "" : "d:" + c.id;
+  let h = "<h4>architecture <span class=muted>· the agent's account</span></h4>";
+  if (!x.updated) h += "<p class=muted>architecture.json not touched in this turn.</p>";
+  else h += x.changes.length ? "<ul>" + x.changes.map((c) => "<li>" + sign[c.change] + " <span class=muted>" + KIND[c.kind] + "</span> " +
+    (c.change === "removed" ? esc(c.name) : "<a data-go='" + esc(target(c)) + "'" + (c.kind !== "groups" ? " data-viewto=desc" : "") + ">" + esc(c.name) + "</a>") + "</li>").join("") + "</ul>"
+    : "<p class=muted>touched, but nothing changed in substance.</p>";
+  h += (x.updated ? "<p><a data-go='f:architecture.json'>see the file's diff</a></p>" : "");
+  for (const f of x.flags) h += "<p class=chg>⚠ " + esc(f) + "</p>";
+  if (x.problems.length) h += "<p class=del>" + x.problems.length + " mismatch" + (x.problems.length > 1 ? "es" : "") + " with the code:</p><ul>" +
+    x.problems.slice(0, 10).map((p) => "<li class=del>" + esc(p.where) + ": " + esc(p.problem) + "</li>").join("") + "</ul>";
+  else h += "<p class=add>✓ matches the code</p>";
   return h;
 }
 
@@ -545,7 +564,11 @@ async function poll() {
   detail = await (await fetch("api/turns/" + t.id)).json();
   // A turn that just finished may have added modules or files: refresh the map (reindexes if needed).
   if (detail.status === "done" && !wasDone && detail.endedAt && Date.now() - new Date(detail.endedAt) < 10 * 60e3) {
-    try { ({ skeleton: SK, model: MODEL } = await (await fetch("api/map?fresh=1")).json()); FILES = await (await fetch("api/files")).json(); } catch {}
+    try {
+      ({ skeleton: SK, model: MODEL } = await (await fetch("api/map?fresh=1")).json());
+      FILES = await (await fetch("api/files")).json();
+      DESC = await (await fetch("api/desc")).json();
+    } catch {}
   }
   drawNav(); drawCenter(); drawPanel();
 }

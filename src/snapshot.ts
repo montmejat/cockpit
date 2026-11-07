@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildSkeleton, SKELETON_VERSION, type Skeleton } from "./skeleton.ts";
 
-const git = (repo: string, args: string[], env: Record<string, string> = {}) =>
+export const git = (repo: string, args: string[], env: Record<string, string> = {}) =>
   execFileSync("git", args, {
     cwd: repo,
     encoding: "utf8",

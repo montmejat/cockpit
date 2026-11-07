@@ -8,6 +8,7 @@ import { buildSkeleton } from "./skeleton.ts";
 import { applyOverrides, type Overrides, proposeOverlay, readOverrides } from "./overlay.ts";
 import { renderMap } from "./maprender.ts";
 import { COCKPIT, PROTO } from "./turns.ts";
+import { archOverlay, readArch } from "./arch.ts";
 
 // Reindex when any Rust source is newer than the index, so the skeleton never goes stale.
 function newestSource(root: string): number {
@@ -34,13 +35,19 @@ export function createMapApp(root: string, name: string, log = console.log) {
     }
     const skeleton = buildSkeleton(root, scip, PROTO);
     log(`skeleton: ${skeleton.crates.length} crates, ${skeleton.modules.length} modules, ${skeleton.edges.length} edges`);
+    // E7: the repo's own architecture.json wins over a summarizer's guess.
+    const arch = readArch(root);
+    if (arch) {
+      log(`groups: ${arch.groups.length} from ${root}/architecture.json`);
+      return { skeleton, overlay: archOverlay(arch), costUsd: 0, source: "repo" as const };
+    }
     const ov = readOverrides(overridesPath);
     // The last grouping anchors the next one, so names don't drift between runs.
     const mapFile = join(outDir, "map.json");
     const previous = existsSync(mapFile) ? JSON.parse(readFileSync(mapFile, "utf8")).overlay : undefined;
     const { overlay, costUsd, cached } = proposeOverlay(skeleton, ov, join(COCKPIT, "out", ".cache"), previous);
     log(`agent: ${overlay.components.length} components, $${costUsd.toFixed(4)}${cached ? " (cached)" : ""}`);
-    return { skeleton, overlay, costUsd };
+    return { skeleton, overlay, costUsd, source: "haiku" as const };
   };
 
   let state = build();
@@ -59,7 +66,7 @@ export function createMapApp(root: string, name: string, log = console.log) {
     render,
     // Skeleton and grouping (with your corrections), for pages that draw the map themselves.
     data() {
-      return { skeleton: state.skeleton, model: applyOverrides(state.skeleton, state.overlay, overrides) };
+      return { skeleton: state.skeleton, model: applyOverrides(state.skeleton, state.overlay, overrides), source: state.source };
     },
     rebuild() {
       state = build();

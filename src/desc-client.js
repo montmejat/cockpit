@@ -1,10 +1,10 @@
 // Description view (E6): the software from four angles (capabilities, entry points, flows, data),
 // each linked to code. Loaded before work-client.js; uses its globals at call time only.
 
-let DESC = INIT.desc; // { description, check, costUsd, model } or null
+let DESC = INIT.desc; // { source: "repo" | "draft", description, check, problems, costUsd?, model? } or null
 
 const KINDS = [["capabilities", "capability"], ["entry_points", "entry point"], ["flows", "flow"], ["data", "data"]];
-const descItems = () => (DESC ? KINDS.flatMap(([k, label]) => DESC.description[k].map((x) => ({ ...x, ekind: x.kind, kind: k, label }))) : []);
+const descItems = () => (DESC?.description ? KINDS.flatMap(([k, label]) => DESC.description[k].map((x) => ({ ...x, ekind: x.kind, kind: k, label }))) : []);
 const descById = (id) => descItems().find((x) => x.id === id);
 const anchorsOf = (x) => (x.kind === "flows" ? [...new Set(x.steps.flatMap((s) => s.anchors))] : x.anchors);
 
@@ -53,6 +53,10 @@ function drawDesc() {
     el.innerHTML = "<div class=dview><h2>no description yet</h2><p class=muted>Run <code>npm run describe -- &lt;project dir&gt;</code> in cockpit, then reload.</p></div>";
     return;
   }
+  if (!DESC.description) {
+    el.innerHTML = "<div class=dview><h2>architecture.json can't be read</h2><ul>" + DESC.problems.map((p) => "<li>" + esc(p.where) + ": " + esc(p.problem) + "</li>").join("") + "</ul></div>";
+    return;
+  }
   const d = DESC.description, c = DESC.check, h = descHits();
   const focus = focusId?.startsWith("d:") ? focusId.slice(2) : null, rel = descRelated(focus);
   const cls = (x) => [
@@ -74,8 +78,12 @@ function drawDesc() {
       "<div class=trig>" + esc(x.trigger) + "</div><ol>" + x.steps.map((s) => "<li" + (s.anchors.some(h.hit) ? " class=hit" : "") + ">" + esc(s.text) + "</li>").join("") + "</ol>")).join("") + "</section>" +
     "<section><h5>data <span class=muted>· what it holds</span></h5>" + of("data").map((x) => card(x, "<div class=dsc>" + esc(x.description) + "</div>")).join("") + "</section>" +
     "</div>" +
-    "<p class='muted foot'>written by " + esc(DESC.model) + " for $" + DESC.costUsd.toFixed(3) + " · " + c.anchors + " code links, " +
-    (c.unknown.length ? c.unknown.length + " pointed at nothing and were dropped" : "all real") +
+    (DESC.source === "repo"
+      ? "<p class='muted foot'>kept by the agents working on the code, in <a data-go='s:architecture.json'>architecture.json</a> · " +
+        (DESC.problems.length ? "<span class=del>" + DESC.problems.length + " problem" + (DESC.problems.length > 1 ? "s" : "") + "</span>: " + DESC.problems.slice(0, 3).map((p) => esc(p.where + ": " + p.problem)).join("; ") : "matches the code") +
+        " · " + c.anchors + " code links"
+      : "<p class='muted foot'>one-shot draft by " + esc(DESC.model) + " for $" + DESC.costUsd.toFixed(3) + " · " + c.anchors + " code links, " +
+        (c.unknown.length ? c.unknown.length + " pointed at nothing and were dropped" : "all real")) +
     " · reaches " + c.coverage.modulesLinked + "/" + c.coverage.modules + " modules, " + c.coverage.itemsLinked + "/" + c.coverage.items + " top-level items" +
     (c.coverage.unlinkedModules.length ? " · not described: " + c.coverage.unlinkedModules.map(esc).join(", ") : "") + "</p></div>";
   wireGo(el);

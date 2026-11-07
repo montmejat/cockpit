@@ -1,15 +1,18 @@
 // Claude Code hook entry point: tsx src/hook.ts <start|tool|stop>
 //   start (UserPromptSubmit): snapshot the code, open a turn
 //   tool  (PostToolUse on file edits): note which file changed, for the live view
-//   stop  (Stop): snapshot again, close the turn, start the analysis in the background
+//   stop  (Stop): snapshot again, close the turn, start the analysis in the background.
+//         If the repo has an architecture.json that doesn't match the code, the agent is sent
+//         back once with the problems (Claude Code's stop_hook_active prevents a loop).
 // Rules: be fast, print nothing (UserPromptSubmit output would reach the agent),
 // and always exit 0 so a cockpit problem never blocks Claude Code.
 
 import { spawn } from "node:child_process";
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
-import { repoRoot, snapshot } from "./snapshot.ts";
-import { COCKPIT, currentTurn, outDir, saveTurn, setCurrent, type Turn } from "./turns.ts";
+import { ARCH_FILE, checkArch } from "./arch.ts";
+import { repoRoot, skeletonOf, snapshot } from "./snapshot.ts";
+import { COCKPIT, currentTurn, outDir, PROTO, saveTurn, setCurrent, type Turn } from "./turns.ts";
 
 function lineCount(path: string): number {
   try {
@@ -78,7 +81,24 @@ function main() {
     }
   } else if (event === "stop") {
     const t = currentTurn(project, session);
-    if (t?.status === "running") closeTurn(t, snapshot(repo, "turn end"), lineCount(t.transcript));
+    if (t?.status !== "running") return;
+    const snap = snapshot(repo, "turn end");
+    const archPath = join(repo, ARCH_FILE);
+    if (existsSync(archPath) && !input.stop_hook_active) {
+      // Same cache as the analysis, so this index build isn't wasted.
+      const sk = skeletonOf(repo, snap, join(outDir(project), "skeletons"), PROTO);
+      const problems = checkArch(readFileSync(archPath, "utf8"), sk);
+      if (problems.length) {
+        const list = problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");
+        process.stdout.write(JSON.stringify({
+          decision: "block",
+          reason: `${ARCH_FILE} doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
+            `Fix it before finishing, as described in CLAUDE.md:\n${list}`,
+        }));
+        return; // the turn stays open: the agent continues
+      }
+    }
+    closeTurn(t, snap, lineCount(t.transcript));
   }
 }
 

@@ -6,6 +6,8 @@ import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
+import { ARCH_FILE, checkArch } from "./arch.ts";
+import { check } from "./describe.ts";
 import { createMapApp } from "./mapapp.ts";
 import { COCKPIT, listTurns, loadTurn } from "./turns.ts";
 
@@ -24,8 +26,21 @@ const map = createMapApp(root, name);
 const layoutPath = join(COCKPIT, "data", name, "layout.json");
 const readLayout = () => (existsSync(layoutPath) ? JSON.parse(readFileSync(layoutPath, "utf8")) : {});
 
-// The E6 description, if one was generated (npm run describe).
-const readDesc = () => { const f = join(COCKPIT, "out", name, "description.json"); return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null; };
+// The description: the repo's architecture.json (E7, kept by the agents) if there is one,
+// else the one-shot draft from npm run describe (E6).
+function readDesc() {
+  const text = existsSync(join(root, ARCH_FILE)) ? readFileSync(join(root, ARCH_FILE), "utf8") : null;
+  if (text !== null) {
+    const sk = map.data().skeleton;
+    const problems = checkArch(text, sk);
+    let arch: any = null;
+    try { arch = JSON.parse(text); } catch {}
+    if (!arch || problems.some((p) => p.problem.startsWith("not valid JSON") || p.problem.startsWith("missing"))) return { source: "repo", problems, description: null };
+    return { source: "repo", problems, description: arch, check: check(structuredClone(arch), sk) };
+  }
+  const f = join(COCKPIT, "out", name, "description.json");
+  return existsSync(f) ? { source: "draft", problems: [], ...JSON.parse(readFileSync(f, "utf8")) } : null;
+}
 
 // Files the project tracks, plus new files not ignored by git.
 const listFiles = () =>
@@ -148,6 +163,8 @@ createServer((req, res) => {
         const [full, subject, author, date, body] = meta.split("\x1f");
         json(res, { sha: full, subject, author, date, body: body.trim(), patch: rest.join("\x1e").replace(/^\n+/, "") });
       } catch (e) { json(res, { error: String(e) }, 400); }
+    } else if (req.method === "GET" && url.pathname === "/api/desc") {
+      json(res, readDesc());
     } else if (req.method === "GET" && url.pathname === "/api/files") {
       json(res, listFiles());
     } else if (req.method === "GET" && url.pathname === "/api/file") {
