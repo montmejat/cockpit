@@ -40,7 +40,7 @@ export interface Crate {
 }
 
 // Bump when the skeleton's shape or rules change, so cached skeletons are rebuilt.
-export const SKELETON_VERSION = 3;
+export const SKELETON_VERSION = 4;
 
 export interface Skeleton {
   root: string;
@@ -129,7 +129,8 @@ export function buildSkeleton(root: string, scipPath: string, protoPath: string)
       const depth = rest.replace(/\([^)]*\)/g, "").match(/[#.]/g)?.length;
       if (TOP_KINDS.has(s.kind) && depth === 1) items.push(base);
       else if (/Method$/.test(s.kind)) {
-        const owner = rest.match(/^impl#\[([^\]]+)\]/)?.[1];
+        // Generic types come escaped with their parameters: "`Recorder<W>`" -> "Recorder".
+        const owner = rest.match(/^impl#\[([^\]]+)\]/)?.[1]?.replace(/`/g, "").replace(/<.*>$/, "");
         if (owner) items.push({ ...base, owner });
       }
     }

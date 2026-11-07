@@ -55,7 +55,9 @@ function readSource(path: string) {
 }
 // The repo's git state: branch, upstream, uncommitted files, recent commits, other branches.
 const git = (...a: string[]) => execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20 });
-const tryGit = (...a: string[]) => { try { return git(...a).trim(); } catch { return ""; } };
+const tryGit = (...a: string[]) => {
+  try { return execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return ""; }
+};
 function gitState() {
   const branch = tryGit("symbolic-ref", "--short", "-q", "HEAD") || null;
   const upstream = tryGit("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") || null;
