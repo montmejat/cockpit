@@ -24,6 +24,9 @@ const map = createMapApp(root, name);
 const layoutPath = join(COCKPIT, "data", name, "layout.json");
 const readLayout = () => (existsSync(layoutPath) ? JSON.parse(readFileSync(layoutPath, "utf8")) : {});
 
+// The E6 description, if one was generated (npm run describe).
+const readDesc = () => { const f = join(COCKPIT, "out", name, "description.json"); return existsSync(f) ? JSON.parse(readFileSync(f, "utf8")) : null; };
+
 // Files the project tracks, plus new files not ignored by git.
 const listFiles = () =>
   execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard"], { cwd: root, encoding: "utf8", maxBuffer: 32 << 20 })
@@ -94,7 +97,7 @@ const reviewPage = (url: URL) => `<!doctype html>
 
 // Work page: the map is the main view; a selected turn lights up what it changed, down to the diff.
 const workPage = (url: URL) => {
-  const init = { ...initData(url), map: map.data(), layout: readLayout(), files: listFiles(), git: gitState() };
+  const init = { ...initData(url), map: map.data(), layout: readLayout(), files: listFiles(), git: gitState(), desc: readDesc() };
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Cockpit</title>
@@ -105,12 +108,14 @@ const workPage = (url: URL) => {
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
 <style>${readFileSync(join(COCKPIT, "src", "review.css"), "utf8")}${readFileSync(join(COCKPIT, "src", "work.css"), "utf8")}</style></head><body>
 <header><h1>${name}</h1><a id="gitbar" class="gitbar"></a><span class="muted" id="stats"></span><span style="flex:1"></span>
-<label class="muted"><input type="checkbox" id="arrows"> all arrows</label>
+<span class="seg"><button data-view="desc">description</button><button data-view="map">map</button></span>
+<span class="mapctl"><label class="muted"><input type="checkbox" id="arrows"> all arrows</label>
 <button id="reset" title="Forget where you placed the blocks at this zoom level">reset layout</button>
-<span class="muted">zoom</span><button data-zoom="system">system</button><button data-zoom="module">modules</button></header>
-<div class="wrap work"><nav><div id="tabs" class="tabs"></div><div id="navbody"></div></nav><div id="cy"></div><div id="split" title="drag to resize"></div><aside id="panel"></aside></div>
+<span class="muted">zoom</span><button data-zoom="system">system</button><button data-zoom="module">modules</button></span></header>
+<div class="wrap work"><nav><div id="tabs" class="tabs"></div><div id="navbody"></div></nav><div id="cy"></div><div id="desc" hidden></div><div id="split" title="drag to resize"></div><aside id="panel"></aside></div>
 <script>window.INIT = ${JSON.stringify(init).replace(/</g, "\\u003c")};</script>
 <script>${readFileSync(join(COCKPIT, "src", "map-layout.js"), "utf8")}</script>
+<script>${readFileSync(join(COCKPIT, "src", "desc-client.js"), "utf8")}</script>
 <script>${readFileSync(join(COCKPIT, "src", "work-client.js"), "utf8")}</script>
 </body></html>`;
 };

@@ -8,7 +8,8 @@
     "recap": "tsx src/cli.ts recap",
     "check": "tsc --noEmit",
     "map": "tsx src/map.ts",
-    "serve": "tsx src/serve.ts"
+    "serve": "tsx src/serve.ts",
+    "describe": "tsx src/describe.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -179,6 +179,22 @@ function markFocus() {
   n.connectedEdges().addClass("near");
 }
 
+// Center: the structure map or the description (E6).
+let view = new URLSearchParams(location.search).get("view") || store.get("cockpit-view", "map");
+function drawCenter() {
+  document.querySelectorAll("[data-view]").forEach((b) => b.classList.toggle("on", b.dataset.view === view));
+  document.querySelectorAll(".mapctl").forEach((e) => (e.hidden = view !== "map"));
+  $("#cy").hidden = view !== "map";
+  $("#desc").hidden = view !== "desc";
+  if (view === "desc") drawDesc();
+  else drawMap();
+}
+function setView(v) {
+  view = v;
+  store.set("cockpit-view", v);
+  drawCenter();
+}
+
 function setZoom(z) {
   zoom = z;
   store.set("cockpit-zoom", z);
@@ -195,7 +211,8 @@ function go(id) {
   const path = /^[fsw]:/.test(id ?? "") ? id.slice(2).replace(/:\d+$/, "") : null;
   if (path) for (let d = path; d.includes("/"); ) openDirs.add((d = d.slice(0, d.lastIndexOf("/"))));
   const wantsModule = (id?.startsWith("m:") && SK.modules.some((m) => m.id === id.slice(2))) || (path && modOfFile(path));
-  if (wantsModule && zoom === "system") setZoom("module");
+  if (view === "desc") drawDesc();
+  else if (wantsModule && zoom === "system") setZoom("module");
   else markFocus();
   drawPanel();
   if (tab !== "turns") drawNav();
@@ -302,7 +319,7 @@ async function selectTurn(id) {
   history.replaceState(null, "", id ? "?turn=" + id : location.pathname);
   stamp = "";
   focusId = null;
-  if (!id) { detail = null; drawNav(); drawMap(); drawPanel(); return; }
+  if (!id) { detail = null; drawNav(); drawCenter(); drawPanel(); return; }
   await poll();
 }
 
@@ -316,6 +333,7 @@ function crumbs() {
   };
   if (focusId?.startsWith("c:")) parts.push("<strong>" + esc(focusId.slice(2)) + "</strong>");
   if (focusId?.startsWith("m:")) { modCrumbs(focusId.slice(2)); parts.push("<strong>" + esc(focusId.slice(2)) + "</strong>"); }
+  if (focusId?.startsWith("d:")) parts.push("<a data-go='' data-viewto=desc>description</a>", "<strong>" + esc(descById(focusId.slice(2))?.name ?? focusId.slice(2)) + "</strong>");
   if (focusId?.startsWith("k:")) parts.push("<a data-go='' data-tabto=git>git</a>", "<strong>" + esc(focusId.slice(2)) + "</strong>");
   if (/^[fsw]:/.test(focusId ?? "")) {
     const path = focusId.slice(2).replace(/:\d+$/, ""), m = modOfFile(path);
@@ -451,6 +469,7 @@ function wireGo(root) {
   root.querySelectorAll("[data-go]").forEach((a) => a.onclick = (e) => {
     e.preventDefault();
     if (a.dataset.tabto) { tab = a.dataset.tabto; store.set("cockpit-tab", tab); drawNav(); }
+    if (a.dataset.viewto && view !== a.dataset.viewto) { view = a.dataset.viewto; store.set("cockpit-view", view); drawCenter(); }
     go(a.dataset.go || null);
   });
 }
@@ -491,6 +510,7 @@ function drawPanel() {
   applyWidth();
   $("#panel").innerHTML = (f ? crumbs() : "") +
     (!f ? turnPanel() : f.startsWith("c:") ? compPanel(f.slice(2)) : f.startsWith("m:") ? modPanel(f.slice(2)) :
+    f.startsWith("d:") ? descPanel(f.slice(2)) :
     f.startsWith("k:") ? "<div class=gitdiff data-kind=k data-arg='" + esc(f.slice(2)) + "'><p class=muted>loading…</p></div>" :
     f.startsWith("w:") ? "<h2>" + esc(f.slice(2)) + "</h2><div class=switch><button class=on>uncommitted</button><button data-go='s:" + esc(f.slice(2)) + "'>file</button></div><div class=gitdiff data-kind=w data-arg='" + esc(f.slice(2)) + "'><p class=muted>loading…</p></div>" :
     filePanel(f[0], f.slice(2)));
@@ -527,7 +547,7 @@ async function poll() {
   if (detail.status === "done" && !wasDone && detail.endedAt && Date.now() - new Date(detail.endedAt) < 10 * 60e3) {
     try { ({ skeleton: SK, model: MODEL } = await (await fetch("api/map?fresh=1")).json()); FILES = await (await fetch("api/files")).json(); } catch {}
   }
-  drawNav(); drawMap(); drawPanel();
+  drawNav(); drawCenter(); drawPanel();
 }
 
 document.querySelectorAll("[data-zoom]").forEach((b) => b.onclick = () => setZoom(b.dataset.zoom));
@@ -544,5 +564,6 @@ if (focusId) {
   if ((focusId.startsWith("m:") && SK.modules.some((m) => m.id === focusId.slice(2))) || (p && modOfFile(p))) zoom = "module";
   if (p) for (let d = p; d.includes("/"); ) openDirs.add((d = d.slice(0, d.lastIndexOf("/"))));
 }
-drawGitBar(); drawNav(); drawMap(); drawPanel();
+document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => setView(b.dataset.view));
+drawGitBar(); drawNav(); drawCenter(); drawPanel();
 setInterval(poll, 2000);

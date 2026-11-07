@@ -59,6 +59,28 @@ npm run map -- ~/Projects/slipangle --serve --host 0.0.0.0   # reachable from yo
   same positions at both. Components that use others are placed higher.
   Click anything for details down to items and line numbers.
 
+## E6: description from four angles
+
+```sh
+npm run describe -- ~/Projects/slipangle   # needs the map built first; writes out/<name>/description.json
+```
+
+One model call (Haiku by default, `--model sonnet` to compare) describes the
+project from four angles that apply to any software, after the 4+1 views and
+arc42: **capabilities** (what it does), **entry points** (how it's driven),
+**flows** (what happens at run time, step by step) and **data** (what it holds,
+what is saved). The fifth angle, structure, is the map. Every item and step
+links to real symbols from the code index; code checks each link, repairs
+near-misses, drops the rest, and reports how much of the code is reached.
+
+In the work view, "description" shows it. A selected turn outlines what it
+changed (solid = its code changed, dashed = through something it uses).
+Clicking an item shows related items, and its code links open the source or
+the diff.
+
+On slipangle: 7 capabilities, 7 entry points, 5 flows, 9 data, 88 links all
+real, 18/20 modules reached, $0.026.
+
 ## E5: work view (map + turns)
 
 `npm run serve -- <project>` now opens on one page that merges the map and the
