@@ -361,6 +361,7 @@ function turnPanel() {
   const t = detail;
   if (!t) {
     return "<h2>map</h2><p class=muted>Pick a turn to see what it changed. Drag blocks to place them; places are saved.</p>" +
+      (MODEL.layoutNote ? "<p><span class=muted>arrangement, by the agent:</span> " + esc(MODEL.layoutNote) + "</p>" : "") +
       MODEL.components.map((c) => "<p><a data-go='c:" + esc(c.name) + "'><strong>" + esc(c.name) + "</strong></a><br><span class=muted>" + esc(c.description) + "</span></p>").join("");
   }
   let h = "<blockquote>" + esc(t.prompt) + "</blockquote><p class=muted>" + new Date(t.startedAt).toLocaleString() +
@@ -396,7 +397,7 @@ function turnPanel() {
 
 // The agent's own account of the architecture in this turn (E7), and what the checks say about it.
 function archTurnHtml(x) {
-  const KIND = { groups: "group", capabilities: "capability", entry_points: "entry point", flows: "flow", data: "data", summary: "summary" };
+  const KIND = { layout: "layout", groups: "group", capabilities: "capability", entry_points: "entry point", flows: "flow", data: "data", summary: "summary" };
   const target = (c) => c.kind === "groups" ? "c:" + (MODEL.components.find((m) => m.name.endsWith(" · " + c.name))?.name ?? c.name)
     : c.kind === "summary" ? "" : "d:" + c.id;
   let h = "<h4>architecture <span class=muted>· the agent's account</span></h4>";

@@ -15,6 +15,8 @@ export interface Component {
 export interface Overlay {
   components: Component[];
   roles: Record<string, string>; // module id -> one-line role
+  rows?: string[][]; // how to arrange components on the map, top to bottom, by name
+  layoutNote?: string; // what the arrangement means
 }
 
 // Written by the user (through the map page). Versioned with cockpit.
@@ -91,6 +93,8 @@ export interface MapModel {
   components: (Component & { source: "agent" | "user" })[];
   roles: Record<string, { text: string; source: "agent" | "user" }>;
   warnings: string[];
+  rows?: string[][];
+  layoutNote?: string;
 }
 
 // Final map = agent proposal, then the user's corrections on top.
@@ -137,5 +141,5 @@ export function applyOverrides(sk: Skeleton, overlay: Overlay, ov: Overrides): M
     const user = ov.modules?.[m]?.role;
     roles[m] = user ? { text: user, source: "user" } : { text: overlay.roles[m] ?? "", source: "agent" };
   }
-  return { components, roles, warnings };
+  return { components, roles, warnings, ...(overlay.rows ? { rows: overlay.rows, layoutNote: overlay.layoutNote } : {}) };
 }

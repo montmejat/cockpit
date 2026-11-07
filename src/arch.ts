@@ -14,6 +14,7 @@ export const ARCH_FILE = "architecture.json";
 export interface Group { id: string; crate: string; name: string; description: string; modules: string[] }
 export interface Architecture extends Description {
   groups: Group[];
+  layout?: { rows: string[][]; note: string }; // map arrangement: rows of group ids, top to bottom
   roles?: Record<string, string>; // module id -> one line
 }
 
@@ -59,6 +60,17 @@ export function checkArch(text: string | null, sk: Skeleton): ArchProblem[] {
   }
   for (const m of sk.modules) if (!seen.has(m.id)) p("groups", `module "${m.id}" (${m.file}) is in no group`);
 
+  // Layout (optional): every group placed exactly once.
+  if (a.layout) {
+    const groupIds = new Set(a.groups.map((g) => g.id)), placed = new Set<string>();
+    for (const id of (a.layout.rows ?? []).flat()) {
+      if (!groupIds.has(id)) p("layout", `"${id}" is not a group id`);
+      else if (placed.has(id)) p("layout", `group "${id}" is placed twice`);
+      placed.add(id);
+    }
+    for (const id of groupIds) if (!placed.has(id)) p("layout", `group "${id}" is not in layout.rows`);
+  }
+
   // Ids unique; links point at real symbols; capability references exist.
   const ids = new Map<string, string>();
   for (const x of [...a.groups.map((g) => ({ id: g.id, k: "groups" })), ...KINDS.flatMap((k) => a[k].map((x) => ({ id: x.id, k })))]) {
@@ -86,7 +98,9 @@ export function archOverlay(a: Architecture): Overlay & { groupOf: Record<string
     for (const m of g.modules) groupOf[m] = name;
     return { name, description: g.description, modules: g.modules };
   });
-  return { components, roles: a.roles ?? {}, groupOf };
+  const nameOf = new Map(a.groups.map((g) => [g.id, `${g.crate} · ${g.name}`]));
+  const rows = a.layout?.rows?.map((r) => r.flatMap((id) => nameOf.get(id) ?? [])).filter((r) => r.length);
+  return { components, roles: a.roles ?? {}, groupOf, ...(rows?.length ? { rows, layoutNote: a.layout!.note } : {}) };
 }
 
 // What the agent changed in the file during a turn, item by item.
@@ -94,7 +108,7 @@ export interface ArchChange { kind: string; id: string; name: string; change: "a
 export function archDiff(before: Architecture | null, after: Architecture | null): ArchChange[] {
   if (!after) return [];
   const all = (a: Architecture | null) => new Map(
-    a ? [...a.groups.map((g) => ["groups", g] as const), ...KINDS.flatMap((k) => a[k].map((x) => [k, x] as const))]
+    a ? [...a.groups.map((g) => ["groups", g] as const), ...(a.layout ? [["layout", { id: "layout", name: "map layout", ...a.layout }] as const] : []), ...KINDS.flatMap((k) => a[k].map((x) => [k, x] as const))]
       .map(([k, x]) => [`${k}\u0000${x.id}`, { k, x }]) : [],
   );
   const b = all(before), a = all(after), out: ArchChange[] = [];
