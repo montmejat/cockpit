@@ -1,10 +1,10 @@
-// Description view (E6): the software from four angles (capabilities, entry points, flows, data),
+// Description view (E6/E7): the software from three angles (entry points, flows, data),
 // each linked to code. Loaded before work-client.js; uses its globals at call time only.
 
 let DESC = INIT.desc; // { source: "repo" | "draft", description, check, problems, costUsd?, model? } or null
 
-const KINDS = [["capabilities", "capability"], ["entry_points", "entry point"], ["flows", "flow"], ["data", "data"]];
-const descItems = () => (DESC?.description ? KINDS.flatMap(([k, label]) => DESC.description[k].map((x) => ({ ...x, ekind: x.kind, kind: k, label }))) : []);
+const KINDS = [["entry_points", "entry point"], ["flows", "flow"], ["data", "data"]];
+const descItems = () => (DESC?.description ? KINDS.flatMap(([k, label]) => (DESC.description[k] ?? []).map((x) => ({ ...x, ekind: x.kind, kind: k, label }))) : []);
 const descById = (id) => descItems().find((x) => x.id === id);
 const anchorsOf = (x) => (x.kind === "flows" ? [...new Set(x.steps.flatMap((s) => s.anchors))] : x.anchors);
 
@@ -33,19 +33,20 @@ function descHits() {
     return ch.live.has(a.split("::")[0]);
   };
   const direct = new Set(descItems().filter((x) => anchorsOf(x).some(hit)).map((x) => x.id));
-  // A capability is touched through any of its entry points, flows or data.
-  const via = new Set(DESC.description.capabilities.filter((c) => !direct.has(c.id) && [...c.entry_points, ...c.flows, ...c.data].some((id) => direct.has(id))).map((c) => c.id));
+  // A flow is touched through its entry points and data too.
+  const via = new Set((DESC.description.flows ?? []).filter((f) => !direct.has(f.id) && [...(f.entry_points ?? []), ...(f.data ?? [])].some((id) => direct.has(id))).map((f) => f.id));
   return { hit, direct, via, any: direct.size > 0 };
 }
 
-// Items related to the focused one: a capability and what it links, or an item and the capabilities that use it.
+// Items related to the focused one: a flow with its entry points and data, or an item with the flows that use it.
 function descRelated(id) {
   if (!id) return null;
-  const caps = DESC.description.capabilities;
-  const c = caps.find((x) => x.id === id);
-  if (c) return new Set([c.id, ...c.entry_points, ...c.flows, ...c.data]);
-  return new Set([id, ...caps.filter((x) => [...x.entry_points, ...x.flows, ...x.data].includes(id)).map((x) => x.id)]);
+  const flows = DESC.description.flows;
+  const f = flows.find((x) => x.id === id);
+  if (f) return new Set([f.id, ...(f.entry_points ?? []), ...(f.data ?? [])]);
+  return new Set([id, ...flows.filter((x) => [...(x.entry_points ?? []), ...(x.data ?? [])].includes(id)).map((x) => x.id)]);
 }
+const flowsUsing = (id) => DESC.description.flows.filter((f) => [...(f.entry_points ?? []), ...(f.data ?? [])].includes(id));
 
 function drawDesc() {
   const el = $("#desc");
@@ -70,8 +71,6 @@ function drawDesc() {
   const items = descItems(), of = (k) => items.filter((x) => x.kind === k);
   el.innerHTML = "<div class=dview>" +
     "<p class=summary>" + esc(d.summary) + "</p>" +
-    "<h5>capabilities <span class=muted>· what it does</span></h5><div class='cards caps'>" +
-    of("capabilities").map((x) => card(x, "<div class=dsc>" + esc(x.description) + "</div>")).join("") + "</div>" +
     "<div class=cols>" +
     "<section><h5>entry points <span class=muted>· how it's driven</span></h5>" + of("entry_points").map((x) => card(x, "<div class=dsc>" + esc(x.description) + "</div>")).join("") + "</section>" +
     "<section class=wide><h5>flows <span class=muted>· what happens at run time</span></h5>" + of("flows").map((x) => card(x,
@@ -105,10 +104,11 @@ function descPanel(id) {
     (h.direct.has(id) ? "<p class=chg>changed in this turn</p>" : h.via.has(id) ? "<p class=chg>touched in this turn through what it uses</p>" : "") +
     "<p>" + esc(x.description) + "</p>";
   if (x.kind === "flows") {
-    html += "<h4>trigger</h4><p>" + esc(x.trigger) + "</p><h4>steps</h4><ol class=steps>" +
+    html += (view === "map" ? "<p class=muted>Drawn on the map: numbers are steps, ▶ entry points, ◆ data.</p>" : "") +
+      link("starts from", x.entry_points ?? []) + link("data", x.data ?? []) +
+      "<h4>trigger</h4><p>" + esc(x.trigger) + "</p><h4>steps</h4><ol class=steps>" +
       x.steps.map((s) => "<li" + (s.anchors.some(h.hit) ? " class=hit" : "") + ">" + esc(s.text) + "<div>" + s.anchors.map(chip).join(" ") + "</div></li>").join("") + "</ol>";
   } else html += "<h4>code</h4><div>" + x.anchors.map(chip).join(" ") + "</div>";
-  if (x.kind === "capabilities") html += link("entry points", x.entry_points) + link("flows", x.flows) + link("data", x.data);
-  else html += link("used by", d.capabilities.filter((c) => [...c.entry_points, ...c.flows, ...c.data].includes(id)).map((c) => c.id));
+  if (x.kind !== "flows") html += link(x.kind === "entry_points" ? "starts" : "used by", flowsUsing(id).map((f) => f.id));
   return html;
 }

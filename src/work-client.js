@@ -1,6 +1,7 @@
 // Work page: the project map is the main view. Pick a turn and what it changed lights up
 // on the map; click a component or module to go one level deeper, down to its diff.
-// Left: turns or files. Blocks can be dragged; their places are saved per zoom level.
+// Left: turns, flows, files, git. Blocks can be dragged; their places are saved.
+// A selected flow is drawn on the map as a numbered path across the modules.
 // Polls the server so running turns and finished analyses show up on their own.
 
 const $ = (s) => document.querySelector(s);
@@ -13,7 +14,8 @@ const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } ca
 let GIT = INIT.git, gitTick = 0;
 let SK = INIT.map.skeleton, MODEL = INIT.map.model, LAYOUT = INIT.layout || {}, FILES = INIT.files || [];
 let turns = INIT.turns, selected = INIT.selected, detail = INIT.detail;
-let zoom = store.get("cockpit-zoom", "system"), tab = new URLSearchParams(location.search).get("tab") || store.get("cockpit-tab", "turns"), allArrows = store.get("cockpit-arrows", "") === "1";
+const zoom = "module"; // one level: modules inside their groups (the layout file still keys by it)
+let tab = new URLSearchParams(location.search).get("tab") || store.get("cockpit-tab", "turns"), allArrows = store.get("cockpit-arrows", "") === "1";
 let focusId = null, cy = null, stamp = "";
 const openDirs = new Set();
 
@@ -56,41 +58,59 @@ function changes() {
 
 // ---- map ----
 
+// A selected flow (or entry point, or data item) drawn on the map: which modules each step
+// happens in, the path between them, and where its entry points and data live.
+function overlay() {
+  const x = focusId?.startsWith("d:") && view === "map" ? descById(focusId.slice(2)) : null;
+  if (!x) return null;
+  const at = (map, mod, v) => { if (!map.has(mod)) map.set(mod, []); if (!map.get(mod).includes(v)) map.get(mod).push(v); };
+  const modOf = (a) => a.split("::")[0];
+  const steps = new Map(), data = new Map(), entries = new Map(), path = [];
+  const flows = x.kind === "flows" ? [x] : [];
+  const d = DESC.description;
+  for (const f of flows) {
+    let prev = null;
+    f.steps.forEach((st, i) => {
+      const mods = [...new Set(st.anchors.map(modOf))];
+      mods.forEach((m) => at(steps, m, i + 1));
+      const main = mods[0];
+      if (main && prev && main !== prev) path.push({ from: prev, to: main, n: i + 1 });
+      if (main) prev = main;
+    });
+    for (const id of f.data ?? []) { const y = d.data.find((z) => z.id === id); for (const a of y?.anchors ?? []) at(data, modOf(a), y.name); }
+    for (const id of f.entry_points ?? []) { const y = d.entry_points.find((z) => z.id === id); for (const a of y?.anchors ?? []) at(entries, modOf(a), y.name); }
+  }
+  if (x.kind === "data") for (const a of x.anchors) at(data, modOf(a), x.name);
+  if (x.kind === "entry_points") for (const a of x.anchors) at(entries, modOf(a), x.name);
+  return { steps, data, entries, path };
+}
+
 function elements(ch) {
-  const els = [];
+  const els = [], ov = overlay();
   // Arrows: hidden unless "all arrows" is on, the turn changed that dependency, or a block is focused (see markFocus).
   const edgeClass = (d) => (d ? (d.before === 0 ? "dep-new" : d.after === 0 ? "dep-gone" : "dep-chg") : allArrows ? "" : "hidden");
-  if (zoom === "system") {
-    const agg = new Map();
-    for (const e of SK.edges) {
-      const a = compOf(e.from)?.name, b = compOf(e.to)?.name;
-      if (a && b && a !== b) agg.set(a + NUL + b, (agg.get(a + NUL + b) || 0) + e.refs);
+  for (const c of MODEL.components)
+    els.push({ data: { id: "c:" + c.name, label: c.name, kind: "comp" }, classes: ch.comps.has(c.name) ? "touched" : "" });
+  for (const m of SK.modules) {
+    const t = ch.mods.get(m.id);
+    const sub = t ? (t.status === "added" ? "new · " + m.lines + "L" : t.linesBefore + "→" + t.linesAfter + "L") : m.lines + "L";
+    let label = m.id + "\n" + sub;
+    const cls = [ch.live.has(m.id) ? "live" : t ? t.status : ch.any ? "quiet" : ""];
+    if (ov) {
+      const st = ov.steps.get(m.id), da = ov.data.get(m.id), en = ov.entries.get(m.id);
+      if (st) label = st.join(" · ") + "\n" + label;
+      if (en) label += "\n▶ " + en.join(", ");
+      if (da) label += "\n◆ " + da.join(", ");
+      if (st) cls.push("onpath"); else if (en) cls.push("entry"); else if (da) cls.push("datanode"); else cls.push("offpath");
     }
-    for (const c of MODEL.components) {
-      const touched = ch.comps.get(c.name) ?? [];
-      const live = c.modules.some((m) => ch.live.has(m));
-      const sub = touched.length ? touched.length + "/" + c.modules.length + " changed" : c.modules.length + (c.modules.length === 1 ? " module" : " modules");
-      els.push({ data: { id: "c:" + c.name, label: c.name + "\n" + sub, kind: "comp-leaf" },
-        classes: live ? "live" : touched.length ? (touched.every((m) => m.status === "added") ? "added" : "changed") : ch.any ? "quiet" : "" });
-    }
-    for (const [k, refs] of agg) {
-      const [a, b] = k.split(NUL);
-      els.push({ data: { id: "e:" + k, source: "c:" + a, target: "c:" + b, refs }, classes: edgeClass(ch.compDeps.get(k)) });
-    }
-  } else {
-    for (const c of MODEL.components)
-      els.push({ data: { id: "c:" + c.name, label: c.name, kind: "comp" }, classes: ch.comps.has(c.name) ? "touched" : "" });
-    for (const m of SK.modules) {
-      const t = ch.mods.get(m.id);
-      const sub = t ? (t.status === "added" ? "new · " + m.lines + "L" : t.linesBefore + "→" + t.linesAfter + "L") : m.lines + "L";
-      els.push({ data: { id: "m:" + m.id, label: m.id + "\n" + sub, parent: "c:" + compOf(m.id)?.name, kind: "mod" },
-        classes: ch.live.has(m.id) ? "live" : t ? t.status : ch.any ? "quiet" : "" });
-    }
-    for (const e of SK.edges) {
-      const d = ch.modDeps.get(e.from + NUL + e.to);
-      els.push({ data: { id: "e:" + e.from + ">" + e.to, source: "m:" + e.from, target: "m:" + e.to, refs: e.refs }, classes: edgeClass(d) });
-    }
+    els.push({ data: { id: "m:" + m.id, label, parent: "c:" + compOf(m.id)?.name, kind: "mod" }, classes: cls.join(" ") });
   }
+  for (const e of SK.edges) {
+    const d = ch.modDeps.get(e.from + NUL + e.to);
+    els.push({ data: { id: "e:" + e.from + ">" + e.to, source: "m:" + e.from, target: "m:" + e.to, refs: e.refs }, classes: ov && !allArrows ? "hidden" : edgeClass(d) });
+  }
+  if (ov) ov.path.forEach((p, i) =>
+    els.push({ data: { id: "p:" + i, source: "m:" + p.from, target: "m:" + p.to, label: String(p.n) }, classes: "flowpath" }));
   return els;
 }
 
@@ -98,25 +118,22 @@ function elements(ch) {
 function positions() {
   const POS = mapLayout(SK, MODEL), saved = LAYOUT[zoom] || {};
   const out = { ...POS };
-  if (zoom === "module") {
-    for (const c of MODEL.components) {
-      const placed = c.modules.filter((m) => saved["m:" + m]);
-      let low = placed.length ? Math.max(...placed.map((m) => saved["m:" + m].y)) : null;
-      for (const m of c.modules) {
-        if (saved["m:" + m]) out["m:" + m] = saved["m:" + m];
-        else if (low !== null) out["m:" + m] = { x: saved["m:" + placed[0]].x, y: (low += 62) };
-      }
+  for (const c of MODEL.components) {
+    const placed = c.modules.filter((m) => saved["m:" + m]);
+    let low = placed.length ? Math.max(...placed.map((m) => saved["m:" + m].y)) : null;
+    for (const m of c.modules) {
+      if (saved["m:" + m]) out["m:" + m] = saved["m:" + m];
+      else if (low !== null) out["m:" + m] = { x: saved["m:" + placed[0]].x, y: (low += 62) };
     }
-  } else Object.assign(out, saved);
+  }
   return out;
 }
 
 function drawMap() {
-  document.querySelectorAll("[data-zoom]").forEach((b) => b.classList.toggle("on", b.dataset.zoom === zoom));
   $("#arrows").checked = allArrows;
   $("#stats").textContent = SK.modules.length + " modules · " + MODEL.components.length + " components";
   const ch = changes(), POS = positions();
-  const view = cy && cy.data("zoom") === zoom ? { zoom: cy.zoom(), pan: cy.pan() } : null;
+  const keep = cy && cy.data("zoom") === zoom ? { zoom: cy.zoom(), pan: cy.pan() } : null; // keep the viewport on redraw
   cy?.destroy();
   const color = (cls, v) => ({ selector: "node." + cls, style: { "border-color": css(v), "border-width": 2 } });
   cy = cytoscape({
@@ -138,11 +155,19 @@ function drawMap() {
       { selector: "edge.dep-chg", style: { "line-color": css("--chg"), "target-arrow-color": css("--chg"), opacity: 1, width: 2 } },
       { selector: "edge.near", style: { display: "element", opacity: 0.8, "line-color": css("--accent"), "target-arrow-color": css("--accent") } },
       { selector: "node.focus", style: { "underlay-color": css("--accent"), "underlay-opacity": 0.2, "underlay-padding": 6, opacity: 1 } },
+      // flow overlay
+      { selector: "node.offpath", style: { opacity: 0.3 } },
+      { selector: "node.onpath", style: { "border-color": css("--accent"), "border-width": 2, "font-weight": 700, opacity: 1 } },
+      { selector: "node.entry", style: { "border-color": css("--accent"), "border-style": "double", "border-width": 3, opacity: 1 } },
+      { selector: "node.datanode", style: { "border-color": css("--purpose"), "border-style": "dashed", "border-width": 2, opacity: 1 } },
+      { selector: "edge.flowpath", style: { "line-color": css("--accent"), "target-arrow-color": css("--accent"), width: 2.5, opacity: 0.9,
+        "curve-style": "bezier", "control-point-step-size": 50, label: "data(label)", "font-size": 11, "font-weight": 700, "font-family": FONT, color: css("--accent"),
+        "text-background-color": css("--bg"), "text-background-opacity": 1, "text-background-padding": 2, "z-index": 10 } },
     ],
-    layout: { name: "preset", positions: (n) => POS[n.id()] || { x: 0, y: 0 }, padding: 30, fit: !view },
+    layout: { name: "preset", positions: (n) => POS[n.id()] || { x: 0, y: 0 }, padding: 30, fit: !keep },
   });
   cy.data("zoom", zoom);
-  if (view) { cy.zoom(view.zoom); cy.pan(view.pan); }
+  if (keep) { cy.zoom(keep.zoom); cy.pan(keep.pan); }
   cy.on("tap", "node", (ev) => go(ev.target.id()));
   cy.on("tap", (ev) => { if (ev.target === cy) go(null); });
   cy.on("dragfree", "node", saveLayout);
@@ -159,12 +184,11 @@ function saveLayout() {
   saveTimer = setTimeout(() => fetch("api/layout", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(LAYOUT) }), 300);
 }
 
-// The map node that stands for the current focus (a file maps to its module, a module to its component at system zoom).
+// The map node that stands for the current focus (a file maps to its module).
 function focusNode() {
   if (!focusId) return null;
   let id = focusId;
   if (/^[fsw]:/.test(id)) { const m = modOfFile(id.slice(2).replace(/:\d+$/, "")); if (!m) return null; id = "m:" + m.id; }
-  if (id.startsWith("m:") && zoom === "system") id = "c:" + (compOf(id.slice(2))?.name ?? "");
   return id;
 }
 
@@ -195,36 +219,58 @@ function setView(v) {
   drawCenter();
 }
 
-function setZoom(z) {
-  zoom = z;
-  store.set("cockpit-zoom", z);
-  drawMap();
-}
-
 // ---- navigation ----
 // "w:<path>" = a file's uncommitted changes, "k:<sha>" = a commit.
 // null = the turn, "c:<component>", "m:<module>", "f:<path>" (a file's diff, "*" = all), "s:<path>[:<line>]" (a file's source).
 
+let lastFocus = null;
+// Zoom the map onto what the selected flow, entry point or data item touches.
+function fitOverlay() {
+  const ns = cy?.nodes(".onpath, .entry, .datanode");
+  if (ns?.length) cy.fit(ns, 70);
+}
 function go(id) {
   focusId = id;
   history.replaceState(null, "", location.search + (id ? "#" + encodeURIComponent(id) : ""));
   const path = /^[fsw]:/.test(id ?? "") ? id.slice(2).replace(/:\d+$/, "") : null;
   if (path) for (let d = path; d.includes("/"); ) openDirs.add((d = d.slice(0, d.lastIndexOf("/"))));
-  const wantsModule = (id?.startsWith("m:") && SK.modules.some((m) => m.id === id.slice(2))) || (path && modOfFile(path));
+  const flowish = (f) => f?.startsWith("d:");
   if (view === "desc") drawDesc();
-  else if (wantsModule && zoom === "system") setZoom("module");
+  else if (flowish(id) || flowish(lastFocus)) { drawMap(); if (flowish(id)) fitOverlay(); } // the overlay changes the whole map
   else markFocus();
+  lastFocus = id;
   drawPanel();
   if (tab !== "turns") drawNav();
 }
 
 function drawNav() {
-  $("#tabs").innerHTML = ["turns", "files", "git"].map((t) => "<button data-tab=" + t + (t === tab ? " class=on" : "") + ">" + t + "</button>").join("");
+  $("#tabs").innerHTML = ["turns", "flows", "files", "git"].map((t) => "<button data-tab=" + t + (t === tab ? " class=on" : "") + ">" + t + "</button>").join("");
   document.querySelectorAll("[data-tab]").forEach((b) => b.onclick = () => { tab = b.dataset.tab; store.set("cockpit-tab", tab); drawNav(); });
-  $("#navbody").innerHTML = tab === "turns" ? turnsHtml() : tab === "files" ? filesHtml() : gitHtml();
+  $("#navbody").innerHTML = tab === "turns" ? turnsHtml() : tab === "flows" ? flowsHtml() : tab === "files" ? filesHtml() : gitHtml();
   document.querySelectorAll(".turn").forEach((el) => el.onclick = () => selectTurn(el.dataset.id || null));
   document.querySelectorAll("#navbody details[data-dir]").forEach((d) => d.ontoggle = () => d.open ? openDirs.add(d.dataset.dir) : openDirs.delete(d.dataset.dir));
   wireGo($("#navbody"));
+}
+
+// ---- flows ----
+// Entry points, each with the flows they start; then flows with no entry point; then data.
+function flowsHtml() {
+  if (!DESC?.description) return "<p class='muted pad'>No architecture.json or description yet.</p>";
+  const d = DESC.description, cur = focusId?.startsWith("d:") ? focusId.slice(2) : null;
+  const h = descHits();
+  const row = (x, cls) => "<a class='" + cls + (cur === x.id ? " sel" : "") + (h.direct.has(x.id) ? " ch" : "") + "' data-go='d:" + esc(x.id) + "'>" + esc(x.name) +
+    (h.direct.has(x.id) ? " <span class=chg>●</span>" : "") + "</a>";
+  const started = new Set();
+  let html = "<div class=gitpane><h5>entry points → flows</h5>";
+  for (const e of d.entry_points) {
+    const fs = d.flows.filter((f) => (f.entry_points ?? []).includes(e.id));
+    fs.forEach((f) => started.add(f.id));
+    html += row(e, "ep") + fs.map((f) => row(f, "fl")).join("");
+  }
+  const rest = d.flows.filter((f) => !started.has(f.id));
+  if (rest.length) html += "<h5>other flows</h5>" + rest.map((f) => row(f, "fl top")).join("");
+  html += "<h5>data</h5>" + d.data.map((x) => row(x, "da")).join("") + "</div>";
+  return html;
 }
 
 // ---- git ----
@@ -397,7 +443,7 @@ function turnPanel() {
 
 // The agent's own account of the architecture in this turn (E7), and what the checks say about it.
 function archTurnHtml(x) {
-  const KIND = { layout: "layout", groups: "group", capabilities: "capability", entry_points: "entry point", flows: "flow", data: "data", summary: "summary" };
+  const KIND = { layout: "layout", groups: "group", capabilities: "capability (old)", entry_points: "entry point", flows: "flow", data: "data", summary: "summary" };
   const target = (c) => c.kind === "groups" ? "c:" + (MODEL.components.find((m) => m.name.endsWith(" · " + c.name))?.name ?? c.name)
     : c.kind === "summary" ? "" : "d:" + c.id;
   let h = "<h4>architecture <span class=muted>· the agent's account</span></h4>";
@@ -574,7 +620,6 @@ async function poll() {
   drawNav(); drawCenter(); drawPanel();
 }
 
-document.querySelectorAll("[data-zoom]").forEach((b) => b.onclick = () => setZoom(b.dataset.zoom));
 $("#arrows").onchange = (e) => { allArrows = e.target.checked; store.set("cockpit-arrows", allArrows ? "1" : ""); drawMap(); };
 $("#reset").onclick = () => {
   delete LAYOUT[zoom];
@@ -582,12 +627,12 @@ $("#reset").onclick = () => {
   cy?.destroy(); cy = null; drawMap();
 };
 stamp = stampOf(turns.find((x) => x.id === selected));
-focusId = decodeURIComponent(location.hash.slice(1)) || null;
+focusId = lastFocus = decodeURIComponent(location.hash.slice(1)) || null;
 if (focusId) {
   const p = /^[fs]:/.test(focusId) ? focusId.slice(2).replace(/:\d+$/, "") : null;
-  if ((focusId.startsWith("m:") && SK.modules.some((m) => m.id === focusId.slice(2))) || (p && modOfFile(p))) zoom = "module";
   if (p) for (let d = p; d.includes("/"); ) openDirs.add((d = d.slice(0, d.lastIndexOf("/"))));
 }
 document.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => setView(b.dataset.view));
 drawGitBar(); drawNav(); drawCenter(); drawPanel();
+if (view === "map" && focusId?.startsWith("d:")) fitOverlay();
 setInterval(poll, 2000);

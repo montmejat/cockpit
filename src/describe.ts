@@ -1,6 +1,5 @@
-// E6: a description of the software from four angles that hold for any project
+// E6: a description of the software from angles that hold for any project
 // (after the 4+1 views / arc42), each item pointing at real code:
-//   capabilities  what it does, for whom
 //   entry points  how it is started and driven
 //   flows         what happens at run time, step by step
 //   data          what state exists, what is saved
@@ -17,14 +16,12 @@ import type { Skeleton } from "./skeleton.ts";
 import { COCKPIT, outDir } from "./turns.ts";
 
 export interface Anchored { anchors: string[] }
-export interface Capability extends Anchored { id: string; name: string; description: string; entry_points: string[]; flows: string[]; data: string[] }
 export interface EntryPoint extends Anchored { id: string; name: string; kind: string; description: string }
 export interface Step extends Anchored { text: string }
-export interface Flow { id: string; name: string; description: string; trigger: string; steps: Step[] }
+export interface Flow { id: string; name: string; description: string; trigger: string; entry_points: string[]; data: string[]; steps: Step[] }
 export interface Datum extends Anchored { id: string; name: string; description: string; persisted: boolean }
 export interface Description {
   summary: string;
-  capabilities: Capability[];
   entry_points: EntryPoint[];
   flows: Flow[];
   data: Datum[];
@@ -33,7 +30,7 @@ export interface Check {
   anchors: number;
   fixed: Record<string, string>; // what the model wrote -> the real symbol it meant
   unknown: string[]; // links to nothing, dropped
-  badRefs: string[]; // capability -> flow/data/entry ids that don't exist, dropped
+  badRefs: string[]; // flow -> entry point / data ids that don't exist, dropped
   coverage: { items: number; itemsLinked: number; modules: number; modulesLinked: number; unlinkedModules: string[] };
 }
 
@@ -46,17 +43,15 @@ const obj = (properties: Record<string, object>) => ({ type: "object", propertie
 const anchors = arr(str);
 const schema = obj({
   summary: str,
-  capabilities: arr(obj({ id: str, name: str, description: str, anchors, entry_points: arr(str), flows: arr(str), data: arr(str) })),
   entry_points: arr(obj({ id: str, name: str, kind: str, description: str, anchors })),
-  flows: arr(obj({ id: str, name: str, description: str, trigger: str, steps: arr(obj({ text: str, anchors })) })),
+  flows: arr(obj({ id: str, name: str, description: str, trigger: str, entry_points: arr(str), data: arr(str), steps: arr(obj({ text: str, anchors })) })),
   data: arr(obj({ id: str, name: str, description: str, persisted: { type: "boolean" }, anchors })),
 });
 
-const SYSTEM = `You describe a software project for a developer who is new to it, from four angles that apply to any software:
+const SYSTEM = `You describe a software project for a developer who is new to it, from three angles that apply to any software:
 
-- capabilities: what the software does and for whom, in user terms (4-8). Link each to the entry points, flows and data it involves, by id.
 - entry_points: how it is started and driven: binaries/main, user input, network endpoints, CLI commands, public library API, tests used as tools (3-8). kind: one or two words.
-- flows: what happens at run time, as ordered steps from a trigger to an effect (3-6 flows, 3-8 steps each). These are the paths a developer must understand to change behavior safely.
+- flows: what happens at run time, as ordered steps from a trigger to an effect (3-6 flows, 3-8 steps each). These are the paths a developer must understand to change behavior safely. Each flow lists, by id, the entry points that start it and the data it reads or writes.
 - data: the important state and data formats: what it holds, who owns it, what is saved to disk or sent over a network (4-10). persisted = written to disk or sent outside the process.
 
 Rules:
@@ -118,17 +113,17 @@ export function check(d: Description, sk: Skeleton): Check {
       return [r];
     }))];
   };
-  d.capabilities.forEach(clean); d.entry_points.forEach(clean); d.data.forEach(clean);
+  d.entry_points.forEach(clean); d.data.forEach(clean);
   d.flows.forEach((f) => f.steps.forEach(clean));
 
-  const ids = { entry_points: new Set(d.entry_points.map((x) => x.id)), flows: new Set(d.flows.map((x) => x.id)), data: new Set(d.data.map((x) => x.id)) };
+  const ids = { entry_points: new Set(d.entry_points.map((x) => x.id)), data: new Set(d.data.map((x) => x.id)) };
   const badRefs: string[] = [];
-  for (const c of d.capabilities)
-    for (const k of ["entry_points", "flows", "data"] as const)
-      c[k] = c[k].filter((id) => ids[k].has(id) || (badRefs.push(`${c.id} -> ${id}`), false));
+  for (const f of d.flows)
+    for (const k of ["entry_points", "data"] as const)
+      f[k] = (f[k] ?? []).filter((id) => ids[k].has(id) || (badRefs.push(`${f.id} -> ${id}`), false));
 
   // Coverage: which code the description reaches. A linked module counts all its items as reached.
-  const linked = new Set([...d.capabilities, ...d.entry_points, ...d.data, ...d.flows.flatMap((f) => f.steps)].flatMap((x) => x.anchors));
+  const linked = new Set([...d.entry_points, ...d.data, ...d.flows.flatMap((f) => f.steps)].flatMap((x) => x.anchors));
   const items = sk.modules.flatMap((m) => m.items.filter((i) => !i.test && !i.owner).map((i) => ({ m: m.id, k: itemKey(m.id, i), name: i.name })));
   const reached = items.filter((i) => linked.has(i.m) || linked.has(i.k) || [...linked].some((l) => l.startsWith(i.k + "::")));
   const modsLinked = new Set([...linked].map((l) => l.split("::")[0]));
@@ -159,7 +154,7 @@ function main() {
   const d = res.output;
   const c = check(d, sk);
   writeFileSync(join(outDir(name), "description.json"), JSON.stringify({ description: d, check: c, costUsd: res.costUsd, model: opt("model") ?? "haiku" }, null, 1));
-  console.log(`${d.capabilities.length} capabilities, ${d.entry_points.length} entry points, ${d.flows.length} flows, ${d.data.length} data · $${res.costUsd.toFixed(4)}${res.cached ? " (cached)" : ""}`);
+  console.log(`${d.entry_points.length} entry points, ${d.flows.length} flows, ${d.data.length} data · $${res.costUsd.toFixed(4)}${res.cached ? " (cached)" : ""}`);
   console.log(`links: ${c.anchors} written, ${Object.keys(c.fixed).length} repaired, ${c.unknown.length} unknown${c.unknown.length ? " (" + c.unknown.slice(0, 8).join(", ") + ")" : ""}, ${c.badRefs.length} bad refs`);
   console.log(`coverage: ${c.coverage.itemsLinked}/${c.coverage.items} top-level items, ${c.coverage.modulesLinked}/${c.coverage.modules} modules` +
     (c.coverage.unlinkedModules.length ? ` (not linked: ${c.coverage.unlinkedModules.join(", ")})` : ""));

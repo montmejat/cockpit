@@ -9,7 +9,8 @@
     "check": "tsc --noEmit",
     "map": "tsx src/map.ts",
     "serve": "tsx src/serve.ts",
-    "describe": "tsx src/describe.ts"
+    "describe": "tsx src/describe.ts",
+    "check-arch": "tsx src/check-arch.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

@@ -59,6 +59,22 @@ npm run map -- ~/Projects/slipangle --serve --host 0.0.0.0   # reachable from yo
   same positions at both. Components that use others are placed higher.
   Click anything for details down to items and line numbers.
 
+## E7: architecture.json, kept by the agents
+
+The project repo holds `architecture.json`: groups of modules (never crossing
+crates), a map layout, entry points, flows and data, each linked to code. The
+agents working on the code keep it true (instructions in the project's
+CLAUDE.md); cockpit only checks it:
+
+- the Stop hook sends the agent back once if the file doesn't match the code;
+- each turn shows "the agent's account" of what it changed in the file, next
+  to what the code index says changed;
+- `npm run check-arch -- <project dir>` runs the same check by hand.
+
+In the work view, the "flows" tab lists entry points with the flows they
+start, and the data. Selecting a flow draws it on the map as a numbered path
+across the modules, with its entry points (▶) and data (◆) marked.
+
 ## E6: description from four angles
 
 ```sh
@@ -87,7 +103,8 @@ real, 18/20 modules reached, $0.026.
 turns: turns on the left, the map in the middle, details on the right.
 
 - Pick a turn: what it changed lights up on the map (green = new, amber =
-  changed, blue = being edited right now); untouched parts fade. New or
+  changed, blue = being edited right now); untouched parts fade. The map
+  has one level: modules inside their groups. New or
   changed dependencies show as colored arrows.
 - Click a component, then a module: the panel goes one level deeper each time,
   ending with that module's items and its own diff. Breadcrumbs go back up.

@@ -95,3 +95,10 @@ pre.body{font:inherit;white-space:pre-wrap;background:var(--bg);padding:6px 8px;
 .anchor.hit{border-color:var(--chg);color:var(--chg)}
 .difflink{font-size:11px}
 ol.steps{padding-left:22px}ol.steps li{margin:6px 0}ol.steps li div{margin-top:2px}
+/* flows tab */
+.gitpane a.ep,.gitpane a.fl,.gitpane a.da{display:block;padding:2px 10px;color:var(--fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gitpane a.ep{font-weight:700;margin-top:6px}.gitpane a.ep::before{content:"▶ ";color:var(--accent)}
+.gitpane a.fl{padding-left:24px}.gitpane a.fl::before{content:"→ ";color:var(--muted)}.gitpane a.fl.top{padding-left:10px}
+.gitpane a.da::before{content:"◆ ";color:var(--purpose)}
+.gitpane a.ep:hover,.gitpane a.fl:hover,.gitpane a.da:hover{background:var(--sel)}
+.gitpane a.ch{color:var(--chg)}

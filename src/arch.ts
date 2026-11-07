@@ -1,5 +1,5 @@
 // E7: architecture.json, kept in the project repo and maintained by the agents that work on it.
-// Same four angles as E6 (capabilities, entry points, flows, data), plus the grouping of modules
+// Same angles as E6 (entry points, flows, data), plus the grouping of modules
 // into groups inside each crate. Cockpit never writes it; it checks it against the code index.
 
 import { execFileSync } from "node:child_process";
@@ -31,7 +31,7 @@ export function readArch(repo: string, rev?: string): Architecture | null {
   }
 }
 
-const KINDS = ["capabilities", "entry_points", "flows", "data"] as const;
+const KINDS = ["entry_points", "flows", "data"] as const;
 
 // Everything that's wrong, phrased so an agent can fix it without guessing.
 export function checkArch(text: string | null, sk: Skeleton): ArchProblem[] {
@@ -41,6 +41,7 @@ export function checkArch(text: string | null, sk: Skeleton): ArchProblem[] {
   const out: ArchProblem[] = [];
   const p = (where: string, problem: string) => out.push({ where, problem });
   for (const k of ["summary", "groups", ...KINDS] as const) if (!(k in a)) p(ARCH_FILE, `missing "${k}"`);
+  if ("capabilities" in a) p(ARCH_FILE, `"capabilities" is no longer part of the format: move their links into flows (each flow lists its entry_points and data), then remove it`);
   if (out.length) return out;
 
   const mods = new Map(sk.modules.map((m) => [m.id, m]));
@@ -81,12 +82,14 @@ export function checkArch(text: string | null, sk: Skeleton): ArchProblem[] {
     if (!anchors?.length) p(where, "has no code links (anchors)");
     for (const s of anchors ?? []) if (!symbols.has(s)) p(where, `link "${s}" matches no module or item (format: crate/module::Item or crate/module::Type::method)`);
   };
-  for (const k of ["capabilities", "entry_points", "data"] as const) for (const x of a[k]) link(`${k} ${x.id}`, x.anchors);
+  for (const k of ["entry_points", "data"] as const) for (const x of a[k]) link(`${k} ${x.id}`, x.anchors);
   for (const f of a.flows) f.steps.forEach((s, i) => link(`flow ${f.id} step ${i + 1}`, s.anchors));
   const has = (k: string, id: string) => ids.get(id) === k;
-  for (const c of a.capabilities)
-    for (const k of ["entry_points", "flows", "data"] as const)
-      for (const id of c[k]) if (!has(k, id)) p(`capability ${c.id}`, `${k} "${id}" does not exist`);
+  for (const f of a.flows)
+    for (const k of ["entry_points", "data"] as const) {
+      if (!Array.isArray(f[k])) { p(`flow ${f.id}`, `missing "${k}" (a list of ids, can be empty)`); continue; }
+      for (const id of f[k]) if (!has(k, id)) p(`flow ${f.id}`, `${k} "${id}" does not exist`);
+    }
   return out;
 }
 
