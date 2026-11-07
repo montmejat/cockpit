@@ -114,6 +114,7 @@ const reviewPage = (url: URL) => `<!doctype html>
 
 // Work page: the map is the main view; a selected turn lights up what it changed, down to the diff.
 const workPage = (url: URL) => {
+  map.rebuild(); // cheap unless code changed: picks up a new architecture.json too
   const init = { ...initData(url), map: map.data(), layout: readLayout(), files: listFiles(), git: gitState(), desc: readDesc() };
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
