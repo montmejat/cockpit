@@ -81,7 +81,7 @@ export function readTranscript(path: string, from = 0, to = Infinity): Event[] {
       }
     } else if (rec.type === "assistant") {
       for (const block of content ?? []) {
-        if (block.type === "text") push("say", block.text, 3000);
+        if (block.type === "text") push("say", block.text, 8000);
         if (block.type === "tool_use")
           push("tool", describeTool(block.name, block.input ?? {}), MAX_TOOL_CHARS);
       }

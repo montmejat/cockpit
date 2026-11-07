@@ -20,6 +20,7 @@ export interface Touch {
 export interface ItemChange {
   name: string; // "Curve::eval" or "TireModel"
   kind: string;
+  test?: boolean;
   change: "added" | "removed" | "changed";
   line: number; // in the new file (old file for removed)
 }
@@ -27,6 +28,7 @@ export interface ItemChange {
 export interface ModuleChange {
   id: string;
   component: string;
+  componentGuessed?: boolean; // module isn't on the map yet: placed by its references
   file: string;
   status: "added" | "removed" | "changed";
   linesBefore: number;

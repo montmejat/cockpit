@@ -22,12 +22,33 @@ const MAX_PATCH = 300_000;
 function placer(project: string, sk: Skeleton) {
   // Components come from the E2 map (agent proposal + your corrections), if one was built.
   const mapFile = join(outDir(project), "map.json");
-  if (!existsSync(mapFile)) return { comp: (id: string) => id.split("/")[0], role: (_: string) => undefined };
-  const overlay: Overlay = JSON.parse(readFileSync(mapFile, "utf8")).overlay;
-  const model = applyOverrides(sk, overlay, readOverrides(join(COCKPIT, "data", project, "overrides.json")));
   const byModule = new Map<string, string>();
-  for (const c of model.components) for (const m of c.modules) byModule.set(m, c.name);
-  return { comp: (id: string) => byModule.get(id) ?? "Unplaced", role: (id: string) => model.roles[id]?.text };
+  let roles: Record<string, { text: string }> = {};
+  if (existsSync(mapFile)) {
+    const overlay: Overlay = JSON.parse(readFileSync(mapFile, "utf8")).overlay;
+    const model = applyOverrides(sk, overlay, readOverrides(join(COCKPIT, "data", project, "overrides.json")));
+    for (const c of model.components) for (const m of c.modules) if (c.name !== "Unplaced") byModule.set(m, c.name);
+    roles = model.roles;
+  } else for (const m of sk.modules) byModule.set(m.id, m.crate);
+  // Modules not on the map yet go where their references point most (both directions).
+  const guessed = new Set<string>();
+  for (const m of sk.modules) {
+    if (byModule.has(m.id)) continue;
+    const score = new Map<string, number>();
+    for (const e of sk.edges) {
+      const other = e.from === m.id ? e.to : e.to === m.id ? e.from : null;
+      const c = other ? byModule.get(other) : undefined;
+      if (c) score.set(c, (score.get(c) ?? 0) + e.refs);
+    }
+    const best = [...score].sort((a, b) => b[1] - a[1])[0]?.[0];
+    byModule.set(m.id, best ?? m.crate);
+    guessed.add(m.id);
+  }
+  return {
+    comp: (id: string) => byModule.get(id) ?? id.split("/")[0],
+    guessed: (id: string) => guessed.has(id),
+    role: (id: string) => roles[id]?.text || undefined,
+  };
 }
 
 function edgeMap(sk: Skeleton | null) {
@@ -51,7 +72,7 @@ function depChanges(before: Map<string, number>, after: Map<string, number>): De
 
 function moduleChanges(
   repo: string, before: string, after: string, skB: Skeleton, skA: Skeleton, changedPaths: Set<string>,
-  comp: (id: string) => string, role: (id: string) => string | undefined,
+  comp: (id: string) => string, guessed: (id: string) => boolean, role: (id: string) => string | undefined,
 ): ModuleChange[] {
   const lines = changedLines(repo, before, after);
   const mB = new Map(skB.modules.map((m) => [m.id, m]));
@@ -70,16 +91,18 @@ function moduleChanges(
     for (const [k, i] of iA) {
       const name = k.split("|")[0];
       const old = iB.get(k);
-      if (!old) items.push({ name, kind: i.kind, change: "added", line: i.line });
+      const test = i.test ? { test: true } : {};
+      if (!old) items.push({ name, kind: i.kind, change: "added", line: i.line, ...test });
       else if (hit(ch.new, i.line, i.end) || hit(ch.old, old.line, old.end))
-        items.push({ name, kind: i.kind, change: "changed", line: i.line });
+        items.push({ name, kind: i.kind, change: "changed", line: i.line, ...test });
     }
     for (const [k, i] of iB)
-      if (!iA.has(k)) items.push({ name: k.split("|")[0], kind: i.kind, change: "removed", line: i.line });
+      if (!iA.has(k)) items.push({ name: k.split("|")[0], kind: i.kind, change: "removed", line: i.line, ...(i.test ? { test: true } : {}) });
     items.sort((x, y) => x.line - y.line);
     out.push({
       id,
       component: comp(id),
+      ...(guessed(id) ? { componentGuessed: true } : {}),
       file,
       status: !b ? "added" : !a ? "removed" : "changed",
       linesBefore: b?.lines ?? 0,
@@ -140,8 +163,8 @@ function main() {
       const cache = join(outDir(project), "skeletons");
       const skB = skeletonOf(t.repo, t.before, cache, PROTO);
       const skA = skeletonOf(t.repo, t.after, cache, PROTO);
-      const { comp, role } = placer(project, skA);
-      modules = moduleChanges(t.repo, t.before, t.after, skB, skA, changedPaths, comp, role);
+      const { comp, guessed, role } = placer(project, skA);
+      modules = moduleChanges(t.repo, t.before, t.after, skB, skA, changedPaths, comp, guessed, role);
       deps = depChanges(edgeMap(skB), edgeMap(skA));
       const agg = (sk: Skeleton) => {
         const m = new Map<string, number>();

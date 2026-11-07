@@ -15,6 +15,7 @@ export interface Item {
   line: number; // 1-based
   end: number; // last line of the definition, 1-based
   owner?: string; // for methods: the type they belong to ("Curve" for Curve::eval)
+  test?: boolean; // defined in an inline `mod tests`
 }
 
 export interface Module {
@@ -39,7 +40,7 @@ export interface Crate {
 }
 
 // Bump when the skeleton's shape or rules change, so cached skeletons are rebuilt.
-export const SKELETON_VERSION = 2;
+export const SKELETON_VERSION = 3;
 
 export interface Skeleton {
   root: string;
@@ -121,7 +122,8 @@ export function buildSkeleton(root: string, scipPath: string, protoPath: string)
       const rest = p.descriptor.slice(p.modulePath.length + 1);
       const range = defRange.get(s.symbol) ?? [0, 0];
       if (range[0] === 0) continue; // generated (e.g. derived impls): no source to point at
-      const base = { name: s.displayName, kind: s.kind, doc: (s.documentation[0] ?? "").split("\n")[0].slice(0, 200), line: range[0], end: range[1] };
+      const test = p.modulePath !== parsed.modulePath && /(^|\/)tests?$/.test(p.modulePath);
+      const base = { ...(test ? { test } : {}), name: s.displayName, kind: s.kind, doc: (s.documentation[0] ?? "").split("\n")[0].slice(0, 200), line: range[0], end: range[1] };
       // Top level: "tire/Curve#". Methods: "tire/impl#[Curve]eval()." (owner Curve).
       // Drop "()" / "(+1)" from functions first: "cockpit_probe()." is still one level deep.
       const depth = rest.replace(/\([^)]*\)/g, "").match(/[#.]/g)?.length;

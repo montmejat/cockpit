@@ -211,7 +211,7 @@ function showMod(id) {
     "<h2 class=mono>" + esc(id) + "</h2><p class=muted class=mono>" + esc(m.file) + " · " + m.lines + " lines</p>" +
     "<p>" + esc(role.text) + "<span class='src " + role.source + "'>" + (role.source === "user" ? "you" : "agent") + "</span></p>" +
     (m.doc ? "<h3>Doc comment</h3><p>" + esc(m.doc) + "</p>" : "") +
-    "<h3>Items</h3><ul>" + (m.items.filter(i => !i.owner).map(i => "<li><span class=mono>" + esc(i.name) + "</span> <span class=muted>" + esc(i.kind.toLowerCase()) +
+    "<h3>Items</h3><ul>" + (m.items.filter(i => !i.owner && !i.test).map(i => "<li><span class=mono>" + esc(i.name) + "</span> <span class=muted>" + esc(i.kind.toLowerCase()) +
       " · line " + i.line + "</span>" + (i.doc ? "<br><span class=muted>" + esc(i.doc) + "</span>" : "") + "</li>").join("") || "<li class=muted>none</li>") + "</ul>" +
     "<h3>Uses</h3><ul>" + (uses.map(e => link(e.to, e.refs)).join("") || "<li class=muted>nothing in the project</li>") + "</ul>" +
     "<h3>Used by</h3><ul>" + (usedBy.map(e => link(e.from, e.refs)).join("") || "<li class=muted>nothing</li>") + "</ul>" +

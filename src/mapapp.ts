@@ -2,7 +2,7 @@
 // Generated files go to out/<name>/; corrections to data/<name>/overrides.json.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { buildSkeleton } from "./skeleton.ts";
 import { applyOverrides, type Overrides, proposeOverlay, readOverrides } from "./overlay.ts";
@@ -35,7 +35,10 @@ export function createMapApp(root: string, name: string, log = console.log) {
     const skeleton = buildSkeleton(root, scip, PROTO);
     log(`skeleton: ${skeleton.crates.length} crates, ${skeleton.modules.length} modules, ${skeleton.edges.length} edges`);
     const ov = readOverrides(overridesPath);
-    const { overlay, costUsd, cached } = proposeOverlay(skeleton, ov, join(COCKPIT, "out", ".cache"));
+    // The last grouping anchors the next one, so names don't drift between runs.
+    const mapFile = join(outDir, "map.json");
+    const previous = existsSync(mapFile) ? JSON.parse(readFileSync(mapFile, "utf8")).overlay : undefined;
+    const { overlay, costUsd, cached } = proposeOverlay(skeleton, ov, join(COCKPIT, "out", ".cache"), previous);
     log(`agent: ${overlay.components.length} components, $${costUsd.toFixed(4)}${cached ? " (cached)" : ""}`);
     return { skeleton, overlay, costUsd };
   };

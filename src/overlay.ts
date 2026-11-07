@@ -53,16 +53,17 @@ Output:
 Rules:
 - Every module id appears in exactly one component.
 - Use only what the structure shows. Do not invent features.
-- Assignments marked fixed by the user must be kept as they are.`;
+- Assignments marked fixed by the user must be kept as they are.
+- If a previous grouping is given, keep its component names and assignments wherever they still fit. Only change what the new structure requires (e.g. place new modules).`;
 
-export function proposeOverlay(sk: Skeleton, overrides: Overrides, cacheDir: string) {
+export function proposeOverlay(sk: Skeleton, overrides: Overrides, cacheDir: string, previous?: Overlay) {
   const out = (id: string) =>
     Object.fromEntries(sk.edges.filter((e) => e.from === id).map((e) => [e.to, e.refs]));
   const modules = sk.modules.map((m) => ({
     id: m.id,
     lines: m.lines,
     doc: m.doc,
-    items: m.items.filter((i) => !i.owner).slice(0, 12).map((i) => i.name),
+    items: m.items.filter((i) => !i.owner && !i.test).slice(0, 12).map((i) => i.name),
     libs: Object.entries(m.libs).sort((a, b) => b[1] - a[1]).slice(0, 4).map(([l]) => l),
     uses: out(m.id),
   }));
@@ -74,7 +75,8 @@ export function proposeOverlay(sk: Skeleton, overrides: Overrides, cacheDir: str
     system: SYSTEM,
     prompt:
       `Crates: ${JSON.stringify(sk.crates)}\n\nModules:\n${JSON.stringify(modules, null, 1)}` +
-      (fixed.length ? `\n\nFixed by the user:\n${fixed.join("\n")}` : ""),
+      (fixed.length ? `\n\nFixed by the user:\n${fixed.join("\n")}` : "") +
+      (previous ? `\n\nPrevious grouping:\n${JSON.stringify(Object.fromEntries(previous.components.map((c) => [c.name, c.modules])))}` : ""),
     schema,
     cacheDir,
   });

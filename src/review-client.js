@@ -46,12 +46,14 @@ function layer(i, body) {
 }
 
 function purpose(t, a) {
+  // One line per decision; the reasoning is one click deeper.
   const decs = a.decisions.length ? a.decisions.map((d) =>
-    "<div class=dec><span class='lvl " + d.level + "'>" + d.level + "</span><strong>" + esc(d.title) + "</strong>" +
-    "<span class='by " + d.decided_by + "'>" + d.decided_by + "</span><span class='mono muted'> " + esc(d.area) + "</span>" +
+    "<details class=dec><summary><span class='lvl " + d.level + "'>" + d.level + "</span>" + esc(d.title) +
+    "<span class='by " + d.decided_by + "'>" + d.decided_by + "</span></summary>" +
     "<div>Chose: " + esc(d.chose) + (d.over.length ? " <span class=muted>over " + esc(d.over.join("; ")) + "</span>" : "") + "</div>" +
-    "<div class=muted>Because: " + esc(d.because) + "</div></div>").join("") : "<p class=empty>No decisions in this turn.</p>";
-  return "<p>" + esc(a.summary) + "</p><h4>Decisions</h4>" + decs;
+    "<div class=muted>Because: " + esc(d.because) + "</div><div class='mono muted'>" + esc(d.area) + "</div></details>").join("") : "<p class=empty>No decisions in this turn.</p>";
+  const byYou = a.decisions.filter((d) => d.decided_by === "user").length;
+  return "<p>" + esc(a.summary) + "</p><h4>Decisions <span class=muted>(" + a.decisions.length + ", " + byYou + " by you)</span></h4>" + decs;
 }
 
 function depList(list, fmt) {
@@ -62,7 +64,12 @@ function depList(list, fmt) {
 }
 
 function system(a) {
-  if (!a.modules.length) return "<p class=empty>No Rust code changed, so the structure is the same.</p>";
+  if (!a.modules.length) {
+    const rs = a.files.filter((f) => f.path.endsWith(".rs"));
+    return rs.length
+      ? "<p class=empty>Only tests or files outside the crates' modules changed (" + rs.map((f) => esc(f.path)).join(", ") + "), so the structure is the same.</p>"
+      : "<p class=empty>No Rust code changed, so the structure is the same.</p>";
+  }
   const added = a.modules.filter((m) => m.status === "added"), removed = a.modules.filter((m) => m.status === "removed");
   return "<p>Touched: " + a.components.map((c) => "<span class=chip>" + esc(c) + "</span>").join(" ") + "</p>" +
     (added.length ? "<p><span class=add>New modules:</span> " + added.map((m) => "<span class=mono>" + esc(m.id) + "</span>").join(", ") + "</p>" : "") +
@@ -75,12 +82,24 @@ function moduleLayer(a) {
   const modFiles = new Set(a.modules.map((m) => m.file));
   const other = a.files.filter((f) => !modFiles.has(f.path));
   const sign = { added: "<span class=add>+</span>", removed: "<span class=del>−</span>", changed: "<span class=chg>~</span>" };
+  const itemLi = (m) => (i) => "<li>" + sign[i.change] + " <a class=mono data-file='" + esc(m.file) + "'>" + esc(i.name) + "</a> <span class=muted>" + esc(i.kind.toLowerCase()) + " · line " + i.line + "</span></li>";
+  // Long lists: first few, the rest behind a toggle. Tests get their own line.
+  const items = (m) => {
+    const api = m.items.filter((i) => !i.test), tests = m.items.filter((i) => i.test);
+    const head = api.slice(0, 8), rest = api.slice(8);
+    return (api.length ? "<ul>" + head.map(itemLi(m)).join("") + "</ul>" +
+        (rest.length ? "<details><summary class=muted>" + rest.length + " more</summary><ul>" + rest.map(itemLi(m)).join("") + "</ul></details>" : "")
+      : (tests.length ? "" : "<p class=empty>Changes outside any named item (imports, comments, module-level code).</p>")) +
+      (tests.length ? "<details><summary class=muted>Tests: " + tests.filter((i) => i.change === "added").length + " added, " +
+        tests.filter((i) => i.change === "changed").length + " changed, " + tests.filter((i) => i.change === "removed").length + " removed</summary><ul>" +
+        tests.map(itemLi(m)).join("") + "</ul></details>" : "");
+  };
   const mods = a.modules.map((m) =>
-    "<div class=mod><strong class=mono>" + esc(m.id) + "</strong> <span class=chip>" + esc(m.component) + "</span> " +
+    "<div class=mod><strong class=mono>" + esc(m.id) + "</strong> <span class=chip" + (m.componentGuessed ? " title='New module, not on the map yet: placed by its references'" : "") + ">" +
+    esc(m.component) + (m.componentGuessed ? " ?" : "") + "</span> " +
     "<span class=muted>" + (m.status === "changed" ? m.linesBefore + " → " + m.linesAfter + " lines" : m.status) + "</span>" +
     (m.role ? "<div class=muted>" + esc(m.role) + "</div>" : "") +
-    (m.items.length ? "<ul>" + m.items.map((i) => "<li>" + sign[i.change] + " <a class=mono data-file='" + esc(m.file) + "'>" + esc(i.name) + "</a> <span class=muted>" + esc(i.kind.toLowerCase()) + " · line " + i.line + "</span></li>").join("") + "</ul>"
-      : "<p class=empty>Changes outside any named item (imports, comments, module-level code).</p>") +
+    items(m) +
     "</div>").join("");
   return (mods || "<p class=empty>No Rust modules changed.</p>") +
     (other.length ? "<h4>Other files</h4><ul>" + other.map((f) => "<li><a class=mono data-file='" + esc(f.path) + "'>" + esc(f.path) + "</a> <span class=add>+" + f.added + "</span> <span class=del>−" + f.removed + "</span></li>").join("") + "</ul>" : "");
