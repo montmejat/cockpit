@@ -224,13 +224,14 @@ function openDiagram(id, node) {
 function zoom(id) { cur().side = id; picked = null; renderActive(); }
 function drawTabs() {
   $("#tabbar").innerHTML = tabs.map((t, i) => {
+    if (t.kind === "diagram") return "<div class='maptab" + (i === active ? " on" : "") + "' data-i=" + i + " title='The map: the agents’ diagrams'>◇</div>";
     const d = t.kind === "diagram" && byId(t.id), st = t.kind === "file" && statusOf(t.path);
     const label = t.kind === "diagram" ? "<span class=ti>◇</span>overview" + (d ? " <span class=muted>› " + esc(nameOf(d)) + "</span>" : "")
       : t.kind === "file" ? esc(t.path.split("/").pop()) : "<span class=ti>●</span>" + esc(t.sha);
     const title = d ? d.question : t.kind === "file" ? t.path : "commit " + t.sha;
     return "<div class='ctab" + (i === active ? " on" : "") + "' data-i=" + i + " title='" + esc(title) + "'>" + label + (st ? "<span class='mark " + st + "'>" + st + "</span>" : "") + (t.kind === "diagram" ? "" : "<button class=tx data-x=" + i + " title='Close'>×</button>") + "</div>";
   }).join("");
-  for (const el of document.querySelectorAll(".ctab")) {
+  for (const el of document.querySelectorAll(".ctab, .maptab")) {
     el.onclick = (e) => { if (e.target.closest(".tx")) return; active = +el.dataset.i; picked = null; renderActive(); };
     el.onauxclick = (e) => { if (e.button === 1) closeTab(+el.dataset.i); };
   }
@@ -408,7 +409,7 @@ function drawPane(which) {
   cy.on("mouseout", "node, edge", () => { tip.hidden = true; cy.elements().removeClass("faded hl"); });
   cy.on("tap", "node", (e) => {
     const n = d.nodes.find((x) => x.id === e.target.id());
-    if (n.detail && byId(n.detail)) { dive(e.target); return; }
+    if (n.detail && byId(n.detail)) { if (!zooming) dive(e.target); return; }
     picked = { pane: which, id: n.id };
     if (insp) { insp = null; drawHeader(); }
     for (const c of Object.values(panes)) c?.nodes().removeClass("picked");
@@ -416,7 +417,7 @@ function drawPane(which) {
     drawInspector();
   });
   cy.on("tap", (e) => { if (e.target === cy) { picked = null; cy.nodes().removeClass("picked"); drawInspector(); } });
-  if (which === "main") wireZoom(cy, box);
+  if (which === "main") wireZoom(cy);
 }
 
 // Both panes get their size before either is drawn, so each fits its own half.
@@ -522,13 +523,15 @@ async function ascend() {
     return;
   }
   const parent = parentOfDiagram(t.id), pn = parentNode(t.id);
-  if (!parent) return;
+  if (!parent || !pn) return;
   zooming = true;
   const img = snapshot($("#pane-main .cyc"));
   t.id = parent.id; main = t.id; picked = null;
   drawPane("main"); drawInspector();
   saveTabs(); setHash(); drawTabs(); drawZoom(); drawSide();
-  const layer = $("#pane-main .cyc"), node = panes.main.$id(pn.id), r = boxRect(node, layer);
+  const layer = $("#pane-main .cyc"), node = panes.main.$id(pn.id);
+  if (node.empty()) { img?.remove(); zooming = false; return; }
+  const r = boxRect(node, layer);
   layer.style.transformOrigin = "0 0";
   if (img) img.style.transformOrigin = "0 0";
   await Promise.all([
@@ -549,24 +552,29 @@ function jumpTo(id) {
 }
 
 // Scroll past the closest zoom onto a box to go in; past the full view to come out.
-function wireZoom(cy, box) {
-  const fitZoom = cy.zoom();
-  cy.minZoom(Math.min(fitZoom * 0.85, 1));
+function wireZoom(cy) {
+  cy.minZoom(Math.min(cy.zoom() * 0.85, 1));
   cy.on("dbltap", "node", (e) => dive(e.target));
-  const area = $(".cyc", box);
+}
+// One listener for the map, installed once: it always reads the diagram on screen now.
+(function () {
+  const area = $("#pane-main .cyc");
   let armed = 0;
   area.addEventListener("wheel", (ev) => {
-    if (zooming) return;
+    const cy = panes.main;
+    if (zooming || !cy || cy.destroyed()) return;
     const z = cy.zoom(), now = Date.now();
     if (ev.deltaY < 0 && z >= cy.maxZoom() * 0.97) {
       const rect = area.getBoundingClientRect(), x = ev.clientX - rect.left, y = ev.clientY - rect.top;
       const hit = cy.nodes().filter((n) => !n.isParent() && (() => { const b = n.renderedBoundingBox(); return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2; })());
       if (hit.nonempty()) dive(hit[0]);
     } else if (ev.deltaY > 0 && z <= cy.minZoom() * 1.02) {
-      if (now - armed < 600) ascend(); else armed = now; // a second scroll at the limit goes up
+      if (now - armed < 600) { armed = 0; ascend(); } else armed = now; // a second scroll at the limit goes up
     }
   }, { passive: true });
-}
+  // The diagram library remembers where its box is; re-measure whenever the mouse comes in.
+  area.addEventListener("mouseenter", () => panes.main?.resize());
+})();
 
 // The deepest level: the code of one box, cut to its own functions.
 async function renderZoomCode(d, n) {
@@ -859,11 +867,12 @@ $("#codeview .dbody").addEventListener("scroll", () => { cancelAnimationFrame(mi
       el.style.top = Math.max(0, Math.min(p.height - 30, ev.clientY - p.top - dy)) + "px";
       el.style.right = "auto"; el.style.bottom = "auto";
     };
-    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); save(); };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); save(); mini.cy?.resize(); };
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   });
   let t = 0;
   new ResizeObserver(() => { if (!mini.cy || el.hidden) return; mini.cy.resize(); clearTimeout(t); t = setTimeout(() => { mini.cy?.fit(undefined, 16); save(); }, 120); }).observe(el);
+  $(".mcy", el).addEventListener("mouseenter", () => mini.cy?.resize());
   $(".mclose", el).onclick = () => { el.classList.toggle("collapsed"); $(".mclose", el).textContent = el.classList.contains("collapsed") ? "+" : "–"; };
 })();
 

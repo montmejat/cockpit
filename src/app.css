@@ -208,3 +208,5 @@ table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color
 .zfile{padding:6px 12px;font-size:11.5px;background:var(--bg);position:sticky;top:0}
 .chg{color:var(--warn)}
 @media (prefers-reduced-motion:reduce){.zsnap{display:none}}
+.maptab{display:flex;align-items:center;justify-content:center;width:38px;flex-shrink:0;cursor:pointer;color:var(--muted);font-size:15px;border-right:1px solid var(--line);border-bottom:2px solid transparent}
+.maptab:hover{color:var(--accent)}.maptab.on{color:var(--accent);background:var(--bg);border-bottom-color:var(--accent)}
