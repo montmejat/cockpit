@@ -175,3 +175,13 @@ several parts add into; `next` edges carry values into the next round (step, fra
 - The brief that tells agents what earns a diagram lives in the project's CLAUDE.md (see
   slipangle's "### diagrams"): one question per diagram, only where a picture beats two
   sentences, edges are what the code reads and writes, at most 5.
+
+## One view (cleanup, 2026-11-08)
+
+`npm run serve -- <project dir>` now serves a single page at `/`: the agents' diagrams in the
+middle (a box with ⤢ opens its detail diagram beside it), files and git (with a commit graph) on
+the left, the selected box on the right, and code or diffs in a drawer. Uncommitted changes and a
+running agent are projected onto the diagram boxes down to the function: a box is marked only
+when lines inside the code it links to changed. The board, work, map, turns and description
+pages are gone from the UI (see git history); hooks still record turns in the background.
+Links: `?tab=git`, `?file=path&line=n`, `?diff=path`, `?commit=sha`, `#diagram[,detail]`.
