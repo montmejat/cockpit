@@ -1,5 +1,6 @@
-// cockpit, one view: the agents' diagrams, files and git on the side, code and diffs in a drawer,
-// and what is changing right now (uncommitted edits, a running agent) projected onto all of it.
+// cockpit, one view: files and git on the side; diagrams, files and commits as tabs in the center,
+// like an editor; the right panel explains whatever is open; and what is changing right now
+// (uncommitted edits, a running agent) projected onto all of it.
 
 let S = INIT, stamp = JSON.stringify(S);
 const $ = (s, el = document) => el.querySelector(s);
@@ -10,13 +11,20 @@ const byId = (id) => S.diagrams.find((d) => d.id === id);
 const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
 
 let tab = store.get("cockpit-tab", "diagrams");
-let [main, side] = decodeURIComponent(location.hash.slice(1)).split(",");
-if (!byId(main)) main = (S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0])?.id ?? null;
-if (!byId(side)) side = null;
+const nameOf = (d) => (d ? d.id.replace(/-/g, " ") : "");
+// Center tabs: { kind: "diagram", id, side? } | { kind: "file", path, view?, line?, end? } | { kind: "commit", sha }.
+// Remembered per browser, per project.
+let tabs = [], active = 0;
+try { tabs = JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")); active = +store.get("cockpit-active-" + S.project, "0") || 0; } catch { tabs = []; }
+tabs = tabs.filter((t) => t && (t.kind !== "diagram" || byId(t.id)));
+if (!tabs.some((t) => t.kind === "diagram")) { const d0 = S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0]; if (d0) tabs.unshift({ kind: "diagram", id: d0.id }); }
+active = Math.min(active, Math.max(0, tabs.length - 1));
+const cur = () => tabs[active];
+let main = null, side = null; // the diagrams shown in the active diagram tab
 let picked = null; // { pane, id }
-let insp = null; // the right panel shows "features" or "tests" instead of the diagram
+let insp = null; // the right panel shows "features" or "tests" instead
 const panes = { main: null, side: null };
-let graph = null, graphHead = null, files = null, drawer = null; // drawer: { kind, path?, line?, end?, sha?, view? }
+let graph = null, graphHead = null, files = null;
 
 // ---- what is changing ----------------------------------------------------
 
@@ -82,7 +90,8 @@ function diagramsList() {
   const probs = S.problems;
   return "<div class=dl>" + (ordered.length ? ordered.map((d) => {
     const dp = depth(d.id);
-    return "<a class='q" + (d.id === main ? " on" : d.id === side ? " on2" : "") + (dp === 1 ? " sub" : dp > 1 ? " sub2" : "") + "' data-open='" + esc(d.id) + "'><span class=k>" + esc(d.kind) + "</span>" + esc(d.question) + "</a>";
+    const on = cur()?.kind === "diagram" && (d.id === main ? " on" : d.id === side ? " on2" : "");
+    return "<a class='q" + (on || "") + (dp === 1 ? " sub" : dp > 1 ? " sub2" : "") + "' data-open='" + esc(d.id) + "' title='" + esc(d.question) + "'>" + esc(nameOf(d)) + "</a>";
   }).join("") : "<p class=muted>No diagrams yet.</p>") +
     (probs.length ? "<details class=probs><summary>⚠ " + plural(probs.length, "thing") + " in .cockpit/ don't match the code</summary>" + probs.slice(0, 30).map((p) => "<p class=prob>" + esc(p.where) + ": " + esc(p.problem) + "</p>").join("") + "</details>" : "") + "</div>";
 }
@@ -100,15 +109,15 @@ function filesTree() {
   for (const p of all) { let n = root; const parts = p.split("/"); parts.slice(0, -1).forEach((d) => (n = n[d + "/"] ??= {})); n[parts.at(-1)] = p; }
   const touched = new Set(S.live?.touched ?? []);
   const dirty = (n) => Object.values(n).some((v) => (typeof v === "string" ? statusOf(v) || touched.has(v) : dirty(v)));
-  const cur = drawer?.path;
+  const open = cur()?.kind === "file" ? cur().path : null;
   const render = (n, prefix) => Object.keys(n).sort((a, b) => (b.endsWith("/") - a.endsWith("/")) || a.localeCompare(b)).map((k) => {
     const v = n[k];
     if (typeof v !== "string") {
-      const open = dirty(v) || (cur ?? "").startsWith(prefix + k) || prefix === "";
-      return "<details" + (open ? " open" : "") + "><summary" + (dirty(v) ? " class=dirtydot" : "") + ">" + esc(k) + "</summary><div class=sub>" + render(v, prefix + k) + "</div></details>";
+      const show = dirty(v) || (open ?? "").startsWith(prefix + k) || prefix === "";
+      return "<details" + (show ? " open" : "") + "><summary" + (dirty(v) ? " class=dirtydot" : "") + ">" + esc(k) + "</summary><div class=sub>" + render(v, prefix + k) + "</div></details>";
     }
     const st = statusOf(v);
-    return "<a class='file" + (cur === v ? " sel" : "") + "' data-file='" + esc(v) + "'>" + (touched.has(v) ? "<span class=agentdot title='the agent is editing it'>◉</span>" : "") + esc(k) +
+    return "<a class='file" + (open === v ? " sel" : "") + "' data-file='" + esc(v) + "'>" + (touched.has(v) ? "<span class=agentdot title='the agent is editing it'>◉</span>" : "") + esc(k) +
       (st ? "<span class='mark " + st + "'>" + st + "</span>" : "") + "</a>";
   }).join("");
   return "<div class=tree>" + render(root, "") + "</div>";
@@ -167,7 +176,7 @@ function gitPane() {
   h += "<div class=graph>" + rows.map((r) => {
     const refs = r.c.refs.map((x) => x.startsWith("HEAD -> ") ? "<span class='ref head'>" + esc(x.slice(8)) + "</span>" : x === "HEAD" ? "<span class='ref head'>HEAD</span>" :
       "<span class='ref" + (x.includes("/") && !x.startsWith("tag:") ? " remote" : "") + "'>" + esc(x.replace("tag: ", "")) + "</span>").join("");
-    return "<div class='grow-row" + (drawer?.sha === r.c.sha ? " sel" : "") + "' data-commit='" + esc(r.c.sha) + "' title='" + esc(r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString()) + "'>" +
+    return "<div class='grow-row" + (cur()?.sha === r.c.sha ? " sel" : "") + "' data-commit='" + esc(r.c.sha) + "' title='" + esc(r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString()) + "'>" +
       graphSvg(r, width) + "<span class=msg><span class=sha>" + esc(r.c.sha) + "</span>" + refs + esc(r.c.subject) + "</span></div>";
   }).join("") + "</div></div>";
   return h;
@@ -175,9 +184,67 @@ function gitPane() {
 
 // ---- diagrams ------------------------------------------------------------
 
-function setHash() { history.replaceState(null, "", location.pathname + location.search + (main ? "#" + encodeURIComponent([main, side].filter(Boolean).join(",")) : "")); }
-function openDiagram(id, node) { main = id; side = null; picked = node ? { pane: "main", id: node } : null; setHash(); drawDiagrams(); }
-function zoom(id) { side = id; picked = null; setHash(); drawDiagrams(); }
+function saveTabs() {
+  store.set("cockpit-tabs-" + S.project, JSON.stringify(tabs.map(({ kind, id, side, path, view, sha }) => ({ kind, id, side, path, view, sha }))));
+  store.set("cockpit-active-" + S.project, String(active));
+}
+function setHash() {
+  const t = cur();
+  history.replaceState(null, "", location.pathname + (t?.kind === "diagram" ? "#" + encodeURIComponent([t.id, t.side].filter(Boolean).join(","))
+    : t?.kind === "file" ? "#f=" + encodeURIComponent(t.path) : t?.kind === "commit" ? "#c=" + t.sha : ""));
+}
+const sameTab = (a, b) => a.kind === b.kind && (a.kind === "diagram" ? a.id === b.id : a.kind === "file" ? a.path === b.path : a.sha === b.sha);
+// Open (or focus) a tab next to the current one. Old file tabs make room past 14.
+function openTab(spec) {
+  let i = tabs.findIndex((t) => sameTab(t, spec));
+  if (i < 0) {
+    i = Math.min(active + 1, tabs.length);
+    tabs.splice(i, 0, spec);
+    if (tabs.length > 14) { const drop = tabs.findIndex((t, k) => k !== i && t.kind !== "diagram"); if (drop >= 0) { tabs.splice(drop, 1); if (drop < i) i--; } }
+  } else Object.assign(tabs[i], spec);
+  active = i;
+  picked = spec.node ? { pane: "main", id: spec.node } : null;
+  renderActive();
+}
+function closeTab(i) {
+  tabs.splice(i, 1);
+  if (i < active || active >= tabs.length) active = Math.max(0, active - 1);
+  renderActive();
+}
+const openDiagram = (id, node) => openTab({ kind: "diagram", id, node });
+function zoom(id) { cur().side = id; picked = null; renderActive(); }
+function drawTabs() {
+  $("#tabbar").innerHTML = tabs.map((t, i) => {
+    const d = t.kind === "diagram" && byId(t.id), st = t.kind === "file" && statusOf(t.path);
+    const label = d ? "<span class=ti>◇</span>" + esc(nameOf(d)) + (t.side && byId(t.side) ? " <span class=muted>› " + esc(nameOf(byId(t.side))) + "</span>" : "")
+      : t.kind === "file" ? esc(t.path.split("/").pop()) : "<span class=ti>●</span>" + esc(t.sha);
+    const title = d ? d.question : t.kind === "file" ? t.path : "commit " + t.sha;
+    return "<div class='ctab" + (i === active ? " on" : "") + "' data-i=" + i + " title='" + esc(title) + "'>" + label + (st ? "<span class='mark " + st + "'>" + st + "</span>" : "") + "<button class=tx data-x=" + i + " title='Close'>×</button></div>";
+  }).join("");
+  for (const el of document.querySelectorAll(".ctab")) {
+    el.onclick = (e) => { if (e.target.closest(".tx")) return; active = +el.dataset.i; picked = null; renderActive(); };
+    el.onauxclick = (e) => { if (e.button === 1) closeTab(+el.dataset.i); };
+  }
+  for (const b of document.querySelectorAll(".ctab .tx")) b.onclick = () => closeTab(+b.dataset.x);
+  $(".ctab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+// Show the active tab: a diagram (with its zoomed detail beside it) or code.
+function renderActive() {
+  const t = cur();
+  saveTabs(); setHash(); drawTabs();
+  const isCode = t && t.kind !== "diagram";
+  $("#canvas").hidden = !!isCode;
+  $("#codeview").hidden = !isCode;
+  if (!isCode) {
+    main = t?.id ?? null; side = t?.side && byId(t.side) ? t.side : null;
+    drawDiagrams();
+  } else {
+    for (const w of ["main", "side"]) if (panes[w]) { panes[w].destroy(); panes[w] = null; }
+    renderCode(t);
+    drawInspector();
+  }
+  drawSide();
+}
 
 function elements(d) {
   const c = changed(), els = [];
@@ -282,10 +349,10 @@ function drawPane(which) {
   const d = byId(which === "main" ? main : side), box = $("#pane-" + which);
   if (panes[which]) { panes[which].destroy(); panes[which] = null; }
   if (!d) return;
-  $(".ptitle", box).innerHTML = "<span class=k>" + esc(d.kind) + (d.rate ? " · " + esc(d.rate) : "") + "</span>" + esc(d.question) +
+  $(".ptitle", box).innerHTML = "<span class=pname title='" + esc(d.question) + "'>" + esc(nameOf(d)) + "</span>" +
     "<span class=pbtns><button class=reset title='Forget where you moved the boxes'" + (S.layout?.[d.id] ? "" : " hidden") + ">reset layout</button>" +
     (which === "side" ? "<button class=x title='Close'>×</button>" : "") + "</span>";
-  $(".x", box)?.addEventListener("click", () => { side = null; picked = null; setHash(); drawDiagrams(); });
+  $(".x", box)?.addEventListener("click", () => { cur().side = null; picked = null; renderActive(); });
   $(".reset", box).addEventListener("click", () => {
     if (S.layout) delete S.layout[d.id];
     stamp = JSON.stringify(S);
@@ -311,7 +378,7 @@ function drawPane(which) {
     const n = d.nodes.find((x) => x.id === e.target.id()), ns = nodeState(n);
     tip.innerHTML = "<b>" + esc(n.label) + "</b><br>" + esc(tldr(n, n.explain)) +
       (ns.live ? "<br><span style='color:var(--hot)'>◉ the agent is changing it now</span>" : ns.unc ? "<br><span style='color:var(--warn)'>its code changed, not committed</span>" : "") +
-      (n.detail && byId(n.detail) ? "<br><span class=muted>click to zoom in: " + esc(byId(n.detail).question) + "</span>" : "");
+      (n.detail && byId(n.detail) ? "<br><span class=muted>⤢ click to open " + esc(nameOf(byId(n.detail))) + "</span>" : "");
     tip.hidden = false; place(e.originalEvent);
     cy.elements().not(e.target.closedNeighborhood()).not(e.target.ancestors()).not(e.target.descendants()).addClass("faded");
     e.target.connectedEdges().addClass("hl");
@@ -328,7 +395,7 @@ function drawPane(which) {
   cy.on("mouseout", "node, edge", () => { tip.hidden = true; cy.elements().removeClass("faded hl"); });
   cy.on("tap", "node", (e) => {
     const n = d.nodes.find((x) => x.id === e.target.id());
-    if (n.detail && byId(n.detail)) { if (which === "side") main = d.id; zoom(n.detail); return; }
+    if (n.detail && byId(n.detail)) { if (which === "side") cur().id = d.id; zoom(n.detail); return; }
     picked = { pane: which, id: n.id };
     if (insp) { insp = null; drawHeader(); }
     for (const c of Object.values(panes)) c?.nodes().removeClass("picked");
@@ -340,18 +407,17 @@ function drawPane(which) {
 
 // Both panes get their size before either is drawn, so each fits its own half.
 function drawDiagrams() {
-  $("#nodiagram").hidden = S.diagrams.length > 0;
+  $("#nodiagram").hidden = !!byId(main);
   $("#pane-main").hidden = !byId(main);
   $("#pane-side").hidden = !byId(side);
   $("#canvas").classList.toggle("split", !!byId(side));
   drawPane("main"); drawPane("side");
   drawInspector();
-  if (tab === "diagrams") drawSide();
 }
 // Only what's changing moved: restyle the boxes in place, keep zoom and positions.
 function restyle() {
   const c = changed();
-  if (mini.cy && mini.d) for (const n of mini.d.nodes) { const ns = nodeState(n, c); mini.cy.$id(n.id).toggleClass("live", ns.live).toggleClass("unc", ns.unc); }
+  if (mini.cy && mini.d && cur()?.kind === "file") for (const n of mini.d.nodes) { const ns = nodeState(n, c); mini.cy.$id(n.id).toggleClass("live", ns.live).toggleClass("unc", ns.unc); }
   for (const [which, cy] of Object.entries(panes)) {
     const d = cy && byId(which === "main" ? main : side);
     if (!d) continue;
@@ -426,23 +492,26 @@ function drawInspector() {
     wire(el);
     return;
   }
+  const t = cur();
+  if (t?.kind === "file") return filePanel(t);
+  if (t?.kind === "commit") { el.innerHTML = "<div class=kicker>commit</div><h2>" + esc(t.sha) + "</h2><p class=hint>Click a file name to open it.</p>"; return; }
   const d = byId(picked ? (picked.pane === "main" ? main : side) : side ?? main);
-  if (!d) { el.innerHTML = "<p class=hint>The agents haven't drawn anything yet.</p>"; return; }
+  if (!d) { el.innerHTML = "<p class=hint>Open a diagram or a file from the left.</p>"; return; }
   const n = picked && d.nodes.find((x) => x.id === picked.id), c = changed();
   const parent = S.diagrams.find((x) => x.nodes.some((m) => m.detail === d.id));
-  let h = (parent ? "<a class=back data-open='" + esc(parent.id) + "'>↑ " + esc(parent.question) + "</a>" : "");
+  let h = (parent ? "<a class=back data-open='" + esc(parent.id) + "'>↑ " + esc(nameOf(parent)) + "</a>" : "");
   if (n) {
     const ns = nodeState(n, c);
     const ins = d.edges.filter((e) => e.to === n.id), outs = d.edges.filter((e) => e.from === n.id), lab = (id) => esc(d.nodes.find((x) => x.id === id)?.label ?? id);
     const row = (e, dir) => "<div class=io><span class=dv>" + (e.next ? "↻ " : "") + esc(e.label) + "</span> " + (dir === "from" ? "← " + lab(e.from) : "→ " + lab(e.to)) + "</div>";
-    h += "<div class=kicker>" + esc(d.question) + "</div><h2>" + esc(n.label) + "</h2><p class=lead>" + esc(tldr(n, n.explain)) + "</p>" +
+    h += "<div class=kicker>" + esc(nameOf(d)) + "</div><h2>" + esc(n.label) + "</h2><p class=lead>" + esc(tldr(n, n.explain)) + "</p>" +
       (ns.live ? "<p class=agentbox>◉ the agent is changing it now</p>" : ns.unc ? "<p class=notebox>changed, not committed</p>" : "") +
       ((n.anchors ?? []).length ? "<div class=chips>" + n.anchors.map((a) => codeChip(a, c)).join("") + "</div>" : "") +
       more("more", (n.tldr || tldr(n, n.explain) !== n.explain ? "<p>" + esc(n.explain) + "</p>" : "") +
         (ins.length || outs.length ? "<h4>in and out</h4>" + ins.map((e) => row(e, "from")).join("") + outs.map((e) => row(e, "to")).join("") : ""));
   } else {
     const busy = d.nodes.filter((x) => nodeState(x, c).unc);
-    h += "<div class=kicker>drawn by the agents" + (d.rate ? " · " + esc(d.rate) : "") + "</div><h2>" + esc(d.question) + "</h2><p class=lead>" + esc(tldr(d, d.answer)) + "</p>" +
+    h += "<div class=kicker>drawn by the agents" + (d.rate ? " · " + esc(d.rate) : "") + "</div><h2>" + esc(nameOf(d)) + "</h2><p class=q>" + esc(d.question) + "</p><p class=lead>" + esc(tldr(d, d.answer)) + "</p>" +
       (busy.length ? "<p class=notebox>changed: " + busy.map((x) => esc(x.label)).join(", ") + "</p>" : "") +
       more("more", (d.tldr || tldr(d, d.answer) !== d.answer ? "<p>" + esc(d.answer) + "</p>" : "") + "<p class=hint>Why a picture: " + esc(d.why) + "</p>") +
       "<p class=hint>Hover a box · click for its code · ⤢ zooms in</p>";
@@ -451,7 +520,7 @@ function drawInspector() {
   wire(el);
 }
 
-// ---- drawer: code and diffs ----------------------------------------------
+// ---- code and diffs ------------------------------------------------------
 
 const LANGS = { rs: "rust", ron: "rust", ts: "typescript", js: "javascript", json: "json", toml: "ini", md: "markdown", yml: "yaml", yaml: "yaml", sh: "bash", py: "python", css: "css", html: "xml" };
 const langOf = (p) => LANGS[p.split(".").pop()] ?? null;
@@ -507,98 +576,96 @@ function boxesIn(path) {
   return out;
 }
 
-async function showDrawer(spec) {
-  drawer = spec;
-  const el = $("#drawer"), head = $(".dhead", el), body = $(".dbody", el);
-  el.hidden = false;
-  const close = "<span class=grow></span><button class=dclose title='Close (Esc)'>×</button>";
+// The open file or commit, in the center.
+async function renderCode(spec) {
+  const el = $("#codeview"), head = $(".dhead", el), body = $(".dbody", el);
+  const keep = spec._shown === spec.path + spec.view ? body.scrollTop : null; // refresh in place when only the content moved
   if (spec.kind === "commit") {
-    head.innerHTML = "<span class=path>commit " + esc(spec.sha) + "</span>" + close;
+    head.innerHTML = "<span class=path>commit " + esc(spec.sha) + "</span>";
     body.innerHTML = "<p class=dnote>loading…</p>";
     const c = await (await fetch("api/git/commit?sha=" + encodeURIComponent(spec.sha))).json();
-    if (drawer !== spec) return;
+    if (cur() !== spec) return;
     body.innerHTML = c.error ? "<p class=dnote>" + esc(c.error) + "</p>" :
       "<div class=commitmeta><b>" + esc(c.subject) + "</b><div class=muted>" + esc(c.author) + " · " + new Date(c.date).toLocaleString() + " · " + esc(c.sha.slice(0, 10)) + "</div>" + (c.body ? "<pre>" + esc(c.body) + "</pre>" : "") + "</div>" + diffHtml(c.patch);
+    wire(body);
+    return;
+  }
+  const changedFile = S.changedFiles.includes(spec.path) || S.status.some((s) => s.path === spec.path);
+  const view = spec.view === "diff" && !changedFile ? "file" : spec.view ?? (changedFile && !spec.line ? "diff" : "file");
+  spec.view = view;
+  head.innerHTML = "<span class=path>" + esc(spec.path) + "</span>" + (statusOf(spec.path) ? "<span class='mark " + statusOf(spec.path) + "'>" + statusOf(spec.path) + "</span>" : "") +
+    (changedFile ? "<span class=seg><button data-view=diff" + (view === "diff" ? " class=on" : "") + ">changes</button><button data-view=file" + (view === "file" ? " class=on" : "") + ">file</button></span>" : "");
+  for (const b of head.querySelectorAll("[data-view]")) b.onclick = () => { spec.view = b.dataset.view; spec.line = undefined; renderCode(spec); saveTabs(); };
+  if (keep === null) body.innerHTML = "<p class=dnote>loading…</p>";
+  let html;
+  if (view === "diff") {
+    const r = await (await fetch("api/git/diff?path=" + encodeURIComponent(spec.path))).json();
+    html = r.error ? "<p class=dnote>" + esc(r.error) + "</p>" : diffHtml(r.patch);
   } else {
-    const changedFile = S.changedFiles.includes(spec.path) || S.status.some((s) => s.path === spec.path);
-    const view = spec.view ?? (changedFile && !spec.line ? "diff" : "file");
-    spec.view = view;
-    const boxes = boxesIn(spec.path);
-    head.innerHTML = "<span class=path>" + esc(spec.path) + "</span>" + (statusOf(spec.path) ? "<span class='mark " + statusOf(spec.path) + "'>" + statusOf(spec.path) + "</span>" : "") +
-      (changedFile ? "<span class=seg><button data-view=diff" + (view === "diff" ? " class=on" : "") + ">changes</button><button data-view=file" + (view === "file" ? " class=on" : "") + ">file</button></span>" : "") + close +
-      (boxes.length ? "<div class=inchips><span class=muted>in diagrams:</span>" + boxes.map(({ d, n }) => "<a data-open='" + esc(d.id) + "' data-node='" + esc(n.id) + "' title='" + esc(d.question) + "'>" + esc(n.label) + "</a>").join("") + "</div>" : "");
-    for (const b of head.querySelectorAll("[data-view]")) b.onclick = () => showDrawer({ ...spec, view: b.dataset.view });
-    body.innerHTML = "<p class=dnote>loading…</p>";
-    if (view === "diff") {
-      const r = await (await fetch("api/git/diff?path=" + encodeURIComponent(spec.path))).json();
-      if (drawer !== spec) return;
-      body.innerHTML = r.error ? "<p class=dnote>" + esc(r.error) + "</p>" : diffHtml(r.patch);
-    } else {
-      const r = await (await fetch("api/file?path=" + encodeURIComponent(spec.path))).json();
-      if (drawer !== spec) return;
-      if (r.error || r.text === null) { body.innerHTML = "<p class=dnote>" + esc(r.error ?? r.note) + "</p>"; }
-      else {
-        const lines = hlLines(r.text.replace(/\n$/, ""), langOf(spec.path)), a = spec.line ?? -1, b = spec.end ?? a;
-        body.innerHTML = "<table class=code>" + lines.map((l, i) => "<tr id=L" + (i + 1) + " data-n=" + (i + 1) + (i + 1 >= a && i + 1 <= b ? " class=hl" : "") + "><td class=ln>" + (i + 1) + "</td><td class=c>" + l + "</td></tr>").join("") + "</table>";
-        if (a > 0) $("#L" + a, body)?.scrollIntoView({ block: "center" });
-      }
+    const r = await (await fetch("api/file?path=" + encodeURIComponent(spec.path))).json();
+    if (r.error || r.text === null) html = "<p class=dnote>" + esc(r.error ?? r.note) + "</p>";
+    else {
+      const lines = hlLines(r.text.replace(/\n$/, ""), langOf(spec.path)), a = spec.line ?? -1, b = spec.end ?? a;
+      html = "<table class=code>" + lines.map((l, i) => "<tr id=L" + (i + 1) + " data-n=" + (i + 1) + (i + 1 >= a && i + 1 <= b ? " class=hl" : "") + "><td class=ln>" + (i + 1) + "</td><td class=c>" + l + "</td></tr>").join("") + "</table>";
     }
   }
-  $(".dclose", head).onclick = closeDrawer;
-  if (spec.kind === "file") showMini(spec.path); else hideMini();
-  wire(el);
-  if (tab !== "diagrams") drawSide();
+  if (cur() !== spec) return;
+  body.innerHTML = html;
+  if (keep !== null) body.scrollTop = keep;
+  else if (spec.line) $("#L" + spec.line, body)?.scrollIntoView({ block: "center" });
+  else body.scrollTop = 0;
+  spec._shown = spec.path + spec.view;
+  wire(body);
+  syncMini();
 }
-function closeDrawer() { drawer = null; $("#drawer").hidden = true; hideMini(); if (tab !== "diagrams") drawSide(); }
 
-// ---- the floating overview over the code ---------------------------------
-// While a file is open, a small diagram floats over it: boxes in this file are outlined, the
-// ones whose code is on screen light up as you scroll. Hover a box to see its lines, click it to
-// go there. Drag the title bar to move it, the corner to resize it.
+// ---- the open file in the right panel: where it sits in the diagrams -------
+// Boxes with code in this file are outlined; the ones whose code is on screen light up as you
+// scroll. Hover a box to see its lines, click it to go there.
 
 const mini = { cy: null, d: null, path: null };
-const miniGeo = () => { try { return JSON.parse(store.get("cockpit-mini", "null")); } catch { return null; } };
 const diagramsIn = (path) => S.diagrams.filter((d) => d.nodes.some((n) => filesOfNode(n).includes(path)));
 // The lines a box covers in this file; a whole-module link covers the file but isn't "on screen".
 function rangesIn(n, path) {
   return (n.anchors ?? []).map(where).filter((w) => w && w.file === path).map((w) => (w.line ? [w.line, w.end ?? w.line] : null));
 }
-function hideMini() { $("#mini").hidden = true; if (mini.cy) { mini.cy.destroy(); mini.cy = null; } mini.path = null; }
-function showMini(path, id) {
-  const el = $("#mini"), ds = diagramsIn(path);
-  if (!ds.length) return hideMini();
-  const d = ds.find((x) => x.id === id) || (mini.path === path && ds.find((x) => x.id === mini.d?.id)) || ds.find((x) => x.id === main) || ds.find((x) => x.id === side) || ds[0];
-  el.hidden = false;
-  const g = miniGeo();
-  if (g) Object.assign(el.style, { left: g.left + "px", top: g.top + "px", width: g.width + "px", height: g.height + "px", right: "auto", bottom: "auto" });
-  $(".mtitle", el).textContent = d.question;
-  $(".mtabs", el).innerHTML = ds.length > 1 ? ds.map((x) => "<button data-mini='" + esc(x.id) + "'" + (x.id === d.id ? " class=on" : "") + " title='" + esc(x.question) + "'>" + esc(x.id.replace(/-/g, " ")) + "</button>").join("") : "";
-  for (const b of el.querySelectorAll("[data-mini]")) b.onclick = (e) => { e.stopPropagation(); showMini(path, b.dataset.mini); };
-  if (mini.cy) mini.cy.destroy();
-  mini.d = d; mini.path = path;
+function filePanel(t) {
+  const el = $("#inspector"), path = t.path, ds = diagramsIn(path), st = statusOf(path);
+  if (mini.cy) { mini.cy.destroy(); mini.cy = null; }
+  const d = ds.find((x) => x.id === t.mini) || ds.find((x) => x.id === mini.d?.id) || ds[0];
+  const boxes = d ? d.nodes.filter((n) => filesOfNode(n).includes(path)) : [];
+  el.innerHTML = "<div class=kicker>" + esc(path.split("/").slice(0, -1).join("/") || "file") + "</div><h2>" + esc(path.split("/").pop()) + "</h2>" +
+    (st ? "<p class=notebox>" + (st === "A" ? "new, not committed" : st === "D" ? "deleted, not committed" : "changed, not committed") + "</p>" : "") +
+    (d ? "<p class=lead>In <b>" + esc(nameOf(d)) + "</b>: " + boxes.map((n) => esc(n.label)).join(", ") + "</p>" +
+      (ds.length > 1 ? "<div class=chips>" + ds.map((x) => "<a class='chip" + (x.id === d.id ? " on" : "") + "' data-mini='" + esc(x.id) + "'>" + esc(nameOf(x)) + "</a>").join("") + "</div>" : "") +
+      "<div class=mcy></div><div class=mfoot>hover a box to see its lines</div>"
+      : "<p class=hint>No diagram box points into this file.</p>");
+  for (const a of el.querySelectorAll("[data-mini]")) a.onclick = () => { t.mini = a.dataset.mini; filePanel(t); };
+  mini.d = d ?? null; mini.path = path;
+  if (!d) return;
   const cy = (mini.cy = buildCy($(".mcy", el), d));
   cy.nodes().forEach((x) => { const n = d.nodes.find((m) => m.id === x.id()); if (n && filesOfNode(n).includes(path)) x.addClass("infile"); });
-  const rows = () => [...document.querySelectorAll("#drawer .dbody tr[data-n]")];
+  const rows = () => [...document.querySelectorAll("#codeview .dbody tr[data-n]")];
   const mark = (n, on) => {
     const rs = rangesIn(n, path).filter(Boolean);
     for (const tr of rows()) { const k = +tr.dataset.n; tr.classList.toggle("boxhl", on && rs.some(([a, b]) => k >= a && k <= b)); }
   };
   cy.on("mouseover", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); if (!n) return; $(".mfoot", el).textContent = n.label + ": " + tldr(n, n.explain); mark(n, true); });
-  cy.on("mouseout", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); $(".mfoot", el).textContent = ""; if (n) mark(n, false); });
+  cy.on("mouseout", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); $(".mfoot", el).textContent = "hover a box to see its lines"; if (n) mark(n, false); });
   cy.on("tap", "node", (e) => {
     const n = d.nodes.find((m) => m.id === e.target.id());
     if (!n) return;
     const here = rangesIn(n, path).find(Boolean);
-    if (here) { const tr = document.querySelector("#drawer .dbody tr[data-n='" + here[0] + "']"); tr?.scrollIntoView({ block: "center", behavior: "smooth" }); return; }
+    if (here) { document.querySelector("#codeview .dbody tr[data-n='" + here[0] + "']")?.scrollIntoView({ block: "center", behavior: "smooth" }); return; }
     const w = (n.anchors ?? []).map(where).find(Boolean);
-    if (w) showDrawer({ kind: "file", path: w.file, line: w.line, end: w.end });
+    if (w) openTab({ kind: "file", path: w.file, line: w.line, end: w.end });
   });
   syncMini();
 }
 // Which boxes have code on screen right now.
 function syncMini() {
-  if (!mini.cy || !mini.d) return;
-  const body = $("#drawer .dbody"), box = body.getBoundingClientRect();
+  if (!mini.cy || !mini.d || cur()?.kind !== "file") return;
+  const body = $("#codeview .dbody"), box = body.getBoundingClientRect();
   let lo = Infinity, hi = -Infinity;
   for (const tr of body.querySelectorAll("tr[data-n]")) {
     const r = tr.getBoundingClientRect();
@@ -606,49 +673,21 @@ function syncMini() {
     if (r.top > box.bottom) break;
     lo = Math.min(lo, +tr.dataset.n); hi = Math.max(hi, +tr.dataset.n);
   }
-  for (const n of mini.d.nodes) {
-    const on = lo <= hi && rangesIn(n, mini.path).some((r) => r && r[0] <= hi && r[1] >= lo);
-    mini.cy.$id(n.id).toggleClass("inview", on);
-  }
+  for (const n of mini.d.nodes) mini.cy.$id(n.id).toggleClass("inview", lo <= hi && rangesIn(n, mini.path).some((r) => r && r[0] <= hi && r[1] >= lo));
 }
 let miniTick = 0;
-$("#drawer .dbody").addEventListener("scroll", () => { cancelAnimationFrame(miniTick); miniTick = requestAnimationFrame(syncMini); });
-// Move by the title bar; resize from the corner (CSS); both remembered.
-(function () {
-  const el = $("#mini"), head = $(".mhead", el), save = () => {
-    const r = el.getBoundingClientRect(), p = el.offsetParent.getBoundingClientRect();
-    store.set("cockpit-mini", JSON.stringify({ left: r.left - p.left, top: r.top - p.top, width: r.width, height: r.height }));
-  };
-  head.addEventListener("pointerdown", (e) => {
-    if (e.target.closest("button")) return;
-    const r = el.getBoundingClientRect(), p = el.offsetParent.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
-    const move = (ev) => {
-      el.style.left = Math.max(0, Math.min(p.width - 80, ev.clientX - p.left - dx)) + "px";
-      el.style.top = Math.max(0, Math.min(p.height - 30, ev.clientY - p.top - dy)) + "px";
-      el.style.right = "auto"; el.style.bottom = "auto";
-    };
-    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); save(); };
-    addEventListener("pointermove", move); addEventListener("pointerup", up);
-  });
-  let t = 0;
-  new ResizeObserver(() => { if (!mini.cy || el.hidden) return; mini.cy.resize(); clearTimeout(t); t = setTimeout(() => { mini.cy?.fit(undefined, 16); save(); }, 120); }).observe(el);
-  $(".mclose", el).onclick = () => el.classList.toggle("collapsed");
-})();
+$("#codeview .dbody").addEventListener("scroll", () => { cancelAnimationFrame(miniTick); miniTick = requestAnimationFrame(syncMini); });
 
 // ---- wiring --------------------------------------------------------------
 
 function wire(el) {
-  for (const a of el.querySelectorAll("[data-file]")) a.onclick = (e) => { e.preventDefault(); showDrawer({ kind: "file", path: a.dataset.file, line: a.dataset.line ? +a.dataset.line : undefined, end: a.dataset.end ? +a.dataset.end : undefined }); };
-  for (const a of el.querySelectorAll("[data-diff]")) a.onclick = () => showDrawer({ kind: "file", path: a.dataset.diff, view: "diff" });
-  for (const a of el.querySelectorAll("[data-commit]")) a.onclick = () => showDrawer({ kind: "commit", sha: a.dataset.commit });
-  for (const a of el.querySelectorAll("[data-open]")) a.onclick = (e) => { e.preventDefault(); closeDrawer(); openDiagram(a.dataset.open, a.dataset.node); };
+  for (const a of el.querySelectorAll("[data-file]")) a.onclick = (e) => { e.preventDefault(); openTab({ kind: "file", path: a.dataset.file, line: a.dataset.line ? +a.dataset.line : undefined, end: a.dataset.end ? +a.dataset.end : undefined }); };
+  for (const a of el.querySelectorAll("[data-diff]")) a.onclick = () => openTab({ kind: "file", path: a.dataset.diff, view: "diff", line: undefined });
+  for (const a of el.querySelectorAll("[data-commit]")) a.onclick = () => openTab({ kind: "commit", sha: a.dataset.commit });
+  for (const a of el.querySelectorAll("[data-open]")) a.onclick = (e) => { e.preventDefault(); openDiagram(a.dataset.open, a.dataset.node); };
 }
 for (const b of document.querySelectorAll("[data-tab]")) b.addEventListener("click", () => { tab = b.dataset.tab; store.set("cockpit-tab", tab); drawSide(); });
-document.addEventListener("keydown", (e) => { if (e.key === "Escape" && drawer) closeDrawer(); });
-window.addEventListener("hashchange", () => {
-  const [a, b] = decodeURIComponent(location.hash.slice(1)).split(",");
-  if (a !== main || (b || null) !== side) { main = byId(a) ? a : main; side = byId(b) ? b : null; drawDiagrams(); }
-});
+
 
 // Live: poll everything in one request; redraw only what changed.
 async function poll() {
@@ -661,22 +700,29 @@ async function poll() {
         const filesMoved = JSON.stringify(ns.status) !== JSON.stringify(S.status);
         S = ns; stamp = s;
         if (filesMoved) files = null;
-        if (!byId(main)) main = (S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0])?.id ?? null;
-        if (!byId(side)) side = null;
-        drawHeader();
-        if (sameDiagrams) { restyle(); drawInspector(); } else { drawDiagrams(); if (drawer?.kind === "file") showMini(drawer.path); }
+        tabs = tabs.filter((t) => t.kind !== "diagram" || byId(t.id));
+        active = Math.min(active, Math.max(0, tabs.length - 1));
+        drawHeader(); drawTabs();
+        const t = cur();
+        if (t?.kind === "file") { if (filesMoved || !sameDiagrams) renderCode(t); if (!sameDiagrams) drawInspector(); else restyle(); } // live: the open file follows edits
+        else if (sameDiagrams) { restyle(); drawInspector(); } else renderActive();
         drawSide();
       }
     }
   } catch {}
   setTimeout(poll, S.live ? 1500 : 4000);
 }
-// Links can open a tab or the drawer directly: ?tab=git, ?file=path[&line=n], ?diff=path, ?commit=sha.
+// Links can open a tab directly: ?tab=git, ?file=path[&line=n], ?diff=path, ?commit=sha.
 const Q = new URLSearchParams(location.search);
 if (["diagrams", "files", "git"].includes(Q.get("tab"))) tab = Q.get("tab");
 if (["features", "tests"].includes(Q.get("panel"))) insp = Q.get("panel");
-drawHeader(); drawDiagrams(); drawSide();
-if (Q.get("file")) showDrawer({ kind: "file", path: Q.get("file"), line: Q.get("line") ? +Q.get("line") : undefined });
-else if (Q.get("diff")) showDrawer({ kind: "file", path: Q.get("diff"), view: "diff" });
-else if (Q.get("commit")) showDrawer({ kind: "commit", sha: Q.get("commit") });
+drawHeader();
+const H = decodeURIComponent(location.hash.slice(1));
+if (Q.get("file")) openTab({ kind: "file", path: Q.get("file"), line: Q.get("line") ? +Q.get("line") : undefined });
+else if (Q.get("diff")) openTab({ kind: "file", path: Q.get("diff"), view: "diff" });
+else if (Q.get("commit")) openTab({ kind: "commit", sha: Q.get("commit") });
+else if (H.startsWith("f=")) openTab({ kind: "file", path: H.slice(2) });
+else if (H.startsWith("c=")) openTab({ kind: "commit", sha: H.slice(2) });
+else if (byId(H.split(",")[0])) { openDiagram(H.split(",")[0]); if (byId(H.split(",")[1])) zoom(H.split(",")[1]); }
+else renderActive();
 setTimeout(poll, 2000);

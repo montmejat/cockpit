@@ -1,4 +1,4 @@
-/* cockpit: one view. Sidebar (diagrams, files, git) | diagrams | inspector; code and diffs in a drawer. */
+/* cockpit: one view. Sidebar (overview, files, git) | tabs: diagrams, files, commits | right panel. */
 :root{--bg:#f4f5f7;--fg:#1f2329;--muted:#6e7781;--line:#e1e4e8;--card:#ffffff;--accent:#2f6fde;
 --ok:#1f9e7a;--warn:#c98a0b;--bad:#d1453b;--hot:#ef6a2d;--add-bg:#e6f6ec;--del-bg:#fdecea;--add:#1a7f45;--del:#b8332a;
 --k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#e7eefc}
@@ -114,10 +114,15 @@ a.code .chg{color:var(--warn)}
 .hint{color:var(--muted);font-size:11.5px}
 .back{font-size:11px}
 
-/* drawer: code and diffs */
-#drawer{position:absolute;top:0;right:0;bottom:0;width:min(980px,calc(100% - 280px));background:var(--card);border-left:1px solid var(--line);
-  box-shadow:-12px 0 32px rgba(0,0,0,.14);display:flex;flex-direction:column;z-index:10}
-#drawer[hidden]{display:none}
+/* center: tabs, then a diagram or code */
+#center{flex:1;min-width:0;display:flex;flex-direction:column}
+#tabbar{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--card);flex-shrink:0;scrollbar-width:thin}
+.ctab{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border-right:1px solid var(--line);cursor:pointer;white-space:nowrap;color:var(--muted);font-size:12px;border-bottom:2px solid transparent}
+.ctab:hover{color:var(--fg)}.ctab.on{color:var(--fg);background:var(--bg);border-bottom-color:var(--accent)}
+.ctab .ti{color:var(--accent);font-size:10px}.ctab .mark{margin-left:0}
+.ctab .tx{border:0;background:none;padding:0 4px;color:var(--muted);visibility:hidden}.ctab:hover .tx,.ctab.on .tx{visibility:visible}.ctab .tx:hover{color:var(--fg)}
+#canvas[hidden],#codeview[hidden]{display:none}
+#codeview{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--card)}
 .dhead{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .dhead .path{font-weight:700;word-break:break-all}
 .dhead .seg{display:flex}.dhead .seg button{border-radius:0;margin-left:-1px;color:var(--muted)}
@@ -148,7 +153,6 @@ tr.add td.sg{color:var(--add)}tr.del td.sg{color:var(--del)}
   #side{width:auto;max-height:30vh;border-right:0;border-bottom:1px solid var(--line)}
   #canvas{min-height:65vh}
   #inspector{width:auto;border-left:0;border-top:1px solid var(--line)}
-  #drawer{width:100%;position:fixed;top:0}
 }
 @media (prefers-reduced-motion:reduce){.livepill{animation:none}}
 
@@ -167,16 +171,11 @@ details.row[open]{padding-bottom:6px}details.row[open] .rnote{white-space:normal
 a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-color:var(--warn)}.chip.chg::after{content:" ●";color:var(--warn)}
 .probs summary{cursor:pointer;color:var(--bad);font-size:11.5px;list-style:none;margin-top:12px}.probs summary::-webkit-details-marker{display:none}
 
-/* the floating overview over the code */
-#mini{position:absolute;right:24px;bottom:24px;width:380px;height:460px;min-width:240px;min-height:150px;z-index:20;resize:both;overflow:hidden;
-  display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 36px rgba(0,0,0,.22)}
-#mini[hidden]{display:none}
-#mini.collapsed{height:auto!important;min-height:0;resize:none}#mini.collapsed .mcy,#mini.collapsed .mfoot{display:none}
-.mhead{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line);cursor:move;user-select:none;background:var(--bg);border-radius:8px 8px 0 0}
-.mtitle{font-weight:700;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-.mtabs{display:flex;gap:3px}.mtabs button{font-size:10.5px;padding:0 6px;color:var(--muted)}.mtabs button.on{color:var(--fg);border-color:var(--accent)}
-.mclose{padding:0 7px}
-.mcy{flex:1;min-height:0}
-.mfoot{font-size:11px;color:var(--muted);padding:3px 8px 5px;min-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* the open file's place in the diagrams, in the right panel */
+#inspector .mcy{height:340px;border:1px solid var(--line);border-radius:6px;margin-top:8px;background:var(--bg)}
+.mfoot{font-size:11px;color:var(--muted);padding:4px 2px;min-height:20px}
+.chip.on{border-color:var(--accent);color:var(--accent)}
+.pname{font-size:13px}
+p.q{color:var(--muted);font-size:12px;margin:0 0 6px}
 table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color-mix(in oklab,var(--accent) 9%,transparent)}
-@media (max-width:900px){#mini{display:none}}
+

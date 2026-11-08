@@ -1,5 +1,5 @@
-// One server, one page: the agents' diagrams in the middle, files and git on the left, code and
-// diffs in a drawer, and what an agent is changing right now projected onto all of it.
+// One server, one page: files and git on the left,
+// tabs in the center (diagrams, files, commits), and what an agent is changing right now projected onto all of it.
 //   npm run serve -- <project dir> [--port 4173] [--host 127.0.0.1]
 // --host 0.0.0.0 makes it reachable from other machines on the network (no login).
 
@@ -172,15 +172,17 @@ const page = () => `<!doctype html>
     <div class="tabs"><button data-tab="diagrams" title="Diagrams drawn by the agents to explain the code">overview</button><button data-tab="files">files</button><button data-tab="git">git</button></div>
     <div id="sidebody"></div>
   </nav>
+  <section id="center"><div id="tabbar"></div>
   <section id="canvas">
     <section class="pane" id="pane-main"><div class="ptitle"></div><div class="cyc"></div><div class="legend"></div></section>
     <section class="pane" id="pane-side" hidden><div class="ptitle"></div><div class="cyc"></div><div class="legend"></div></section>
     <div id="tip" hidden></div>
-    <div id="nodiagram" hidden>No diagrams yet. Agents add them in .cockpit/diagrams/ (see .cockpit/README.md).</div>
+    <div id="nodiagram" hidden>Open a diagram or a file from the left.</div>
+  </section>
+  <section id="codeview" hidden><div class="dhead"></div><div class="dbody"></div></section>
   </section>
   <aside id="inspector"></aside>
-  <section id="drawer" hidden><div class="dhead"></div><div class="dbody"></div></section>
-  <section id="mini" hidden><div class="mhead"><span class="mtitle"></span><span class="mtabs"></span><button class="mclose" title="Fold or unfold">–</button></div><div class="mcy"></div><div class="mfoot"></div></section>
+
 </main>
 <script>window.INIT = ${JSON.stringify(state()).replace(/</g, "\\u003c")};</script>
 <script>${readFileSync(join(COCKPIT, "src", "app.js"), "utf8")}</script>
