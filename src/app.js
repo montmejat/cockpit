@@ -361,7 +361,7 @@ const more = (label, body) => body ? "<details class=more><summary>" + label + "
 const fileOfModule = (id) => S.modules.find((m) => m.id === id)?.file;
 const unitTestsIn = (mods) => S.tests.unit.filter((u) => mods.includes(u.module)).reduce((n, u) => n + u.tests.length, 0);
 const ORDER = ["broken", "partial", "working", "planned"];
-const backLink = "<a class=back data-closeinsp>← how it works</a>";
+const backLink = "<a class=back data-closeinsp>← overview</a>";
 
 function featuresPanel() {
   let h = backLink + "<h2>Features</h2><p class=lead>What it does today, as the agents see it.</p>" +
