@@ -488,15 +488,15 @@ function codeChip(a, c) {
 
 function drawInspector() {
   const el = $("#inspector");
+  // Code tabs get the full width: the panel only shows there for the features and tests panels.
+  el.hidden = !insp && !!cur() && cur().kind !== "diagram";
   if (insp) {
     el.innerHTML = insp === "features" ? featuresPanel() : testsPanel();
     for (const a of el.querySelectorAll("[data-closeinsp]")) a.onclick = () => { insp = null; drawHeader(); drawInspector(); };
     wire(el);
     return;
   }
-  const t = cur();
-  if (t?.kind === "file") return filePanel(t);
-  if (t?.kind === "commit") { el.innerHTML = "<div class=kicker>commit</div><h2>" + esc(t.sha) + "</h2><p class=hint>Click a file name to open it.</p>"; return; }
+  if (el.hidden) return;
   const d = byId(picked ? (picked.pane === "main" ? main : side) : side ?? main);
   if (!d) { el.innerHTML = "<p class=hint>Open a diagram or a file from the left.</p>"; return; }
   const n = picked && d.nodes.find((x) => x.id === picked.id), c = changed();
@@ -634,16 +634,6 @@ const diagramsIn = (path) => S.diagrams.filter((d) => boxesHere(d, path)).sort((
 // The lines a box covers in this file; a whole-module link covers the file but isn't "on screen".
 function rangesIn(n, path) {
   return (n.anchors ?? []).map(where).filter((w) => w && w.file === path).map((w) => (w.line ? [w.line, w.end ?? w.line] : null));
-}
-// The right panel for a file: short, with the diagrams it appears in.
-function filePanel(t) {
-  const el = $("#inspector"), path = t.path, ds = diagramsIn(path), st = statusOf(path);
-  el.innerHTML = "<div class=kicker>" + esc(path.split("/").slice(0, -1).join("/") || "file") + "</div><h2>" + esc(path.split("/").pop()) + "</h2>" +
-    (st ? "<p class=notebox>" + (st === "A" ? "new, not committed" : st === "D" ? "deleted, not committed" : "changed, not committed") + "</p>" : "") +
-    (ds.length ? "<p class=lead>In " + ds.map((d) => "<b>" + esc(nameOf(d)) + "</b> (" + d.nodes.filter((n) => filesOfNode(n).includes(path)).map((n) => esc(n.label)).join(", ") + ")").join(", ") + "</p>" +
-      "<div class=chips>" + ds.map((d) => "<a class=chip data-open='" + esc(d.id) + "'>open " + esc(nameOf(d)) + "</a>").join("") + "</div>"
-      : "<p class=hint>No diagram box points into this file.</p>");
-  wire(el);
 }
 function hideMini() { $("#mini").hidden = true; if (mini.cy) { mini.cy.destroy(); mini.cy = null; } mini.d = null; mini.path = null; }
 function showMini(t) {

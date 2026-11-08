@@ -100,6 +100,7 @@ main{flex:1;min-height:0;display:flex;position:relative}
 #tip{position:absolute;z-index:5;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;box-shadow:0 6px 24px rgba(0,0,0,.18);pointer-events:none}
 
 /* inspector */
+#inspector[hidden]{display:none}
 #inspector{width:340px;flex-shrink:0;overflow:auto;padding:14px 16px 60px;background:var(--card);border-left:1px solid var(--line)}
 #inspector h2{font-size:14px;margin:4px 0 6px}#inspector h3{margin:0 0 4px;font-size:13.5px}
 #inspector p{margin:6px 0}
