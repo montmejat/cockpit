@@ -374,25 +374,37 @@ function drawPane(which) {
   });
   const tip = $("#tip"), area = $("#canvas");
   const place = (ev) => { const r = area.getBoundingClientRect(); tip.style.left = Math.min(ev.clientX - r.left + 14, r.width - 350) + "px"; tip.style.top = ev.clientY - r.top + 14 + "px"; };
-  cy.on("mouseover", "node", (e) => {
-    const n = d.nodes.find((x) => x.id === e.target.id()), ns = nodeState(n);
-    tip.innerHTML = "<b>" + esc(n.label) + "</b><br>" + esc(tldr(n, n.explain)) +
-      (ns.live ? "<br><span style='color:var(--hot)'>◉ the agent is changing it now</span>" : ns.unc ? "<br><span style='color:var(--warn)'>its code changed, not committed</span>" : "") +
-      (n.detail && byId(n.detail) ? "<br><span class=muted>⤢ click to open " + esc(nameOf(byId(n.detail))) + "</span>" : "");
-    tip.hidden = false; place(e.originalEvent);
-    cy.elements().not(e.target.closedNeighborhood()).not(e.target.ancestors()).not(e.target.descendants()).addClass("faded");
-    e.target.connectedEdges().addClass("hl");
+  // The hover box. While the view zooms or pans, the diagram moves under a still mouse and the library
+  // only notices on the next mouse move: hide the box then, and bring it back on that move.
+  let hov = null;
+  const show = (t, ev) => {
+    cy.elements().removeClass("faded hl");
+    if (t.isNode()) {
+      const n = d.nodes.find((x) => x.id === t.id()), ns = nodeState(n);
+      if (!n) return;
+      tip.innerHTML = "<b>" + esc(n.label) + "</b><br>" + esc(tldr(n, n.explain)) +
+        (ns.live ? "<br><span style='color:var(--hot)'>◉ the agent is changing it now</span>" : ns.unc ? "<br><span style='color:var(--warn)'>its code changed, not committed</span>" : "") +
+        (n.detail && byId(n.detail) ? "<br><span class=muted>⤢ click to open " + esc(nameOf(byId(n.detail))) + "</span>" : "");
+      cy.elements().not(t.closedNeighborhood()).not(t.ancestors()).not(t.descendants()).addClass("faded");
+      t.connectedEdges().addClass("hl");
+    } else {
+      const x = d.edges[+t.id().slice(1)];
+      if (!x) return;
+      tip.innerHTML = (x.next ? "<span class=muted>used in the next round</span><br>" : "") + "<b>" + esc(x.label) + "</b>" + (x.explain ? "<br>" + esc(x.explain) : "");
+      cy.elements().not(t).not(t.connectedNodes()).not(t.connectedNodes().ancestors()).addClass("faded");
+      t.addClass("hl");
+    }
+    tip.hidden = false; place(ev);
+  };
+  const hide = () => { tip.hidden = true; if (!cy.destroyed()) cy.elements().removeClass("faded hl"); };
+  cy.on("mouseover", "node, edge", (e) => { hov = e.target; if (!zooming) show(hov, e.originalEvent); });
+  cy.on("mouseout", "node, edge", () => { hov = null; hide(); });
+  cy.on("viewport", hide);
+  cy.on("mousemove", (e) => {
+    if (hov && tip.hidden && !zooming && !hov.removed()) show(hov, e.originalEvent);
+    else if (!tip.hidden) place(e.originalEvent);
   });
-  cy.on("mouseover", "edge", (e) => {
-    const x = d.edges[+e.target.id().slice(1)];
-    if (!x) return;
-    tip.innerHTML = (x.next ? "<span class=muted>used in the next round</span><br>" : "") + "<b>" + esc(x.label) + "</b>" + (x.explain ? "<br>" + esc(x.explain) : "");
-    tip.hidden = false; place(e.originalEvent);
-    cy.elements().not(e.target).not(e.target.connectedNodes()).not(e.target.connectedNodes().ancestors()).addClass("faded");
-    e.target.addClass("hl");
-  });
-  cy.on("mousemove", (e) => place(e.originalEvent));
-  cy.on("mouseout", "node, edge", () => { tip.hidden = true; cy.elements().removeClass("faded hl"); });
+  cy.on("destroy", hide);
   cy.on("tap", "node", (e) => {
     const n = d.nodes.find((x) => x.id === e.target.id());
     if (n.detail && byId(n.detail)) { if (!zooming) dive(e.target); return; }
@@ -482,7 +494,7 @@ async function dive(node) {
   if (!n || n.zone) return;
   const target = n.detail && byId(n.detail) ? byId(n.detail) : null;
   if (!target && !(n.anchors ?? []).length) return;
-  zooming = true;
+  zooming = true; $("#tip").hidden = true;
   const area = $("#pane-main .cyc"), r = boxRect(node, area), img = snapshot(area);
   if (target) { t.id = target.id; t.code = null; } else t.code = n.id;
   picked = null;
@@ -502,6 +514,7 @@ async function dive(node) {
 async function ascend() {
   const t = tabs[0];
   if (zooming) return;
+  $("#tip").hidden = true;
   if (t.code) { // code back into its box
     zooming = true;
     const node = panes.main?.$id(t.code), z = $("#zcode");
