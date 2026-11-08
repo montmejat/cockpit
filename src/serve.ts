@@ -153,12 +153,11 @@ function state() {
 const page = () => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${name} · cockpit</title>
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<link rel="stylesheet" href="/vendor/font.css">
+<script src="/vendor/cytoscape.min.js"></script>
+<script src="/vendor/dagre.min.js"></script>
+<script src="/vendor/cytoscape-dagre.min.js"></script>
+<script src="/vendor/highlight.min.js"></script>
 <style>${readFileSync(join(COCKPIT, "src", "app.css"), "utf8")}</style></head><body>
 <header>
   <h1>${name}</h1>
@@ -203,6 +202,14 @@ createServer((req, res) => {
   const q = (k: string) => url.searchParams.get(k) ?? "";
   try {
     if (req.method === "GET" && url.pathname === "/") res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page());
+    else if (req.method === "GET" && url.pathname.startsWith("/vendor/")) {
+      // Local copies of the page's libraries and font, so the app works offline.
+      const file = url.pathname.slice("/vendor/".length);
+      const types: Record<string, string> = { js: "text/javascript", css: "text/css", woff2: "font/woff2" };
+      const type = types[file.split(".").pop() ?? ""];
+      if (!/^[\w.-]+$/.test(file) || !type) return res.writeHead(404).end();
+      res.writeHead(200, { "content-type": type, "cache-control": "max-age=86400" }).end(readFileSync(join(COCKPIT, "vendor", "web", file)));
+    }
     else if (req.method === "GET" && url.pathname === "/api/state") json(res, state());
     else if (req.method === "GET" && url.pathname === "/api/files") json(res, listFiles());
     else if (req.method === "GET" && url.pathname === "/api/file") {

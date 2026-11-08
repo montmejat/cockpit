@@ -4,6 +4,19 @@ Experiments in how a human and AI agents work on software together. The human
 leads at whatever depth they choose (purpose, system, module, code) and can
 always go one level deeper.
 
+## Desktop app (Linux)
+
+```sh
+desktop/install.sh            # once: needs webkit2gtk4.1-devel libsoup3-devel gtk3-devel librsvg2-devel
+cockpit ~/Projects/slipangle  # or open "cockpit" from the app menu (reopens the last project)
+cockpit --pick                # choose another project ("Open project…" on the launcher icon)
+```
+
+A Tauri 2 window (`desktop/`) around the same server as `npm run serve`: it starts the
+server on a free port, shows the page, and stops the server when the window closes.
+The page's libraries and font are in `vendor/web/`, so it works offline. The plan is to
+move the server to Rust piece by piece, and the UI later once it stops changing.
+
 ## E1: decision recap
 
 Turns a Claude Code session transcript into a recap you read top-down:

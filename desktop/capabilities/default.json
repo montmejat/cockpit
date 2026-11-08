@@ -1,0 +1,6 @@
+{
+  "identifier": "default",
+  "description": "The loading page only; the cockpit page itself talks to its server over HTTP and needs no app permissions.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
