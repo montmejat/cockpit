@@ -12,8 +12,38 @@ import type { Skeleton } from "./skeleton.ts";
 export const ARCH_FILE = "architecture.json";
 
 export interface Group { id: string; crate: string; name: string; description: string; modules: string[] }
+// What the software does for its user, as it stands. Planned ones have no modules yet.
+export const FEATURE_STATUS = ["working", "partial", "broken", "planned"] as const;
+export interface Feature {
+  id: string; name: string; status: (typeof FEATURE_STATUS)[number]; description: string;
+  modules: string[]; flows?: string[]; note?: string; // note: what's missing or wrong, one line
+}
+// Diagrams the agents draw to explain the code (E9). A small fixed vocabulary so cockpit can
+// check them against the code, draw them the same way, and light them up while agents work.
+export const DIAGRAM_KINDS = ["pipeline", "dataflow", "zones"] as const;
+export interface DiagramNode {
+  id: string; label: string;
+  explain: string; // one or two sentences, shown on hover: what this is, in plain words
+  anchors?: string[]; // code it stands for; empty only for things outside the code (a gamepad, a file on disk)
+  in?: string; // zones: id of the zone node that contains it
+  zone?: boolean; // zones: this node is a zone that contains others
+  outside?: boolean; // not code: the world around it
+  focus?: boolean; // the one thing the diagram is about
+  total?: boolean; // a shared total that several parts add into (an accumulator, a buffer, a shared state)
+}
+// next: the value is used in the next round (next step, next frame, next request), not this one.
+export interface DiagramEdge { from: string; to: string; label: string; explain?: string; next?: boolean }
+export interface Diagram {
+  id: string; question: string; kind: (typeof DIAGRAM_KINDS)[number];
+  answer: string; // the claim the picture makes, in one or two sentences
+  why: string; // why this is worth a diagram rather than a sentence
+  nodes: DiagramNode[]; edges: DiagramEdge[];
+}
+
 export interface Architecture extends Description {
+  diagrams?: Diagram[];
   groups: Group[];
+  features?: Feature[];
   layout?: { rows: string[][]; note: string }; // map arrangement: rows of group ids, top to bottom
   roles?: Record<string, string>; // module id -> one line
 }
@@ -72,9 +102,47 @@ export function checkArch(text: string | null, sk: Skeleton): ArchProblem[] {
     for (const id of groupIds) if (!placed.has(id)) p("layout", `group "${id}" is not in layout.rows`);
   }
 
-  // Ids unique; links point at real symbols; capability references exist.
+  // Features (optional): real modules and flows; built ones have code, every module serves one.
+  if (a.features) {
+    const flowIds = new Set(a.flows.map((f) => f.id)), served = new Set<string>();
+    for (const f of a.features) {
+      const w = `feature ${f.id}`;
+      if (!FEATURE_STATUS.includes(f.status)) p(w, `status "${f.status}" is not one of ${FEATURE_STATUS.join(", ")}`);
+      if (!Array.isArray(f.modules)) { p(w, `missing "modules" (a list of module ids, empty when planned)`); continue; }
+      if (f.status !== "planned" && !f.modules.length) p(w, `is ${f.status} but lists no modules`);
+      for (const id of f.modules) { if (!mods.has(id)) p(w, `module "${id}" does not exist`); served.add(id); }
+      for (const id of f.flows ?? []) if (!flowIds.has(id)) p(w, `flow "${id}" does not exist`);
+    }
+    for (const m of sk.modules) if (!served.has(m.id)) p("features", `module "${m.id}" (${m.file}) serves no feature`);
+  }
+
+  // Diagrams (optional): known kinds, real links, edges and zones that point at real nodes.
+  if (a.diagrams) {
+    if (a.diagrams.length > 5) p("diagrams", `${a.diagrams.length} diagrams: keep at most 5, the ones that explain the most`);
+    for (const d of a.diagrams) {
+      const w = `diagram ${d.id}`;
+      if (!DIAGRAM_KINDS.includes(d.kind)) p(w, `kind "${d.kind}" is not one of ${DIAGRAM_KINDS.join(", ")}`);
+      for (const k of ["question", "answer", "why"] as const) if (!d[k]) p(w, `missing "${k}"`);
+      if (!Array.isArray(d.nodes) || !Array.isArray(d.edges)) { p(w, `needs "nodes" and "edges" lists`); continue; }
+      const nodeIds = new Set<string>();
+      for (const n of d.nodes) {
+        if (nodeIds.has(n.id)) p(w, `node id "${n.id}" is used twice`);
+        nodeIds.add(n.id);
+        if (!n.explain) p(`${w} node ${n.id}`, `missing "explain" (shown on hover)`);
+        if (!n.zone && !n.outside && !n.anchors?.length) p(`${w} node ${n.id}`, `has no code links: add anchors, or mark it "outside" if it is not code`);
+        for (const s of n.anchors ?? []) if (!symbols.has(s)) p(`${w} node ${n.id}`, `link "${s}" matches no module or item (format: crate/module::Item or crate/module::Type::method)`);
+      }
+      for (const n of d.nodes) if (n.in && !d.nodes.some((z) => z.id === n.in && z.zone)) p(`${w} node ${n.id}`, `"in": "${n.in}" is not a zone of this diagram`);
+      for (const e of d.edges) {
+        for (const end of [e.from, e.to]) if (!nodeIds.has(end)) p(w, `edge ${e.from} -> ${e.to}: no node "${end}"`);
+        if (!e.label) p(w, `edge ${e.from} -> ${e.to} has no label (say what moves along it)`);
+      }
+    }
+  }
+
+  // Ids unique; links point at real symbols; flow references exist.
   const ids = new Map<string, string>();
-  for (const x of [...a.groups.map((g) => ({ id: g.id, k: "groups" })), ...KINDS.flatMap((k) => a[k].map((x) => ({ id: x.id, k })))]) {
+  for (const x of [...a.groups.map((g) => ({ id: g.id, k: "groups" })), ...(a.features ?? []).map((f) => ({ id: f.id, k: "features" })), ...KINDS.flatMap((k) => a[k].map((x) => ({ id: x.id, k })))]) {
     if (ids.has(x.id)) p(x.k, `id "${x.id}" is used twice (also in ${ids.get(x.id)})`);
     ids.set(x.id, x.k);
   }
@@ -111,7 +179,7 @@ export interface ArchChange { kind: string; id: string; name: string; change: "a
 export function archDiff(before: Architecture | null, after: Architecture | null): ArchChange[] {
   if (!after) return [];
   const all = (a: Architecture | null) => new Map(
-    a ? [...a.groups.map((g) => ["groups", g] as const), ...(a.layout ? [["layout", { id: "layout", name: "map layout", ...a.layout }] as const] : []), ...KINDS.flatMap((k) => a[k].map((x) => [k, x] as const))]
+    a ? [...a.groups.map((g) => ["groups", g] as const), ...(a.features ?? []).map((f) => ["features", f] as const), ...(a.diagrams ?? []).map((d) => ["diagrams", { ...d, name: d.question }] as const), ...(a.layout ? [["layout", { id: "layout", name: "map layout", ...a.layout }] as const] : []), ...KINDS.flatMap((k) => a[k].map((x) => [k, x] as const))]
       .map(([k, x]) => [`${k}\u0000${x.id}`, { k, x }]) : [],
   );
   const b = all(before), a = all(after), out: ArchChange[] = [];

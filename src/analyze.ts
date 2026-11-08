@@ -195,6 +195,13 @@ function main() {
       const flags: string[] = [];
       const structural = modules.some((m) => m.status !== "changed") || componentDeps.length > 0;
       if (structural && !updated) flags.push("The code structure changed (modules or dependencies between groups), but architecture.json was not updated.");
+      // A diagram whose code changed while the diagram didn't may have drifted: ask, don't assume.
+      const touched = new Set(modules.map((m) => m.id));
+      for (const d of archAfter.diagrams ?? []) {
+        if (changes.some((c) => c.kind === "diagrams" && c.id === d.id)) continue;
+        const hit = [...new Set(d.nodes.flatMap((n) => (n.anchors ?? []).map((x) => x.split("::")[0])).filter((m) => touched.has(m)))];
+        if (hit.length) flags.push(`Diagram "${d.question}" shows code that changed here (${hit.join(", ")}) and wasn't updated: check it still holds.`);
+      }
       arch = { updated, changes, problems: checkArch(text, skA), flags };
     }
 

@@ -146,3 +146,32 @@ Each turn is shown in four layers:
 The code index of each snapshot is built in a temporary worktree (sharing
 `target/`), so it never races with the agent, and cached by tree hash.
 Turns live in `out/<project>/turns/`.
+
+## E8: the board (home page)
+
+`/` is now a board of what the project does, feature by feature. Features come from a
+`features` list in the repo's `architecture.json`, kept by the agents like the rest of the file
+(status `working` / `partial` / `broken` / `planned`, the modules that make each one, its flows).
+
+- Tiles are features, sized by their lines of code; big tiles show their modules inside.
+  Color by status, by recent activity, or by tests per line.
+- The timeline below has one column per commit (◆ = left exactly as an agent turn finished)
+  and one lane per feature: dots are lines changed. Hover a column to see what it touched,
+  click it (or use ← →) to see the board as of that commit, ▶ replays how the project grew.
+- While an agent works, the features it is editing glow, live.
+- Everything links into the work view (`/work`): modules, flows on the map, commits.
+
+## E9: diagrams drawn by the agents
+
+`/diagrams` shows the pictures the agents keep in the repo's `architecture.json` (`diagrams`).
+Each one answers one question about how the code works. Kinds: `dataflow` (placed by what
+depends on what), `pipeline` (a strict sequence), `zones` (what owns what, what crosses each
+boundary). Nodes link to code and explain themselves on hover; `total` nodes are shared sums
+several parts add into; `next` edges carry values into the next round (step, frame, request).
+
+- `checkArch` checks kinds, links, edges and zones; the Stop hook sends the agent back if they're wrong.
+- Turn analysis flags a diagram whose code changed while the diagram didn't.
+- Boxes glow while an agent edits their code.
+- The brief that tells agents what earns a diagram lives in the project's CLAUDE.md (see
+  slipangle's "### diagrams"): one question per diagram, only where a picture beats two
+  sentences, edges are what the code reads and writes, at most 5.

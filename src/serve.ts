@@ -1,4 +1,4 @@
-// One server for a project: the work view (map + turns), the turns page, and the map.
+// One server for a project: the board (home), the work view (map + turns), the turns page, and the map.
 //   npm run serve -- <project dir> [--port 4173] [--host 127.0.0.1]
 // --host 0.0.0.0 makes it reachable from other machines on the network (no login).
 
@@ -6,8 +6,9 @@ import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
-import { ARCH_FILE, checkArch } from "./arch.ts";
-import { check } from "./describe.ts";
+import { ARCH_FILE, checkArch, readArch } from "./arch.ts";
+import { boardData } from "./board.ts";
+import { check, itemKey } from "./describe.ts";
 import { createMapApp } from "./mapapp.ts";
 import { COCKPIT, listTurns, loadTurn } from "./turns.ts";
 
@@ -125,7 +126,7 @@ const workPage = (url: URL) => {
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
 <style>${readFileSync(join(COCKPIT, "src", "review.css"), "utf8")}${readFileSync(join(COCKPIT, "src", "work.css"), "utf8")}</style></head><body>
-<header><h1>${name}</h1><a id="gitbar" class="gitbar"></a><span class="muted" id="stats"></span><span style="flex:1"></span>
+<header><h1>${name}</h1><span class="nav"><a href="./">board</a> <a href="diagrams">diagrams</a></span><a id="gitbar" class="gitbar"></a><span class="muted" id="stats"></span><span style="flex:1"></span>
 <span class="seg"><button data-view="desc">description</button><button data-view="map">map</button></span>
 <span class="mapctl"><label class="muted"><input type="checkbox" id="arrows"> all arrows</label>
 <button id="reset" title="Forget where you placed the blocks at this zoom level">reset layout</button>
@@ -138,6 +139,50 @@ const workPage = (url: URL) => {
 </body></html>`;
 };
 
+// The board (E8): features, how they grew, what the agent is on. Home page.
+const board = () => { map.rebuild(); return boardData(root, name, map.data().skeleton); };
+const boardPage = () => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${name} · board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<style>${readFileSync(join(COCKPIT, "src", "board.css"), "utf8")}</style></head><body>
+<header><h1>${name}</h1><span class="nav"><a class="on" href="./">board</a><a href="diagrams">diagrams</a><a href="work">work</a></span><span id="live"></span>
+<span style="flex:1"></span><span id="legend"></span>
+<span class="seg"><button data-mode="status">status</button><button data-mode="activity">activity</button><button data-mode="tests">tests</button></span></header>
+<main><div class="left"><div id="when">now</div><div id="tiles"><div id="empty" hidden>No features yet: add a <code>features</code> list to architecture.json.</div></div>
+<div id="planned"></div><div class="tl"><div id="colinfo"></div><div id="timeline"></div></div></div><aside id="panel"></aside></main>
+<script>window.INIT = ${JSON.stringify({ board: board() }).replace(/</g, "\\u003c")};</script>
+<script>${readFileSync(join(COCKPIT, "src", "board-client.js"), "utf8")}</script>
+</body></html>`;
+
+// Diagrams (E9): the agents' pictures from architecture.json, with what's needed to link and light them.
+function diagramsData() {
+  const b = board(), sk = map.data().skeleton;
+  const text = existsSync(join(root, ARCH_FILE)) ? readFileSync(join(root, ARCH_FILE), "utf8") : null;
+  return {
+    diagrams: readArch(root)?.diagrams ?? [],
+    problems: checkArch(text, sk).filter((p) => p.where.startsWith("diagram")),
+    modules: sk.modules.map((m) => ({ id: m.id, file: m.file, items: m.items.filter((i) => !i.test).map((i) => ({ key: itemKey(m.id, i), line: i.line })) })),
+    live: b.live, work: b.work,
+  };
+}
+const diagramsPage = () => `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${name} · diagrams</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/cytoscape-dagre@2.5.0/cytoscape-dagre.min.js"></script>
+<style>${readFileSync(join(COCKPIT, "src", "board.css"), "utf8")}</style></head><body>
+<header><h1>${name}</h1><span class="nav"><a href="./">board</a><a class="on" href="diagrams">diagrams</a><a href="work">work</a></span><span id="live"></span></header>
+<div class="dwrap"><nav id="dside"><div id="dlist"></div><div id="problems"></div></nav>
+<div class="dmain"><div id="cy"></div><div id="tip" hidden></div><div id="empty" hidden>No diagram selected.</div></div><aside id="panel"></aside></div>
+<script>window.INIT = ${JSON.stringify({ diagrams: diagramsData() }).replace(/</g, "\\u003c")};</script>
+<script>${readFileSync(join(COCKPIT, "src", "diagrams-client.js"), "utf8")}</script>
+</body></html>`;
+
 const json = (res: any, data: unknown, code = 200) =>
   res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(data));
 
@@ -145,6 +190,14 @@ createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
   try {
     if (req.method === "GET" && url.pathname === "/") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(boardPage());
+    } else if (req.method === "GET" && url.pathname === "/diagrams") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(diagramsPage());
+    } else if (req.method === "GET" && url.pathname === "/api/diagrams") {
+      json(res, diagramsData());
+    } else if (req.method === "GET" && url.pathname === "/api/board") {
+      json(res, board());
+    } else if (req.method === "GET" && url.pathname === "/work") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(workPage(url));
     } else if (req.method === "GET" && url.pathname === "/turns") {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(reviewPage(url));
@@ -203,5 +256,5 @@ createServer((req, res) => {
     res.writeHead(500).end(String(e));
   }
 }).listen(Number(opt("port") ?? 4173), opt("host") ?? "127.0.0.1", () =>
-  console.log(`serving ${name} on http://${opt("host") ?? "127.0.0.1"}:${opt("port") ?? 4173} (work view at /, turns at /turns, map at /map)`),
+  console.log(`serving ${name} on http://${opt("host") ?? "127.0.0.1"}:${opt("port") ?? 4173} (board at /, work view at /work, turns at /turns, map at /map)`),
 );
