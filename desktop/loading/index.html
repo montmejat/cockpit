@@ -7,6 +7,10 @@
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6ec8a0; margin-right: 10px;
          animation: pulse 1s ease-in-out infinite alternate; }
   @keyframes pulse { from { opacity: .25 } to { opacity: 1 } }
+  #bar { position: fixed; inset: 0 0 auto 0; height: 38px; display: flex; justify-content: flex-end; align-items: center; padding: 0 8px; }
+  #bar button { width: 24px; height: 24px; border: 0; border-radius: 50%; background: #262a31; color: #dde1e7; cursor: pointer; font: 14px sans-serif; }
+  #bar button:hover { background: #f06a5f; color: #fff; }
   #msg { white-space: pre-wrap; max-width: 70ch; }
 </style></head>
-<body><div><span class="dot"></span><span id="msg">starting cockpit…</span></div></body></html>
+<body>
+<div id="bar" data-tauri-drag-region><button title="close" onclick="window.__TAURI__.window.getCurrentWindow().close()">✕</button></div><div><span class="dot"></span><span id="msg">starting cockpit…</span></div></body></html>

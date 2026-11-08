@@ -3,13 +3,23 @@
   "productName": "cockpit",
   "identifier": "io.github.montmejat.cockpit",
   "version": "0.1.0",
-  "build": { "frontendDist": "loading" },
+  "build": {
+    "frontendDist": "loading"
+  },
   "app": {
     "windows": [],
-    "security": { "csp": null }
+    "security": {
+      "csp": null
+    },
+    "withGlobalTauri": true
   },
   "bundle": {
     "active": false,
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png"
+    ]
   }
 }

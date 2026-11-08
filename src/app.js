@@ -916,3 +916,39 @@ else if (byId(Q.get("at"))) { tabs[0].id = Q.get("at"); tabs[0].code = Q.get("bo
 else if (byId(H.split(",")[0])) openDiagram(H.split(",")[0]);
 else renderActive();
 setTimeout(poll, 2000);
+
+// ---- desktop app: the header is the window's title bar -----------------------------
+// Only inside the Tauri window (desktop/), which has no system title bar.
+if (window.__TAURI__) {
+  const win = window.__TAURI__.window.getCurrentWindow();
+  const header = document.querySelector("header");
+  document.body.classList.add("desktop");
+  const icon = {
+    min: '<path d="M4 8h8"/>',
+    max: '<rect x="4.5" y="4.5" width="7" height="7" rx="1"/>',
+    restore: '<rect x="4.5" y="6" width="5.5" height="5.5" rx="1"/><path d="M6.5 4.5h4a1 1 0 0 1 1 1v4"/>',
+    close: '<path d="M5 5l6 6M11 5l-6 6"/>',
+  };
+  const svg = (k) => `<svg viewBox="0 0 16 16" width="16" height="16">${icon[k]}</svg>`;
+  const box = document.createElement("span");
+  box.id = "winctl";
+  box.innerHTML = `<button data-w="min" title="minimize">${svg("min")}</button>` +
+    `<button data-w="max" title="maximize">${svg("max")}</button>` +
+    `<button data-w="close" title="close">${svg("close")}</button>`;
+  header.append(box);
+  const maxBtn = box.querySelector('[data-w="max"]');
+  const syncMax = async () => { const m = await win.isMaximized(); maxBtn.innerHTML = svg(m ? "restore" : "max"); maxBtn.title = m ? "restore" : "maximize"; };
+  box.addEventListener("click", (e) => {
+    const w = e.target.closest("button")?.dataset.w;
+    if (w === "min") win.minimize();
+    else if (w === "max") win.toggleMaximize();
+    else if (w === "close") win.close();
+  });
+  // Drag the window from any empty part of the header; double-click maximizes.
+  header.addEventListener("mousedown", (e) => {
+    if (e.button !== 0 || e.target.closest("a,button,input,select,textarea,.mlink,[data-tab]")) return;
+    if (e.detail === 2) win.toggleMaximize(); else win.startDragging();
+  });
+  addEventListener("resize", syncMax);
+  syncMax();
+}

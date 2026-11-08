@@ -210,3 +210,10 @@ table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color
 @media (prefers-reduced-motion:reduce){.zsnap{display:none}}
 .maptab{display:flex;align-items:center;justify-content:center;width:38px;flex-shrink:0;cursor:pointer;color:var(--muted);font-size:15px;border-right:1px solid var(--line);border-bottom:2px solid transparent}
 .maptab:hover{color:var(--accent)}.maptab.on{color:var(--accent);background:var(--bg);border-bottom-color:var(--accent)}
+/* desktop app: the header doubles as the title bar */
+body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;padding-right:8px}
+#winctl{display:flex;gap:10px;margin-left:6px}
+#winctl button{width:24px;height:24px;padding:0;border:0;border-radius:50%;display:grid;place-items:center;background:var(--line);color:var(--fg)}
+#winctl button:hover{filter:brightness(1.25)}
+#winctl button[data-w="close"]:hover{background:var(--bad);color:#fff;filter:none}
+#winctl svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
