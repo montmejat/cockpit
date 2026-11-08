@@ -84,7 +84,7 @@ function diagramsList() {
     const dp = depth(d.id);
     return "<a class='q" + (d.id === main ? " on" : d.id === side ? " on2" : "") + (dp === 1 ? " sub" : dp > 1 ? " sub2" : "") + "' data-open='" + esc(d.id) + "'><span class=k>" + esc(d.kind) + "</span>" + esc(d.question) + "</a>";
   }).join("") : "<p class=muted>No diagrams yet.</p>") +
-    (probs.length ? "<div class=probs><h4>.cockpit/ doesn't match the code</h4>" + probs.slice(0, 12).map((p) => "<p class=prob>" + esc(p.where) + ": " + esc(p.problem) + "</p>").join("") + "</div>" : "") + "</div>";
+    (probs.length ? "<details class=probs><summary>⚠ " + plural(probs.length, "thing") + " in .cockpit/ don't match the code</summary>" + probs.slice(0, 30).map((p) => "<p class=prob>" + esc(p.where) + ": " + esc(p.problem) + "</p>").join("") + "</details>" : "") + "</div>";
 }
 
 async function loadFiles() { try { files = await (await fetch("api/files")).json(); if (tab === "files") drawSide(); } catch {} }
@@ -301,7 +301,7 @@ function drawPane(which) {
   const place = (ev) => { const r = area.getBoundingClientRect(); tip.style.left = Math.min(ev.clientX - r.left + 14, r.width - 350) + "px"; tip.style.top = ev.clientY - r.top + 14 + "px"; };
   cy.on("mouseover", "node", (e) => {
     const n = d.nodes.find((x) => x.id === e.target.id()), ns = nodeState(n);
-    tip.innerHTML = "<b>" + esc(n.label) + "</b><br>" + esc(n.explain) +
+    tip.innerHTML = "<b>" + esc(n.label) + "</b><br>" + esc(tldr(n, n.explain)) +
       (ns.live ? "<br><span style='color:var(--hot)'>◉ the agent is changing it now</span>" : ns.unc ? "<br><span style='color:var(--warn)'>its code changed, not committed</span>" : "") +
       (n.detail && byId(n.detail) ? "<br><span class=muted>click to zoom in: " + esc(byId(n.detail).question) + "</span>" : "");
     tip.hidden = false; place(e.originalEvent);
@@ -353,83 +353,91 @@ function restyle() {
 
 // ---- inspector -----------------------------------------------------------
 
-// ---- features and tests: what the header numbers mean ----------------------
+// ---- the right panel: a short line first, more on click -------------------
 
+// The agents write a short "tldr"; until they do, the first sentence stands in.
+const tldr = (x, long) => x.tldr || (long ?? "").split(/(?<=[.!?])\s/)[0];
+const more = (label, body) => body ? "<details class=more><summary>" + label + "</summary>" + body + "</details>" : "";
 const fileOfModule = (id) => S.modules.find((m) => m.id === id)?.file;
 const unitTestsIn = (mods) => S.tests.unit.filter((u) => mods.includes(u.module)).reduce((n, u) => n + u.tests.length, 0);
 const ORDER = ["broken", "partial", "working", "planned"];
+const backLink = "<a class=back data-closeinsp>← how it works</a>";
+
 function featuresPanel() {
-  const back = "<a class=back data-closeinsp>← back to the diagram</a>";
-  let h = back + "<div class=kicker>features</div><h2>What it does, as it stands</h2>" +
-    "<p class=hint>Written by the agents in .cockpit/project.json: they set each status and must explain partial or broken ones. Cockpit checks that the modules exist and that every module serves a feature.</p>";
+  let h = backLink + "<h2>Features</h2><p class=lead>What it does today, as the agents see it.</p>" +
+    more("where this comes from", "<p class=hint>The agents keep this list in .cockpit/project.json. They set each status and must say what's missing when a feature is partial or broken. Cockpit checks that the code they point to exists.</p>");
   for (const st of ORDER) {
     const fs = S.features.filter((f) => f.status === st);
     if (!fs.length) continue;
-    h += "<h4><span class='dot st-" + st + "'></span> " + st + " · " + fs.length + (st === "planned" ? " <span class=muted>(no code yet)</span>" : "") + "</h4>";
-    h += fs.map((f) => {
+    h += "<h4><span class='dot st-" + st + "'></span> " + st + " · " + fs.length + "</h4>" + fs.map((f) => {
       const n = unitTestsIn(f.modules);
-      return "<div class=feat><div class=fname>" + esc(f.name) + "</div><div class=fdesc>" + esc(f.description) + "</div>" +
-        (f.note ? "<div class=fnote>" + esc(f.note) + "</div>" : "") +
-        (f.modules.length ? "<div class=fmods>" + f.modules.map((m) => "<a data-file='" + esc(fileOfModule(m) ?? "") + "'>" + esc(m) + "</a>").join(" ") +
-          " <span class='" + (n ? "muted" : "bad") + "'>· " + (n ? n + " unit tests" : "no unit tests") + "</span></div>" : "") + "</div>";
+      return "<details class=row><summary><span class=rname>" + esc(f.name) + "</span>" + (f.note ? "<span class=rnote>" + esc(f.note) + "</span>" : "") + "</summary>" +
+        "<p class=hint>" + esc(f.description) + "</p>" +
+        (f.modules.length ? "<div class=chips>" + f.modules.map((m) => "<a class=chip data-file='" + esc(fileOfModule(m) ?? "") + "'>" + esc(m) + "</a>").join("") + "</div>" +
+          "<p class='" + (n ? "hint" : "bad") + "'>" + (n ? n + " unit tests" : "no unit tests") + "</p>" : "") + "</details>";
     }).join("");
   }
   return h;
 }
+
 function testsPanel() {
-  const t = S.tests, back = "<a class=back data-closeinsp>← back to the diagram</a>";
-  const unitN = t.unit.reduce((n, m) => n + m.tests.length, 0), intN = t.integration.reduce((n, f) => n + f.tests.length, 0);
+  const t = S.tests, unitN = t.unit.reduce((n, m) => n + m.tests.length, 0), intN = t.integration.reduce((n, f) => n + f.tests.length, 0);
   const tested = t.unit.filter((m) => m.tests.length), untested = t.unit.filter((m) => !m.tests.length);
-  let h = back + "<div class=kicker>tests</div><h2>What's tested</h2>" +
-    "<p>" + unitN + " unit tests in " + tested.length + " of " + t.unit.length + " modules, and " + intN + " integration tests in " + plural(t.integration.length, "file") + ".</p>" +
-    "<p class=hint>Counted from the #[test] functions in the code. This says where tests exist, not how much of the code they cover.</p>";
-  if (S.features.length) {
-    h += "<h4>by feature</h4>" + S.features.filter((f) => f.status !== "planned").map((f) => ({ f, n: unitTestsIn(f.modules) })).sort((a, b) => a.n - b.n)
-      .map(({ f, n }) => "<div class=trow><span>" + esc(f.name) + "</span><span class='" + (n ? "muted" : "bad") + "'>" + (n || "none") + "</span></div>").join("");
-  }
-  if (untested.length) {
-    h += "<h4>modules with no unit tests · " + untested.length + "</h4><div class=fmods>" + untested.map((m) => "<a data-file='" + esc(m.file) + "'>" + esc(m.module) + (t.unit.filter((x) => x.module === m.module).length > 1 ? " (" + esc(m.file.split("/").pop()) + ")" : "") + "</a>").join(" ") + "</div>";
-  }
-  h += "<h4>unit tests</h4>" + tested.map((m) => "<details><summary>" + esc(m.module) + " <span class=muted>· " + m.tests.length + "</span></summary>" +
-    m.tests.map((x) => "<a class=tname data-file='" + esc(m.file) + "' data-line=" + x.line + ">" + esc(x.name) + "</a>").join("") + "</details>").join("");
-  if (t.integration.length) h += "<h4>integration tests</h4>" + t.integration.map((f) => "<details><summary>" + esc(f.file) + " <span class=muted>· " + f.tests.length + "</span></summary>" +
-    f.tests.map((x) => "<a class=tname data-file='" + esc(f.file) + "' data-line=" + x.line + ">" + esc(x.name) + "</a>").join("") + "</details>").join("");
+  const bare = S.features.filter((f) => f.status !== "planned" && !unitTestsIn(f.modules));
+  let h = backLink + "<h2>Tests</h2><p class=lead>" + unitN + " unit, " + intN + " integration. " +
+    (bare.length ? "<span class=bad>" + plural(bare.length, "feature") + " with none.</span>" : "Every feature has some.") + "</p>" +
+    more("how this is counted", "<p class=hint>#[test] functions in the code: where tests exist, not how much they cover.</p>");
+  if (S.features.length) h += "<h4>by feature</h4>" + S.features.filter((f) => f.status !== "planned").map((f) => ({ f, n: unitTestsIn(f.modules) })).sort((a, b) => a.n - b.n)
+    .map(({ f, n }) => {
+      const mods = t.unit.filter((u) => f.modules.includes(u.module) && u.tests.length);
+      return "<details class=row><summary><span class=rname>" + esc(f.name) + "</span><span class='rcount " + (n ? "" : "bad") + "'>" + (n || "none") + "</span></summary>" +
+        (mods.length ? mods.map((u) => u.tests.map((x) => "<a class=tname data-file='" + esc(u.file) + "' data-line=" + x.line + ">" + esc(x.name) + "</a>").join("")).join("") : "<p class=hint>No #[test] in its modules.</p>") + "</details>";
+    }).join("");
+  h += more("modules with no unit tests · " + untested.length, "<div class=chips>" + untested.map((m) => "<a class=chip data-file='" + esc(m.file) + "'>" + esc(m.module) + (t.unit.filter((x) => x.module === m.module).length > 1 ? " (" + esc(m.file.split("/").pop()) + ")" : "") + "</a>").join("") + "</div>");
+  h += more("all unit tests · " + unitN, tested.map((m) => "<details class=row><summary><span class=rname>" + esc(m.module) + "</span><span class=rcount>" + m.tests.length + "</span></summary>" +
+    m.tests.map((x) => "<a class=tname data-file='" + esc(m.file) + "' data-line=" + x.line + ">" + esc(x.name) + "</a>").join("") + "</details>").join(""));
+  if (t.integration.length) h += more("integration tests · " + intN, t.integration.map((f) => "<details class=row><summary><span class=rname>" + esc(f.file) + "</span><span class=rcount>" + f.tests.length + "</span></summary>" +
+    f.tests.map((x) => "<a class=tname data-file='" + esc(f.file) + "' data-line=" + x.line + ">" + esc(x.name) + "</a>").join("") + "</details>").join(""));
   return h;
 }
 
+// A code link as a small chip: the last part of the name, the full one on hover.
+function codeChip(a, c) {
+  const w = where(a), short = a.includes("::") ? a.split("::").slice(1).join("::") : a.split("/").pop();
+  if (!w) return "<span class='chip muted'>" + esc(short) + "</span>";
+  return "<a class='chip" + (anchorChanged(a, c) ? " chg" : "") + "' title='" + esc(a + " · " + w.file) + "' data-file='" + esc(w.file) + "'" +
+    (w.line ? " data-line='" + w.line + "' data-end='" + (w.end ?? w.line) + "'" : "") + ">" + esc(short) + "</a>";
+}
+
 function drawInspector() {
+  const el = $("#inspector");
   if (insp) {
-    const el = $("#inspector");
     el.innerHTML = insp === "features" ? featuresPanel() : testsPanel();
     for (const a of el.querySelectorAll("[data-closeinsp]")) a.onclick = () => { insp = null; drawHeader(); drawInspector(); };
     wire(el);
     return;
   }
-  const d = byId(picked ? (picked.pane === "main" ? main : side) : side ?? main), el = $("#inspector");
-  if (!d) { el.innerHTML = "<p class=hint>Diagrams appear here once an agent draws them.</p>"; return; }
+  const d = byId(picked ? (picked.pane === "main" ? main : side) : side ?? main);
+  if (!d) { el.innerHTML = "<p class=hint>The agents haven't drawn anything yet.</p>"; return; }
   const n = picked && d.nodes.find((x) => x.id === picked.id), c = changed();
   const parent = S.diagrams.find((x) => x.nodes.some((m) => m.detail === d.id));
-  let h = (parent ? "<a class=back data-open='" + esc(parent.id) + "'>↑ part of: " + esc(parent.question) + "</a>" : "") +
-    "<div class=kicker>" + esc(d.kind) + (d.rate ? " · " + esc(d.rate) : "") + "</div><h2>" + esc(d.question) + "</h2><p>" + esc(d.answer) + "</p>" +
-    "<p class=why><span>why a picture</span> " + esc(d.why) + "</p>";
-  const focus = d.nodes.find((x) => x.focus);
-  if (focus && !n) h += "<p class=why><span>highlighted</span> <b>" + esc(focus.label) + "</b>: " + esc(focus.explain) + "</p>";
-  const busy = d.nodes.filter((x) => nodeState(x, c).unc);
-  if (busy.length && !n) h += "<p class=notebox>Changed and not committed: " + busy.map((x) => "<b>" + esc(x.label) + "</b>").join(", ") + "</p>";
+  let h = (parent ? "<a class=back data-open='" + esc(parent.id) + "'>↑ " + esc(parent.question) + "</a>" : "");
   if (n) {
     const ns = nodeState(n, c);
-    h += "<div class=node><h3>" + esc(n.label) + "</h3>" + (n.focus ? "<p class=muted>The box this diagram is about.</p>" : "") + "<p>" + esc(n.explain) + "</p>" +
-      (ns.live ? "<p class=agentbox>◉ the agent is changing this code now</p>" : ns.unc ? "<p class=notebox>its code changed, not committed yet</p>" : "") +
-      ((n.anchors ?? []).length ? "<h4>code</h4>" + n.anchors.map((a) => {
-        const w = where(a);
-        return w ? "<a class=code data-file='" + esc(w.file) + "'" + (w.line ? " data-line='" + w.line + "' data-end='" + (w.end ?? w.line) + "'" : "") + ">" + esc(a) + (anchorChanged(a, c) ? " <span class=chg>● changed</span>" : "") + "</a>" : "<span class=muted>" + esc(a) + "</span>";
-      }).join("") : "") +
-      (() => {
-        const ins = d.edges.filter((e) => e.to === n.id), outs = d.edges.filter((e) => e.from === n.id), lab = (id) => esc(d.nodes.find((x) => x.id === id)?.label ?? id);
-        const row = (e, dir) => "<div class=io><span class=dv>" + (e.next ? "↻ " : "") + esc(e.label) + "</span> " + dir + " " + lab(dir === "from" ? e.from : e.to) + (e.next ? " <span class=muted>(next round)</span>" : "") + "</div>";
-        return (ins.length ? "<h4>gets</h4>" + ins.map((e) => row(e, "from")).join("") : "") + (outs.length ? "<h4>gives</h4>" + outs.map((e) => row(e, "to")).join("") : "");
-      })() + "</div>";
-  } else h += "<p class=hint>Hover a box for what it is. Click it for its code, or to zoom in when it has ⤢. Drag boxes to make room; they stay where you put them.</p>";
+    const ins = d.edges.filter((e) => e.to === n.id), outs = d.edges.filter((e) => e.from === n.id), lab = (id) => esc(d.nodes.find((x) => x.id === id)?.label ?? id);
+    const row = (e, dir) => "<div class=io><span class=dv>" + (e.next ? "↻ " : "") + esc(e.label) + "</span> " + (dir === "from" ? "← " + lab(e.from) : "→ " + lab(e.to)) + "</div>";
+    h += "<div class=kicker>" + esc(d.question) + "</div><h2>" + esc(n.label) + "</h2><p class=lead>" + esc(tldr(n, n.explain)) + "</p>" +
+      (ns.live ? "<p class=agentbox>◉ the agent is changing it now</p>" : ns.unc ? "<p class=notebox>changed, not committed</p>" : "") +
+      ((n.anchors ?? []).length ? "<div class=chips>" + n.anchors.map((a) => codeChip(a, c)).join("") + "</div>" : "") +
+      more("more", (n.tldr || tldr(n, n.explain) !== n.explain ? "<p>" + esc(n.explain) + "</p>" : "") +
+        (ins.length || outs.length ? "<h4>in and out</h4>" + ins.map((e) => row(e, "from")).join("") + outs.map((e) => row(e, "to")).join("") : ""));
+  } else {
+    const busy = d.nodes.filter((x) => nodeState(x, c).unc);
+    h += "<div class=kicker>drawn by the agents" + (d.rate ? " · " + esc(d.rate) : "") + "</div><h2>" + esc(d.question) + "</h2><p class=lead>" + esc(tldr(d, d.answer)) + "</p>" +
+      (busy.length ? "<p class=notebox>changed: " + busy.map((x) => esc(x.label)).join(", ") + "</p>" : "") +
+      more("more", (d.tldr || tldr(d, d.answer) !== d.answer ? "<p>" + esc(d.answer) + "</p>" : "") + "<p class=hint>Why a picture: " + esc(d.why) + "</p>") +
+      "<p class=hint>Hover a box · click for its code · ⤢ zooms in</p>";
+  }
   el.innerHTML = h;
   wire(el);
 }

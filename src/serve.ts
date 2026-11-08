@@ -169,7 +169,7 @@ const page = () => `<!doctype html>
 </header>
 <main>
   <nav id="side">
-    <div class="tabs"><button data-tab="diagrams">diagrams</button><button data-tab="files">files</button><button data-tab="git">git</button></div>
+    <div class="tabs"><button data-tab="diagrams" title="Diagrams drawn by the agents to explain the code">how it works</button><button data-tab="files">files</button><button data-tab="git">git</button></div>
     <div id="sidebody"></div>
   </nav>
   <section id="canvas">

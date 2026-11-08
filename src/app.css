@@ -38,7 +38,7 @@ header h1{font-size:13px;margin:0;font-weight:700}
 main{flex:1;min-height:0;display:flex;position:relative}
 #side{width:280px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--card)}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
-.tabs button{flex:1;border:0;border-radius:0;background:none;padding:7px;color:var(--muted);border-bottom:2px solid transparent}
+.tabs button{white-space:nowrap;flex:1;border:0;border-radius:0;background:none;padding:7px;color:var(--muted);border-bottom:2px solid transparent}
 .tabs button.on{color:var(--fg);border-bottom-color:var(--accent)}
 #sidebody{flex:1;overflow:auto}
 
@@ -151,3 +151,18 @@ tr.add td.sg{color:var(--add)}tr.del td.sg{color:var(--del)}
   #drawer{width:100%;position:fixed;top:0}
 }
 @media (prefers-reduced-motion:reduce){.livepill{animation:none}}
+
+/* short first, more on click */
+.lead{font-size:13px;margin:4px 0 8px}
+details.more{margin:8px 0}details.more>summary{cursor:pointer;color:var(--muted);font-size:11.5px;list-style:none}
+details.more>summary::before{content:"▸ "}details.more[open]>summary::before{content:"▾ "}
+details.more>summary::-webkit-details-marker,details.row>summary::-webkit-details-marker{display:none}
+details.row{border-top:1px solid var(--line)}details.row>summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:baseline;padding:4px 0}
+details.row>summary:hover{color:var(--accent)}
+.rname{flex-shrink:0}.rnote{color:var(--warn);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rcount{margin-left:auto;color:var(--muted);font-size:11.5px}
+details.row[open]{padding-bottom:6px}details.row[open] .rnote{white-space:normal}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.chip{border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:11.5px;color:var(--fg)}
+a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-color:var(--warn)}.chip.chg::after{content:" ●";color:var(--warn)}
+.probs summary{cursor:pointer;color:var(--bad);font-size:11.5px;list-style:none;margin-top:12px}.probs summary::-webkit-details-marker{display:none}
