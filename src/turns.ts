@@ -65,10 +65,10 @@ export interface Analysis {
   patch: string;
   patchTruncated: boolean;
   costUsd: number;
-  arch?: TurnArch; // only when the repo has an architecture.json
+  arch?: TurnArch; // only when the repo keeps .cockpit/
 }
 
-// What the agent did to architecture.json in this turn, and what still doesn't match.
+// What the agent did to .cockpit/ in this turn, and what still doesn't match.
 export interface TurnArch {
   updated: boolean;
   changes: { kind: string; id: string; name: string; change: "added" | "removed" | "changed" }[];

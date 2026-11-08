@@ -7,7 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { archDiff, archOverlay, type Architecture, checkArch, readArch } from "./arch.ts";
+import { archDiff, ARCH_DIR, type Architecture, checkArch, crateOverlay, loadArch, readArch } from "./arch.ts";
 import { callClaude } from "./claude.ts";
 import { applyOverrides, type Overlay, readOverrides } from "./overlay.ts";
 import type { Skeleton } from "./skeleton.ts";
@@ -21,14 +21,12 @@ import {
 const MAX_PATCH = 300_000;
 
 function placer(project: string, sk: Skeleton, arch: Architecture | null) {
-  // Components come from the repo's architecture.json (E7) if it has one, else from the E2 map.
+  // Components are crates when the repo keeps .cockpit/, else they come from the E2 map.
   const mapFile = join(outDir(project), "map.json");
   const byModule = new Map<string, string>();
   let roles: Record<string, { text: string }> = {};
   if (arch) {
-    const ov = archOverlay(arch);
-    for (const [m, g] of Object.entries(ov.groupOf)) byModule.set(m, g);
-    roles = Object.fromEntries(Object.entries(ov.roles).map(([k, v]) => [k, { text: v }]));
+    for (const [m, g] of Object.entries(crateOverlay(sk).groupOf)) byModule.set(m, g);
   } else if (existsSync(mapFile)) {
     const overlay: Overlay = JSON.parse(readFileSync(mapFile, "utf8")).overlay;
     const model = applyOverrides(sk, overlay, readOverrides(join(COCKPIT, "data", project, "overrides.json")));
@@ -188,13 +186,12 @@ function main() {
     const archAfter = readArch(t.repo, t.after);
     if (archAfter) {
       const archBefore = readArch(t.repo, t.before);
-      const text = git(t.repo, ["show", `${t.after}:architecture.json`]);
       const skA = skeletonOf(t.repo, t.after, join(outDir(project), "skeletons"), PROTO);
       const changes = archDiff(archBefore, archAfter);
-      const updated = files.some((f) => f.path === "architecture.json");
+      const updated = files.some((f) => f.path.startsWith(ARCH_DIR + "/"));
       const flags: string[] = [];
       const structural = modules.some((m) => m.status !== "changed") || componentDeps.length > 0;
-      if (structural && !updated) flags.push("The code structure changed (modules or dependencies between groups), but architecture.json was not updated.");
+      if (modules.some((m) => m.status !== "changed") && !updated) flags.push("Modules were added or removed, but .cockpit/ was not updated (features list the modules that make them).");
       // A diagram whose code changed while the diagram didn't may have drifted: ask, don't assume.
       const touched = new Set(modules.map((m) => m.id));
       for (const d of archAfter.diagrams ?? []) {
@@ -202,7 +199,7 @@ function main() {
         const hit = [...new Set(d.nodes.flatMap((n) => (n.anchors ?? []).map((x) => x.split("::")[0])).filter((m) => touched.has(m)))];
         if (hit.length) flags.push(`Diagram "${d.question}" shows code that changed here (${hit.join(", ")}) and wasn't updated: check it still holds.`);
       }
-      arch = { updated, changes, problems: checkArch(text, skA), flags };
+      arch = { updated, changes, problems: checkArch(loadArch(t.repo, t.after), skA), flags };
     }
 
     const p = patch(t.repo, t.before, t.after);

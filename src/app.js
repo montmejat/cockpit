@@ -14,6 +14,7 @@ let [main, side] = decodeURIComponent(location.hash.slice(1)).split(",");
 if (!byId(main)) main = (S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0])?.id ?? null;
 if (!byId(side)) side = null;
 let picked = null; // { pane, id }
+let insp = null; // the right panel shows "features" or "tests" instead of the diagram
 const panes = { main: null, side: null };
 let graph = null, graphHead = null, files = null, drawer = null; // drawer: { kind, path?, line?, end?, sha?, view? }
 
@@ -45,11 +46,15 @@ const filesOfNode = (n) => [...new Set((n.anchors ?? []).map(where).filter(Boole
 // ---- header --------------------------------------------------------------
 
 function drawHeader() {
-  const g = S.git, dirty = S.status.length, m = S.metrics;
+  const g = S.git, dirty = S.status.length;
   $("#gitpill").innerHTML = "⎇ " + esc(g.branch ?? "detached " + g.head) + (dirty ? " <span class=dirty>· " + dirty + " changed</span>" : "") +
     (g.ahead ? " <span class=ahead>↑" + g.ahead + "</span>" : "") + (g.behind ? " <span class=ahead>↓" + g.behind + "</span>" : "");
-  $("#metrics").innerHTML = "<b>" + (m.lines / 1000).toFixed(1) + "k</b> lines · <b>" + m.tests + "</b> tests" +
-    (m.features ? " · <b>" + m.features.working + "/" + m.features.total + "</b> features working" : "") + " · <b>" + m.commits + "</b> commits";
+  const nTests = S.tests.unit.reduce((n, m) => n + m.tests.length, 0) + S.tests.integration.reduce((n, f) => n + f.tests.length, 0);
+  const by = (st) => S.features.filter((f) => f.status === st).length;
+  const fparts = [["working", ""], ["partial", "warn"], ["broken", "bad"], ["planned", "muted"]].filter(([st]) => by(st)).map(([st, c]) => "<span class='" + c + "'><b>" + by(st) + "</b> " + st + "</span>");
+  $("#metrics").innerHTML = "<b>" + (S.lines / 1000).toFixed(1) + "k</b> lines · <a class='mlink" + (insp === "tests" ? " on" : "") + "' data-insp=tests title='What is tested'><b>" + nTests + "</b> tests</a>" +
+    (S.features.length ? " · <a class='mlink" + (insp === "features" ? " on" : "") + "' data-insp=features title='What the features are and where their status comes from'>features: " + fparts.join(", ") + "</a>" : "");
+  for (const a of document.querySelectorAll("#metrics [data-insp]")) a.onclick = () => { insp = insp === a.dataset.insp ? null : a.dataset.insp; drawHeader(); drawInspector(); };
   $("#live").innerHTML = S.live ? "<span class=livepill title='" + esc(S.live.prompt) + "'>◉ agent working · " + plural(S.live.touched.length, "file") + "</span>" : "";
 }
 
@@ -79,7 +84,7 @@ function diagramsList() {
     const dp = depth(d.id);
     return "<a class='q" + (d.id === main ? " on" : d.id === side ? " on2" : "") + (dp === 1 ? " sub" : dp > 1 ? " sub2" : "") + "' data-open='" + esc(d.id) + "'><span class=k>" + esc(d.kind) + "</span>" + esc(d.question) + "</a>";
   }).join("") : "<p class=muted>No diagrams yet.</p>") +
-    (probs.length ? "<div class=probs><h4>architecture.json doesn't match the code</h4>" + probs.slice(0, 12).map((p) => "<p class=prob>" + esc(p.where) + ": " + esc(p.problem) + "</p>").join("") + "</div>" : "") + "</div>";
+    (probs.length ? "<div class=probs><h4>.cockpit/ doesn't match the code</h4>" + probs.slice(0, 12).map((p) => "<p class=prob>" + esc(p.where) + ": " + esc(p.problem) + "</p>").join("") + "</div>" : "") + "</div>";
 }
 
 async function loadFiles() { try { files = await (await fetch("api/files")).json(); if (tab === "files") drawSide(); } catch {} }
@@ -317,6 +322,7 @@ function drawPane(which) {
     const n = d.nodes.find((x) => x.id === e.target.id());
     if (n.detail && byId(n.detail)) { if (which === "side") main = d.id; zoom(n.detail); return; }
     picked = { pane: which, id: n.id };
+    if (insp) { insp = null; drawHeader(); }
     for (const c of Object.values(panes)) c?.nodes().removeClass("picked");
     e.target.addClass("picked");
     drawInspector();
@@ -347,7 +353,58 @@ function restyle() {
 
 // ---- inspector -----------------------------------------------------------
 
+// ---- features and tests: what the header numbers mean ----------------------
+
+const fileOfModule = (id) => S.modules.find((m) => m.id === id)?.file;
+const unitTestsIn = (mods) => S.tests.unit.filter((u) => mods.includes(u.module)).reduce((n, u) => n + u.tests.length, 0);
+const ORDER = ["broken", "partial", "working", "planned"];
+function featuresPanel() {
+  const back = "<a class=back data-closeinsp>← back to the diagram</a>";
+  let h = back + "<div class=kicker>features</div><h2>What it does, as it stands</h2>" +
+    "<p class=hint>Written by the agents in .cockpit/project.json: they set each status and must explain partial or broken ones. Cockpit checks that the modules exist and that every module serves a feature.</p>";
+  for (const st of ORDER) {
+    const fs = S.features.filter((f) => f.status === st);
+    if (!fs.length) continue;
+    h += "<h4><span class='dot st-" + st + "'></span> " + st + " · " + fs.length + (st === "planned" ? " <span class=muted>(no code yet)</span>" : "") + "</h4>";
+    h += fs.map((f) => {
+      const n = unitTestsIn(f.modules);
+      return "<div class=feat><div class=fname>" + esc(f.name) + "</div><div class=fdesc>" + esc(f.description) + "</div>" +
+        (f.note ? "<div class=fnote>" + esc(f.note) + "</div>" : "") +
+        (f.modules.length ? "<div class=fmods>" + f.modules.map((m) => "<a data-file='" + esc(fileOfModule(m) ?? "") + "'>" + esc(m) + "</a>").join(" ") +
+          " <span class='" + (n ? "muted" : "bad") + "'>· " + (n ? n + " unit tests" : "no unit tests") + "</span></div>" : "") + "</div>";
+    }).join("");
+  }
+  return h;
+}
+function testsPanel() {
+  const t = S.tests, back = "<a class=back data-closeinsp>← back to the diagram</a>";
+  const unitN = t.unit.reduce((n, m) => n + m.tests.length, 0), intN = t.integration.reduce((n, f) => n + f.tests.length, 0);
+  const tested = t.unit.filter((m) => m.tests.length), untested = t.unit.filter((m) => !m.tests.length);
+  let h = back + "<div class=kicker>tests</div><h2>What's tested</h2>" +
+    "<p>" + unitN + " unit tests in " + tested.length + " of " + t.unit.length + " modules, and " + intN + " integration tests in " + plural(t.integration.length, "file") + ".</p>" +
+    "<p class=hint>Counted from the #[test] functions in the code. This says where tests exist, not how much of the code they cover.</p>";
+  if (S.features.length) {
+    h += "<h4>by feature</h4>" + S.features.filter((f) => f.status !== "planned").map((f) => ({ f, n: unitTestsIn(f.modules) })).sort((a, b) => a.n - b.n)
+      .map(({ f, n }) => "<div class=trow><span>" + esc(f.name) + "</span><span class='" + (n ? "muted" : "bad") + "'>" + (n || "none") + "</span></div>").join("");
+  }
+  if (untested.length) {
+    h += "<h4>modules with no unit tests · " + untested.length + "</h4><div class=fmods>" + untested.map((m) => "<a data-file='" + esc(m.file) + "'>" + esc(m.module) + (t.unit.filter((x) => x.module === m.module).length > 1 ? " (" + esc(m.file.split("/").pop()) + ")" : "") + "</a>").join(" ") + "</div>";
+  }
+  h += "<h4>unit tests</h4>" + tested.map((m) => "<details><summary>" + esc(m.module) + " <span class=muted>· " + m.tests.length + "</span></summary>" +
+    m.tests.map((x) => "<a class=tname data-file='" + esc(m.file) + "' data-line=" + x.line + ">" + esc(x.name) + "</a>").join("") + "</details>").join("");
+  if (t.integration.length) h += "<h4>integration tests</h4>" + t.integration.map((f) => "<details><summary>" + esc(f.file) + " <span class=muted>· " + f.tests.length + "</span></summary>" +
+    f.tests.map((x) => "<a class=tname data-file='" + esc(f.file) + "' data-line=" + x.line + ">" + esc(x.name) + "</a>").join("") + "</details>").join("");
+  return h;
+}
+
 function drawInspector() {
+  if (insp) {
+    const el = $("#inspector");
+    el.innerHTML = insp === "features" ? featuresPanel() : testsPanel();
+    for (const a of el.querySelectorAll("[data-closeinsp]")) a.onclick = () => { insp = null; drawHeader(); drawInspector(); };
+    wire(el);
+    return;
+  }
   const d = byId(picked ? (picked.pane === "main" ? main : side) : side ?? main), el = $("#inspector");
   if (!d) { el.innerHTML = "<p class=hint>Diagrams appear here once an agent draws them.</p>"; return; }
   const n = picked && d.nodes.find((x) => x.id === picked.id), c = changed();
@@ -515,6 +572,7 @@ async function poll() {
 // Links can open a tab or the drawer directly: ?tab=git, ?file=path[&line=n], ?diff=path, ?commit=sha.
 const Q = new URLSearchParams(location.search);
 if (["diagrams", "files", "git"].includes(Q.get("tab"))) tab = Q.get("tab");
+if (["features", "tests"].includes(Q.get("panel"))) insp = Q.get("panel");
 drawHeader(); drawDiagrams(); drawSide();
 if (Q.get("file")) showDrawer({ kind: "file", path: Q.get("file"), line: Q.get("line") ? +Q.get("line") : undefined });
 else if (Q.get("diff")) showDrawer({ kind: "file", path: Q.get("diff"), view: "diff" });

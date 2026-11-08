@@ -23,6 +23,15 @@ header h1{font-size:13px;margin:0;font-weight:700}
 .pill:hover{border-color:var(--accent)}
 .pill .dirty{color:var(--warn)}.pill .ahead{color:var(--accent)}
 #metrics{font-size:11.5px}#metrics b{color:var(--fg);font-weight:500}
+#metrics .mlink{color:var(--muted);border-bottom:1px dotted var(--muted)}#metrics .mlink:hover,#metrics .mlink.on{color:var(--fg);border-bottom-color:var(--accent)}
+#metrics .warn b,.warn{color:var(--warn)}#metrics .bad b,.bad{color:var(--bad)}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;vertical-align:0}
+.st-working{background:var(--ok)}.st-partial{background:var(--warn)}.st-broken{background:var(--bad)}.st-planned{background:transparent;border:1.5px dashed var(--muted)}
+.feat{padding:7px 0;border-top:1px solid var(--line)}.fname{font-weight:700}.fdesc{color:var(--muted);font-size:12px}
+.fnote{font-size:12px;border-left:2px solid var(--warn);padding-left:7px;margin-top:3px}
+.fmods{font-size:11.5px;margin-top:3px;display:flex;flex-wrap:wrap;gap:2px 8px}
+.trow{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:12px;border-top:1px solid var(--line)}
+#inspector details summary{cursor:pointer;padding:2px 0}#inspector a.tname{display:block;padding:1px 0 1px 14px;font-size:11.5px}
 .livepill{background:color-mix(in oklab,var(--hot) 18%,transparent);color:var(--hot);border-radius:10px;padding:1px 9px;animation:breathe 1.6s ease-in-out infinite;cursor:default}
 @keyframes breathe{50%{opacity:.55}}
 

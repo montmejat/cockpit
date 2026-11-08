@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, join, resolve, sep } from "node:path";
-import { ARCH_FILE, checkArch, readArch } from "./arch.ts";
+import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
 import { itemKey } from "./describe.ts";
 import { createMapApp } from "./mapapp.ts";
 import { COCKPIT, listTurns } from "./turns.ts";
@@ -100,16 +100,29 @@ function liveTurn() {
   } : null;
 }
 
-// Where you placed the boxes of each diagram: { diagramId: { nodeId: {x, y} } }.
-const dlayoutPath = join(COCKPIT, "data", name, "diagram-layout.json");
+// Where you placed the boxes of each diagram: { diagramId: { nodeId: {x, y} } }. Kept in the
+// project, so the arrangement travels with the repo.
+const dlayoutPath = join(root, ARCH_DIR, "layout.json");
 const readDLayout = () => (existsSync(dlayoutPath) ? JSON.parse(readFileSync(dlayoutPath, "utf8")) : {});
+
+// What is tested: #[test] functions inside each module, and in the integration test files
+// (tests/*.rs), by name.
+function testsOf(sk: ReturnType<typeof map.data>["skeleton"]) {
+  const unit = sk.modules.map((m) => ({ module: m.id, file: m.file, crate: m.crate, tests: m.items.filter((i) => i.test && i.kind === "Function").map((i) => ({ name: i.name, line: i.line })) }));
+  const integration = listFiles().filter((f) => /(^|\/)tests\/.*\.rs$/.test(f)).map((file) => {
+    const text = readFileSync(join(root, file), "utf8"), tests: { name: string; line: number }[] = [];
+    const re = /#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?fn\s+(\w+)/g;
+    for (let m; (m = re.exec(text)); ) tests.push({ name: m[1], line: text.slice(0, m.index).split("\n").length });
+    return { file, tests };
+  });
+  return { unit, integration };
+}
 
 // Everything the page needs, in one poll.
 function state() {
   map.rebuild(); // cheap unless code changed
   const sk = map.data().skeleton;
-  const text = existsSync(join(root, ARCH_FILE)) ? readFileSync(join(root, ARCH_FILE), "utf8") : null;
-  const arch = readArch(root);
+  const loaded = loadArch(root), arch = loaded.arch;
   const lines = changedLines();
   // Items whose lines changed: lets a diagram box light up only when its own function changed.
   const changedItems: string[] = [];
@@ -122,18 +135,16 @@ function state() {
   return {
     project: name,
     diagrams: arch?.diagrams ?? [],
-    problems: checkArch(text, sk),
+    problems: checkArch(loaded, sk),
     modules: sk.modules.map((m) => ({ id: m.id, file: m.file, items: m.items.filter((i) => !i.test).map((i) => ({ key: itemKey(m.id, i), line: i.line, end: i.end })) })),
     layout: readDLayout(),
     live: liveTurn(),
     status, changedFiles: Object.keys(lines), changedItems,
     git: gitHead(),
-    metrics: {
-      lines: sk.modules.reduce((s, m) => s + m.lines, 0),
-      tests: sk.modules.reduce((s, m) => s + m.items.filter((i) => i.test).length, 0),
-      features: feats.length ? { working: feats.filter((f) => f.status === "working").length, total: feats.length } : null,
-      commits: Number(tryGit("rev-list", "--count", "HEAD")) || 0,
-    },
+    lines: sk.modules.reduce((s, m) => s + m.lines, 0),
+    features: feats,
+    tests: testsOf(sk),
+    summary: arch?.summary ?? "",
   };
 }
 
@@ -165,7 +176,7 @@ const page = () => `<!doctype html>
     <section class="pane" id="pane-main"><div class="ptitle"></div><div class="cyc"></div><div class="legend"></div></section>
     <section class="pane" id="pane-side" hidden><div class="ptitle"></div><div class="cyc"></div><div class="legend"></div></section>
     <div id="tip" hidden></div>
-    <div id="nodiagram" hidden>No diagrams yet. Agents add them to architecture.json (see the diagrams section of CLAUDE.md).</div>
+    <div id="nodiagram" hidden>No diagrams yet. Agents add them in .cockpit/diagrams/ (see .cockpit/README.md).</div>
   </section>
   <aside id="inspector"></aside>
   <section id="drawer" hidden><div class="dhead"></div><div class="dbody"></div></section>
@@ -202,7 +213,7 @@ createServer((req, res) => {
           if (typeof id !== "string" || (positions !== null && typeof positions !== "object")) throw new Error("expected {id, positions}");
           const all = readDLayout();
           if (positions) all[id] = positions; else delete all[id];
-          mkdirSync(join(COCKPIT, "data", name), { recursive: true });
+          mkdirSync(join(root, ARCH_DIR), { recursive: true });
           writeFileSync(dlayoutPath, JSON.stringify(all, null, 1) + "\n");
           json(res, { ok: true });
         } catch (e) { res.writeHead(400).end(String(e)); }

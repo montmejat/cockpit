@@ -8,7 +8,7 @@ import { buildSkeleton } from "./skeleton.ts";
 import { applyOverrides, type Overrides, proposeOverlay, readOverrides } from "./overlay.ts";
 import { renderMap } from "./maprender.ts";
 import { COCKPIT, PROTO } from "./turns.ts";
-import { archOverlay, readArch } from "./arch.ts";
+import { crateOverlay, readArch } from "./arch.ts";
 
 // Reindex when any Rust source is newer than the index, so the skeleton never goes stale.
 function newestSource(root: string): number {
@@ -35,12 +35,8 @@ export function createMapApp(root: string, name: string, log = console.log) {
     }
     const skeleton = buildSkeleton(root, scip, PROTO);
     log(`skeleton: ${skeleton.crates.length} crates, ${skeleton.modules.length} modules, ${skeleton.edges.length} edges`);
-    // E7: the repo's own architecture.json wins over a summarizer's guess.
-    const arch = readArch(root);
-    if (arch) {
-      log(`groups: ${arch.groups.length} from ${root}/architecture.json`);
-      return { skeleton, overlay: archOverlay(arch), costUsd: 0, source: "repo" as const };
-    }
+    // A project that keeps .cockpit/ is grouped by crate: no model call.
+    if (readArch(root)) return { skeleton, overlay: crateOverlay(skeleton), costUsd: 0, source: "repo" as const };
     const ov = readOverrides(overridesPath);
     // The last grouping anchors the next one, so names don't drift between runs.
     const mapFile = join(outDir, "map.json");

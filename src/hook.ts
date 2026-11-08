@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
-import { ARCH_FILE, checkArch } from "./arch.ts";
+import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
 import { repoRoot, skeletonOf, snapshot } from "./snapshot.ts";
 import { COCKPIT, currentTurn, outDir, PROTO, saveTurn, setCurrent, type Turn } from "./turns.ts";
 
@@ -83,17 +83,16 @@ function main() {
     const t = currentTurn(project, session);
     if (t?.status !== "running") return;
     const snap = snapshot(repo, "turn end");
-    const archPath = join(repo, ARCH_FILE);
-    if (existsSync(archPath) && !input.stop_hook_active) {
+    if (existsSync(join(repo, ARCH_DIR)) && !input.stop_hook_active) {
       // Same cache as the analysis, so this index build isn't wasted.
       const sk = skeletonOf(repo, snap, join(outDir(project), "skeletons"), PROTO);
-      const problems = checkArch(readFileSync(archPath, "utf8"), sk);
+      const problems = checkArch(loadArch(repo), sk);
       if (problems.length) {
         const list = problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");
         process.stdout.write(JSON.stringify({
           decision: "block",
-          reason: `${ARCH_FILE} doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
-            `Fix it before finishing, as described in CLAUDE.md:\n${list}`,
+          reason: `${ARCH_DIR}/ doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
+            `Fix it before finishing, as described in ${ARCH_DIR}/README.md:\n${list}`,
         }));
         return; // the turn stays open: the agent continues
       }
