@@ -10,7 +10,8 @@ const store = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } ca
 const byId = (id) => S.diagrams.find((d) => d.id === id);
 const plural = (n, w) => n + " " + w + (n === 1 ? "" : "s");
 
-let tab = store.get("cockpit-tab", "diagrams");
+let tab = store.get("cockpit-tab", "files");
+if (tab !== "files" && tab !== "git") tab = "files";
 const nameOf = (d) => (d ? d.id.replace(/-/g, " ") : "");
 // Center tabs: { kind: "diagram", id, side? } | { kind: "file", path, view?, line?, end? } | { kind: "commit", sha }.
 // Remembered per browser, per project.
@@ -65,6 +66,9 @@ function drawHeader() {
   $("#metrics").innerHTML = "<b>" + (S.lines / 1000).toFixed(1) + "k</b> lines · <a class='mlink" + (insp === "tests" ? " on" : "") + "' data-insp=tests title='What is tested'><b>" + nTests + "</b> tests</a>" +
     (S.features.length ? " · <a class='mlink" + (insp === "features" ? " on" : "") + "' data-insp=features title='What the features are and where their status comes from'>features: " + fparts.join(", ") + "</a>" : "");
   for (const a of document.querySelectorAll("#metrics [data-insp]")) a.onclick = () => { insp = insp === a.dataset.insp ? null : a.dataset.insp; drawHeader(); drawInspector(); };
+  const np = S.problems.length;
+  $("#probs").innerHTML = np ? "<a class='mlink bad" + (insp === "problems" ? " on" : "") + "' data-insp=problems title='The agents’ description in .cockpit/ no longer matches the code'>⚠ " + np + " out of date</a>" : "";
+  for (const a of document.querySelectorAll("#probs [data-insp]")) a.onclick = () => { insp = insp === "problems" ? null : "problems"; drawHeader(); drawInspector(); };
   $("#live").innerHTML = S.live ? "<span class=livepill title='" + esc(S.live.prompt) + "'>◉ agent working · " + plural(S.live.touched.length, "file") + "</span>" : "";
 }
 
@@ -73,29 +77,11 @@ function drawHeader() {
 function drawSide() {
   for (const b of document.querySelectorAll(".tabs button")) b.classList.toggle("on", b.dataset.tab === tab);
   const el = $("#sidebody"), sc = el.scrollTop;
-  el.innerHTML = tab === "diagrams" ? diagramsList() : tab === "files" ? filesTree() : gitPane();
+  el.innerHTML = tab === "files" ? filesTree() : gitPane();
   el.scrollTop = sc;
   wire(el);
   if (tab === "git" && (!graph || graphHead !== S.git.head)) loadGraph();
   if (tab === "files" && !files) loadFiles();
-}
-
-function diagramsList() {
-  // Children right under the diagram that zooms into them.
-  const parentOf = new Map();
-  for (const d of S.diagrams) for (const n of d.nodes) if (n.detail && byId(n.detail) && !parentOf.has(n.detail)) parentOf.set(n.detail, d.id);
-  const depth = (id, k = 0) => (parentOf.has(id) && k < 5 ? depth(parentOf.get(id), k + 1) : k);
-  const ordered = [], seen = new Set();
-  const visit = (d) => { if (seen.has(d.id)) return; seen.add(d.id); ordered.push(d); for (const c of S.diagrams.filter((x) => parentOf.get(x.id) === d.id)) visit(c); };
-  for (const d of S.diagrams.filter((x) => !parentOf.has(x.id))) visit(d);
-  for (const d of S.diagrams) visit(d);
-  const probs = S.problems;
-  return "<div class=dl>" + (ordered.length ? ordered.map((d) => {
-    const dp = depth(d.id);
-    const on = cur()?.kind === "diagram" && (d.id === main ? " on" : d.id === side ? " on2" : "");
-    return "<a class='q" + (on || "") + (dp === 1 ? " sub" : dp > 1 ? " sub2" : "") + "' data-open='" + esc(d.id) + "' title='" + esc(d.question) + "'>" + esc(nameOf(d)) + "</a>";
-  }).join("") : "<p class=muted>No diagrams yet.</p>") +
-    (probs.length ? "<details class=probs><summary>⚠ " + plural(probs.length, "thing") + " in .cockpit/ don't match the code</summary>" + probs.slice(0, 30).map((p) => "<p class=prob>" + esc(p.where) + ": " + esc(p.problem) + "</p>").join("") + "</details>" : "") + "</div>";
 }
 
 async function loadFiles() { try { files = await (await fetch("api/files")).json(); if (tab === "files") drawSide(); } catch {} }
@@ -607,7 +593,7 @@ const more = (label, body) => body ? "<details class=more><summary>" + label + "
 const fileOfModule = (id) => S.modules.find((m) => m.id === id)?.file;
 const unitTestsIn = (mods) => S.tests.unit.filter((u) => mods.includes(u.module)).reduce((n, u) => n + u.tests.length, 0);
 const ORDER = ["broken", "partial", "working", "planned"];
-const backLink = "<a class=back data-closeinsp>← overview</a>";
+const backLink = "<a class=back data-closeinsp>← back</a>";
 
 function featuresPanel() {
   let h = backLink + "<h2>Features</h2><p class=lead>What it does today, as the agents see it.</p>" +
@@ -626,6 +612,11 @@ function featuresPanel() {
   return h;
 }
 
+function problemsPanel() {
+  return backLink + "<h2>Out of date</h2><p class=lead>Where the agents’ description in .cockpit/ no longer matches the code.</p>" +
+    more("what happens next", "<p class=hint>An agent finishing a turn gets this list and must fix it before stopping. You can also ask one to fix it.</p>") +
+    S.problems.map((p) => "<div class=trow><span>" + esc(p.problem) + "</span></div><p class=hint style='margin:0 0 6px'>" + esc(p.where) + "</p>").join("");
+}
 function testsPanel() {
   const t = S.tests, unitN = t.unit.reduce((n, m) => n + m.tests.length, 0), intN = t.integration.reduce((n, f) => n + f.tests.length, 0);
   const tested = t.unit.filter((m) => m.tests.length), untested = t.unit.filter((m) => !m.tests.length);
@@ -660,7 +651,7 @@ function drawInspector() {
   // Code tabs get the full width: the panel only shows there for the features and tests panels.
   el.hidden = !insp && !!cur() && cur().kind !== "diagram";
   if (insp) {
-    el.innerHTML = insp === "features" ? featuresPanel() : testsPanel();
+    el.innerHTML = insp === "features" ? featuresPanel() : insp === "problems" ? problemsPanel() : testsPanel();
     for (const a of el.querySelectorAll("[data-closeinsp]")) a.onclick = () => { insp = null; drawHeader(); drawInspector(); };
     wire(el);
     return;
@@ -912,7 +903,7 @@ async function poll() {
 }
 // Links can open a tab directly: ?tab=git, ?file=path[&line=n], ?diff=path, ?commit=sha.
 const Q = new URLSearchParams(location.search);
-if (["diagrams", "files", "git"].includes(Q.get("tab"))) tab = Q.get("tab");
+if (["files", "git"].includes(Q.get("tab"))) tab = Q.get("tab");
 if (["features", "tests"].includes(Q.get("panel"))) insp = Q.get("panel");
 drawHeader();
 const H = decodeURIComponent(location.hash.slice(1));

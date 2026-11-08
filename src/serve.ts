@@ -164,12 +164,13 @@ const page = () => `<!doctype html>
   <h1>${name}</h1>
   <a id="gitpill" class="pill" data-tab="git"></a>
   <span id="metrics" class="muted"></span>
+  <span id="probs"></span>
   <span class="grow"></span>
   <span id="live"></span>
 </header>
 <main>
   <nav id="side">
-    <div class="tabs"><button data-tab="diagrams" title="Diagrams drawn by the agents to explain the code">overview</button><button data-tab="files">files</button><button data-tab="git">git</button></div>
+    <div class="tabs"><button data-tab="files">files</button><button data-tab="git">git</button></div>
     <div id="sidebody"></div>
   </nav>
   <section id="center"><div id="tabbar"></div>
