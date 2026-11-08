@@ -101,7 +101,10 @@ export function checkArch(loaded: { arch: Architecture | null; problems: ArchPro
     if (!Array.isArray(f.modules)) { p(w, `missing "modules" (a list of module ids, empty when planned)`); continue; }
     if (f.status !== "planned" && !f.modules.length) p(w, `is ${f.status} but lists no modules`);
     if ((f.status === "partial" || f.status === "broken") && !f.note) p(w, `is ${f.status}: say what's missing or wrong in "note"`);
-    for (const id of f.modules) { if (!mods.has(id)) p(w, `module "${id}" does not exist`); served.add(id); }
+    for (const id of f.modules) {
+      if (!mods.has(id)) { const guess = closestLink(id, mods); p(w, `module "${id}" does not exist` + (guess ? `: did you mean "${guess}"?` : ` (module ids look like crate/module)`)); }
+      served.add(id);
+    }
   }
   if (a.features.length) for (const m of sk.modules) if (!served.has(m.id)) p("features", `module "${m.id}" (${m.file}) serves no feature`);
 
@@ -125,7 +128,10 @@ export function checkArch(loaded: { arch: Architecture | null; problems: ArchPro
       else if (n.tldr && words(n.tldr) > 12) p(`${w} node ${n.id}`, `"tldr" has ${words(n.tldr)} words: keep it to about 8, the details go in "explain"`);
       if (n.detail && (n.detail === d.id || !a.diagrams.some((x) => x.id === n.detail))) p(`${w} node ${n.id}`, `"detail": "${n.detail}" is not another diagram's id (the id is the file name in .cockpit/diagrams/)`);
       if (!n.zone && !n.outside && !n.start && !n.end && !n.anchors?.length) p(`${w} node ${n.id}`, `has no code links: add anchors, or mark it "outside" if it is not code`);
-      for (const s of n.anchors ?? []) if (!symbols.has(s)) p(`${w} node ${n.id}`, `link "${s}" matches no module or item (format: crate/module::Item or crate/module::Type::method)`);
+      for (const s of n.anchors ?? []) if (!symbols.has(s)) {
+        const guess = closestLink(s, symbols);
+        p(`${w} node ${n.id}`, `link "${s}" matches no module or item` + (guess ? `: did you mean "${guess}"?` : ` (format: crate/module::Item or crate/module::Type::method)`));
+      }
     }
     for (const n of d.nodes) if (n.in && !d.nodes.some((z) => z.id === n.in && z.zone)) p(`${w} node ${n.id}`, `"in": "${n.in}" is not a zone of this diagram`);
     // Only what goes around is "next"; several of them mean the carried state wants its own box.
@@ -164,4 +170,26 @@ export function archDiff(before: Architecture | null, after: Architecture | null
   for (const [key, { k, x }] of b) if (!a.has(key)) out.push({ kind: k, id: x.id, name: x.name, change: "removed" });
   if (before && before.summary !== after.summary) out.push({ kind: "summary", id: "summary", name: "summary", change: "changed" });
   return out;
+}
+
+// The real link a wrong one most likely meant: the usual slips are "::" or "_" where cockpit wants
+// "crate/module" with the crate's own name, or a missing module; else the one item with that name.
+export function closestLink(s: string, symbols: { has(k: string): boolean; keys(): IterableIterator<string> }): string | null {
+  const tries = new Set<string>();
+  for (const base of [s, s.replace(/_/g, "-"), s.replace(/-/g, "_")]) {
+    tries.add(base);
+    const parts = base.split("::");
+    for (let i = 1; i < parts.length; i++) tries.add(parts.slice(0, i).join("/") + (i < parts.length ? "::" + parts.slice(i).join("::") : ""));
+    tries.add(parts.join("/"));
+  }
+  for (const t of tries) if (symbols.has(t)) return t;
+  // Same item name and parent anywhere: Type::method or Item.
+  const tail = s.split("::").slice(-2).join("::"), last = s.split("::").pop()!;
+  for (const key of [tail, last]) {
+    const hits = [...symbols.keys()].filter((x) => x.endsWith("::" + key) || x.endsWith("/" + key));
+    if (hits.length === 1) return hits[0];
+  }
+  // A method cockpit doesn't index: link the type it belongs to.
+  const parts = s.split("::");
+  return parts.length > 2 ? closestLink(parts.slice(0, -1).join("::"), symbols) : null;
 }

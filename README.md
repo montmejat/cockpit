@@ -17,6 +17,17 @@ server on a free port, shows the page, and stops the server when the window clos
 The page's libraries and font are in `vendor/web/`, so it works offline. The plan is to
 move the server to Rust piece by piece, and the UI later once it stops changing.
 
+## Agent chat
+
+The right panel talks to an agent that cockpit runs itself (Claude Agent SDK, on your Claude
+login), so a project needs no other Claude Code session and no hooks. Auto mode decides what it
+may do; when it wants you, an Allow/Deny card shows in the chat. One conversation per project
+(out/<project>/chat.json, "new" starts over), model picker (haiku/sonnet/opus), stop button.
+Turns are recorded like the hooks do, so the diagrams light up as it edits, and the `.cockpit/`
+check sends it back (up to 3 times) when the description no longer matches the code, with the
+likely right link for each wrong one. On a project without `.cockpit/`, "Describe this project"
+starts it from `templates/cockpit-README.md`.
+
 ## E1: decision recap
 
 Turns a Claude Code session transcript into a recap you read top-down:

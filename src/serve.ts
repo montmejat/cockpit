@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "no
 import { basename, join, resolve, sep } from "node:path";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
 import { itemKey } from "./describe.ts";
+import { createChat } from "./chat.ts";
 import { createMapApp } from "./mapapp.ts";
 import { COCKPIT, listTurns } from "./turns.ts";
 
@@ -22,6 +23,7 @@ if (!dir) {
 const root = resolve(dir);
 const name = opt("name") ?? basename(root);
 const map = createMapApp(root, name); // the code index (rust-analyzer), rebuilt when code changes
+const chat = createChat(root, name); // the agent, run by cockpit itself
 
 const tryGit = (...a: string[]) => {
   try { return execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"] }).trimEnd(); } catch (e: any) { return String(e.stdout ?? "").trimEnd(); }
@@ -185,7 +187,16 @@ const page = () => `<!doctype html>
     <div id="mini" hidden><div class="mhead"><span class="mtitle"></span><span class="mtabs"></span><button class="mclose" title="Fold or unfold">–</button></div><div class="mcy"></div><div class="mfoot"></div></div>
   </section>
   </section>
-  <aside id="inspector"></aside>
+  <aside id="right">
+    <div class="rtabs"><button data-r="chat">chat<span class="unread" hidden></span></button><button data-r="details">details</button>
+      <span class="grow"></span><select id="cmodel" title="model"></select><button id="cnew" title="Start a new conversation">new</button></div>
+    <section id="chat">
+      <div id="msgs"></div>
+      <form id="composer"><textarea rows="3" placeholder="Ask the agent…  Enter sends, Shift+Enter for a new line"></textarea>
+        <div class="crow"><span id="cstate" class="muted"></span><span class="grow"></span><button type="button" id="cstop" hidden>stop</button><button type="submit">send</button></div></form>
+    </section>
+    <aside id="inspector" hidden></aside>
+  </aside>
 
 </main>
 <script>window.INIT = ${JSON.stringify(state()).replace(/</g, "\\u003c")};</script>
@@ -209,6 +220,29 @@ createServer((req, res) => {
       const type = types[file.split(".").pop() ?? ""];
       if (!/^[\w.-]+$/.test(file) || !type) return res.writeHead(404).end();
       res.writeHead(200, { "content-type": type, "cache-control": "max-age=86400" }).end(readFileSync(join(COCKPIT, "vendor", "web", file)));
+    }
+    else if (req.method === "GET" && url.pathname === "/api/chat/events") {
+      // Server-sent events: everything so far, then each change as it happens.
+      res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
+      const send = (e: unknown) => res.write("data: " + JSON.stringify(e) + "\n\n");
+      send({ type: "init", ...chat.snapshot() });
+      const off = chat.subscribe(send);
+      const ping = setInterval(() => res.write(": ping\n\n"), 20000);
+      req.on("close", () => { off(); clearInterval(ping); });
+    } else if (req.method === "POST" && url.pathname.startsWith("/api/chat/")) {
+      readBody(req).then((b) => {
+        try {
+          const body = b ? JSON.parse(b) : {};
+          const what = url.pathname.slice("/api/chat/".length);
+          if (what === "send" && typeof body.text === "string") chat.send(body.text);
+          else if (what === "answer" && typeof body.id === "string") chat.answer(body.id, !!body.allow);
+          else if (what === "stop") chat.stop();
+          else if (what === "model" && typeof body.model === "string") chat.setModel(body.model);
+          else if (what === "new") chat.reset();
+          else throw new Error("unknown chat action");
+          json(res, { ok: true });
+        } catch (e) { res.writeHead(400).end(String(e)); }
+      });
     }
     else if (req.method === "GET" && url.pathname === "/api/state") json(res, state());
     else if (req.method === "GET" && url.pathname === "/api/files") json(res, listFiles());

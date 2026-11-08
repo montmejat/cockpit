@@ -101,7 +101,7 @@ main{flex:1;min-height:0;display:flex;position:relative}
 
 /* inspector */
 #inspector[hidden]{display:none}
-#inspector{width:340px;flex-shrink:0;overflow:auto;padding:14px 16px 60px;background:var(--card);border-left:1px solid var(--line)}
+#inspector{flex:1;min-height:0;overflow:auto;padding:14px 16px 60px}
 #inspector h2{font-size:14px;margin:4px 0 6px}#inspector h3{margin:0 0 4px;font-size:13.5px}
 #inspector p{margin:6px 0}
 .kicker{color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.08em}
@@ -153,7 +153,7 @@ tr.add td.sg{color:var(--add)}tr.del td.sg{color:var(--del)}
   main{flex-direction:column;overflow:auto}
   #side{width:auto;max-height:30vh;border-right:0;border-bottom:1px solid var(--line)}
   #canvas{min-height:65vh}
-  #inspector{width:auto;border-left:0;border-top:1px solid var(--line)}
+  #right{width:auto;border-left:0;border-top:1px solid var(--line);height:70vh}
 }
 @media (prefers-reduced-motion:reduce){.livepill{animation:none}}
 
@@ -217,3 +217,37 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 #winctl button:hover{filter:brightness(1.25)}
 #winctl button[data-w="close"]:hover{background:var(--bad);color:#fff;filter:none}
 #winctl svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
+/* right panel: chat and details */
+#right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);min-height:0}
+.rtabs{display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
+.rtabs [data-r]{border:0;background:none;color:var(--muted);padding:3px 8px;position:relative}
+.rtabs [data-r].on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
+.rtabs .unread{position:absolute;top:2px;right:0;width:6px;height:6px;border-radius:50%;background:var(--accent)}
+.rtabs select{font:inherit;font-size:11.5px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1px 4px}
+#chat{flex:1;min-height:0;display:flex;flex-direction:column}
+#chat[hidden]{display:none}
+#msgs{flex:1;min-height:0;overflow:auto;padding:12px 14px;font-size:12.5px;line-height:1.5}
+#msgs > div{margin:0 0 8px}
+.cuser{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-top:14px;white-space:normal}
+.ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:12.5px}
+.ctext code{background:var(--bg);border-radius:3px;padding:0 3px;font-size:11.5px}
+#msgs pre{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;overflow:auto;font-size:11px;max-height:260px;white-space:pre-wrap;word-break:break-word}
+.ctool{display:flex;align-items:baseline;gap:6px;color:var(--muted);font-size:11.5px;margin-bottom:2px!important}
+.ctool.sub{padding-left:16px}
+.ctool details,.ctool > span:not(.spin):not(.ok):not(.bad){flex:1;min-width:0}
+.ctool summary{cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;list-style:none}
+.ctool summary::-webkit-details-marker{display:none}
+.ctool > span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctool .ok{color:var(--ok)}.ctool .bad{color:var(--bad)}
+.cask{border:1px solid var(--warn);border-radius:8px;padding:8px 10px}
+.cask.allowed{border-color:var(--line);opacity:.7}.cask.denied{border-color:var(--line);opacity:.7;text-decoration:line-through}
+.cask .mono{font-size:11.5px;word-break:break-all}.cask p{margin:4px 0;font-size:11.5px}
+.cdone{color:var(--muted);font-size:11px;text-align:right;border-top:1px dashed var(--line);padding-top:2px}
+.cnote{color:var(--muted);font-style:italic;font-size:11.5px}.cnote.bad{color:var(--bad)}
+.cempty{color:var(--fg);padding:8px 0}.cempty button{margin-top:6px}
+#composer{border-top:1px solid var(--line);padding:8px}
+#composer textarea{width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:12.5px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;outline:none}
+#composer textarea:focus{border-color:var(--accent)}
+.crow{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:11.5px}
+.spin{display:inline-block;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--accent);border-right-color:transparent;animation:spin .8s linear infinite;vertical-align:-1px}
+@keyframes spin{to{transform:rotate(360deg)}}

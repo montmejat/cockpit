@@ -65,10 +65,10 @@ function drawHeader() {
   const fparts = [["working", ""], ["partial", "warn"], ["broken", "bad"], ["planned", "muted"]].filter(([st]) => by(st)).map(([st, c]) => "<span class='" + c + "'><b>" + by(st) + "</b> " + st + "</span>");
   $("#metrics").innerHTML = "<b>" + (S.lines / 1000).toFixed(1) + "k</b> lines · <a class='mlink" + (insp === "tests" ? " on" : "") + "' data-insp=tests title='What is tested'><b>" + nTests + "</b> tests</a>" +
     (S.features.length ? " · <a class='mlink" + (insp === "features" ? " on" : "") + "' data-insp=features title='What the features are and where their status comes from'>features: " + fparts.join(", ") + "</a>" : "");
-  for (const a of document.querySelectorAll("#metrics [data-insp]")) a.onclick = () => { insp = insp === a.dataset.insp ? null : a.dataset.insp; drawHeader(); drawInspector(); };
+  for (const a of document.querySelectorAll("#metrics [data-insp]")) a.onclick = () => { insp = insp === a.dataset.insp ? null : a.dataset.insp; drawHeader(); drawInspector(); if (insp) showRight("details"); };
   const np = S.problems.length;
   $("#probs").innerHTML = np ? "<a class='mlink bad" + (insp === "problems" ? " on" : "") + "' data-insp=problems title='The agents’ description in .cockpit/ no longer matches the code'>⚠ " + np + " out of date</a>" : "";
-  for (const a of document.querySelectorAll("#probs [data-insp]")) a.onclick = () => { insp = insp === "problems" ? null : "problems"; drawHeader(); drawInspector(); };
+  for (const a of document.querySelectorAll("#probs [data-insp]")) a.onclick = () => { insp = insp === "problems" ? null : "problems"; drawHeader(); drawInspector(); if (insp) showRight("details"); };
   $("#live").innerHTML = S.live ? "<span class=livepill title='" + esc(S.live.prompt) + "'>◉ agent working · " + plural(S.live.touched.length, "file") + "</span>" : "";
 }
 
@@ -413,6 +413,7 @@ function drawPane(which) {
     for (const c of Object.values(panes)) c?.nodes().removeClass("picked");
     e.target.addClass("picked");
     drawInspector();
+    showRight("details");
   });
   cy.on("tap", (e) => { if (e.target === cy) { picked = null; cy.nodes().removeClass("picked"); drawInspector(); } });
   if (which === "main") wireZoom(cy);
@@ -671,15 +672,13 @@ function codeChip(a, c) {
 
 function drawInspector() {
   const el = $("#inspector");
-  // Code tabs get the full width: the panel only shows there for the features and tests panels.
-  el.hidden = !insp && !!cur() && cur().kind !== "diagram";
   if (insp) {
     el.innerHTML = insp === "features" ? featuresPanel() : insp === "problems" ? problemsPanel() : testsPanel();
     for (const a of el.querySelectorAll("[data-closeinsp]")) a.onclick = () => { insp = null; drawHeader(); drawInspector(); };
     wire(el);
     return;
   }
-  if (el.hidden) return;
+  if (cur() && cur().kind !== "diagram") { el.innerHTML = "<p class=hint>Details follow the diagram tab: hover or click a box there.</p>"; return; }
   const d = byId(picked ? (picked.pane === "main" ? main : side) : side ?? main);
   if (!d) { el.innerHTML = "<p class=hint>Open a diagram or a file from the left.</p>"; return; }
   const n = picked && d.nodes.find((x) => x.id === picked.id), c = changed();
@@ -939,6 +938,138 @@ else if (byId(Q.get("at"))) { tabs[0].id = Q.get("at"); tabs[0].code = Q.get("bo
 else if (byId(H.split(",")[0])) openDiagram(H.split(",")[0]);
 else renderActive();
 setTimeout(poll, 2000);
+
+// ---- the right panel: chat with the agent, or details of what's open ----------------
+// cockpit runs the agent itself (src/chat.ts). The panel follows it live: replies stream in,
+// tool calls show as one line each (click for more), auto mode's questions as Allow/Deny cards.
+
+let rtab = store.get("cockpit-right", "chat");
+function showRight(which) {
+  rtab = which; store.set("cockpit-right", which);
+  for (const b of document.querySelectorAll(".rtabs [data-r]")) b.classList.toggle("on", b.dataset.r === which);
+  $("#chat").hidden = which !== "chat";
+  $("#inspector").hidden = which !== "details";
+  if (which === "chat") { $(".rtabs .unread").hidden = true; stickBottom(true); }
+}
+for (const b of document.querySelectorAll(".rtabs [data-r]")) b.onclick = () => showRight(b.dataset.r);
+
+// Just enough Markdown for agent replies: code blocks, inline code, bold, links, lists, headings.
+function md(src) {
+  const inline = (t) => esc(t)
+    .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, "<a href='$2' target=_blank>$1</a>");
+  const out = [], lines = String(src ?? "").split("\n");
+  let list = null, para = [];
+  const flush = () => { if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = []; if (list) { out.push("</" + list + ">"); list = null; } };
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^```/.test(l)) {
+      flush();
+      const code = [];
+      while (++i < lines.length && !/^```/.test(lines[i])) code.push(lines[i]);
+      out.push("<pre>" + esc(code.join("\n")) + "</pre>");
+    } else if (/^#{1,4}\s/.test(l)) { flush(); out.push("<h4>" + inline(l.replace(/^#+\s*/, "")) + "</h4>"); }
+    else if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
+      if (para.length) { const keep = list; list = null; flush(); list = keep; }
+      const kind = /^\s*\d+\./.test(l) ? "ol" : "ul";
+      if (list !== kind) { if (list) out.push("</" + list + ">"); out.push("<" + kind + ">"); list = kind; }
+      out.push("<li>" + inline(l.replace(/^\s*([-*]|\d+\.)\s+/, "")) + "</li>");
+    } else if (!l.trim()) flush();
+    else { if (list) { out.push("</" + list + ">"); list = null; } para.push(l); }
+  }
+  flush();
+  return out.join("");
+}
+
+const chatItems = new Map();
+let chatState = { busy: false, model: "sonnet", cost: 0, models: [] };
+const msgs = $("#msgs");
+let nearBottom = true;
+msgs.addEventListener("scroll", () => { nearBottom = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60; });
+function stickBottom(force) { if (force || nearBottom) msgs.scrollTop = msgs.scrollHeight; }
+
+const toolIcon = { running: "<span class='spin'></span>", ok: "<span class=ok>✓</span>", error: "<span class=bad>✗</span>" };
+function itemHtml(it) {
+  switch (it.kind) {
+    case "user": return "<div class=cuser>" + esc(it.text).replace(/\n/g, "<br>") + "</div>";
+    case "text": return it.text ? "<div class=ctext>" + md(it.text) + "</div>" : "";
+    case "tool": {
+      const file = it.file && (it.tool === "Edit" || it.tool === "Write" || it.tool === "MultiEdit") ? " <a class=chip data-diff='" + esc(it.file) + "'>diff</a>" : it.file ? " <a class=chip data-file='" + esc(it.file) + "'>open</a>" : "";
+      const more = [it.detail, it.output].filter(Boolean).map((x) => "<pre>" + esc(x) + "</pre>").join("");
+      return "<div class='ctool" + (it.sub ? " sub" : "") + "'>" + (toolIcon[it.status] ?? "") + " " +
+        (more ? "<details><summary>" + esc(it.title) + "</summary>" + more + "</details>" : "<span>" + esc(it.title) + "</span>") + file + "</div>";
+    }
+    case "ask": return "<div class='cask " + it.status + "'><div class=kicker>" + (it.status === "waiting" ? "the agent asks" : it.status) + "</div><div class=mono>" + esc(it.title) + "</div>" +
+      (it.reason ? "<p class=muted>" + esc(it.reason) + "</p>" : "") + (it.detail ? "<p class=muted>" + esc(it.detail) + "</p>" : "") +
+      (it.status === "waiting" ? "<div class=crow><button data-allow=1>Allow</button><button data-allow=0>Deny</button></div>" : "") + "</div>";
+    case "done": return "<div class=cdone>" + (it.error ? "<span class=bad>" + esc(it.error) + "</span> · " : "") + (it.ms ? Math.round(it.ms / 1000) + " s · " : "") + "$" + (+it.cost).toFixed(3) + "</div>";
+    case "note": return "<div class='cnote" + (it.error ? " bad" : "") + "'>" + esc(it.text) + (it.detail ? "<details><summary>why</summary><pre>" + esc(it.detail) + "</pre></details>" : "") + "</div>";
+    default: return "";
+  }
+}
+function drawItem(it) {
+  let el = msgs.querySelector("[data-cid='" + CSS.escape(it.id) + "']");
+  const open = el?.querySelector("details")?.open;
+  if (!el) { el = document.createElement("div"); el.dataset.cid = it.id; msgs.append(el); }
+  el.innerHTML = itemHtml(it);
+  if (open) el.querySelector("details")?.setAttribute("open", "");
+  wire(el);
+  for (const b of el.querySelectorAll("[data-allow]")) b.onclick = () => chatPost("answer", { id: it.id, allow: b.dataset.allow === "1" });
+}
+function drawChatEmpty() {
+  if (chatItems.size) return;
+  const fresh = !S.diagrams.length;
+  msgs.innerHTML = "<div class=cempty><p>Talk to the agent here. It works in <b>" + esc(S.project ?? document.querySelector("header h1").textContent) + "</b>, and what it changes lights up on the diagrams.</p>" +
+    (fresh ? "<p class=muted>This project has no description yet.</p><button data-starter>Describe this project</button>" : "") + "</div>";
+  const b = msgs.querySelector("[data-starter]");
+  if (b) b.onclick = () => chatPost("send", { text: "Describe this project in .cockpit/: the summary, the features, and the 2 or 3 diagrams that best explain how it works. Don't change the code." });
+}
+function drawChatState() {
+  const st = chatState;
+  $("#cstate").innerHTML = st.busy ? "<span class='spin'></span> working…" : st.cost ? "this conversation: $" + st.cost.toFixed(st.cost < 0.1 ? 3 : 2) : "";
+  $("#cstop").hidden = !st.busy;
+  const sel = $("#cmodel");
+  if (sel.options.length !== st.models.length) sel.innerHTML = st.models.map((m) => "<option>" + m + "</option>").join("");
+  sel.value = st.model;
+}
+const chatPost = (what, body = {}) => fetch("api/chat/" + what, { method: "POST", body: JSON.stringify(body) });
+
+function connectChat() {
+  const es = new EventSource("api/chat/events");
+  es.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    if (e.type === "init") {
+      chatItems.clear(); msgs.innerHTML = "";
+      for (const it of e.items) { chatItems.set(it.id, it); drawItem(it); }
+      chatState = e; drawChatState(); drawChatEmpty(); stickBottom(true);
+    } else if (e.type === "state") { chatState = { ...chatState, ...e }; drawChatState(); }
+    else if (e.item.kind === "reset") { chatItems.clear(); msgs.innerHTML = ""; drawChatEmpty(); }
+    else {
+      if (!chatItems.size) msgs.innerHTML = "";
+      chatItems.set(e.item.id, e.item); drawItem(e.item); stickBottom();
+      if (rtab !== "chat" && e.item.kind !== "user") $(".rtabs .unread").hidden = false;
+      if (e.item.kind === "ask" && e.item.status === "waiting") showRight("chat");
+    }
+  };
+  // EventSource reconnects by itself; "init" redraws everything when it does.
+}
+
+const ta = $("#composer textarea");
+function sendChat() {
+  const text = ta.value.trim();
+  if (!text) return;
+  ta.value = ""; nearBottom = true;
+  chatPost("send", { text });
+}
+$("#composer").onsubmit = (e) => { e.preventDefault(); sendChat(); };
+ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); } });
+$("#cstop").onclick = () => chatPost("stop");
+$("#cmodel").onchange = (e) => chatPost("model", { model: e.target.value });
+$("#cnew").onclick = () => { if (!chatItems.size || confirm("Start a new conversation? The agent forgets this one.")) chatPost("new"); };
+showRight(insp ? "details" : rtab);
+connectChat();
 
 // ---- desktop app: the header is the window's title bar -----------------------------
 // Only inside the Tauri window (desktop/), which has no system title bar.
