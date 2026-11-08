@@ -16,8 +16,10 @@ const nameOf = (d) => (d ? d.id.replace(/-/g, " ") : "");
 // Remembered per browser, per project.
 let tabs = [], active = 0;
 try { tabs = JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")); active = +store.get("cockpit-active-" + S.project, "0") || 0; } catch { tabs = []; }
-tabs = tabs.filter((t) => t && (t.kind !== "diagram" || byId(t.id)));
-if (!tabs.some((t) => t.kind === "diagram")) { const d0 = S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0]; if (d0) tabs.unshift({ kind: "diagram", id: d0.id }); }
+// The overview is one map, always the first tab: diagrams are places on it, not tabs of their own.
+const home = () => (S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0])?.id ?? null;
+tabs = tabs.filter((t) => t && t.kind !== "diagram");
+tabs.unshift({ kind: "diagram", id: home() });
 active = Math.min(active, Math.max(0, tabs.length - 1));
 const cur = () => tabs[active];
 let main = null, side = null; // the diagrams shown in the active diagram tab
@@ -207,19 +209,26 @@ function openTab(spec) {
   renderActive();
 }
 function closeTab(i) {
+  if (tabs[i]?.kind === "diagram") return; // the map stays
   tabs.splice(i, 1);
   if (i < active || active >= tabs.length) active = Math.max(0, active - 1);
   renderActive();
 }
-const openDiagram = (id, node) => openTab({ kind: "diagram", id, node });
+// Going to a diagram moves the map there.
+function openDiagram(id, node) {
+  const t = tabs[0];
+  t.id = id; t.code = null; active = 0;
+  picked = node ? { pane: "main", id: node } : null;
+  renderActive();
+}
 function zoom(id) { cur().side = id; picked = null; renderActive(); }
 function drawTabs() {
   $("#tabbar").innerHTML = tabs.map((t, i) => {
     const d = t.kind === "diagram" && byId(t.id), st = t.kind === "file" && statusOf(t.path);
-    const label = d ? "<span class=ti>◇</span>" + esc(nameOf(d)) + (t.side && byId(t.side) ? " <span class=muted>› " + esc(nameOf(byId(t.side))) + "</span>" : "")
+    const label = t.kind === "diagram" ? "<span class=ti>◇</span>overview" + (d ? " <span class=muted>› " + esc(nameOf(d)) + "</span>" : "")
       : t.kind === "file" ? esc(t.path.split("/").pop()) : "<span class=ti>●</span>" + esc(t.sha);
     const title = d ? d.question : t.kind === "file" ? t.path : "commit " + t.sha;
-    return "<div class='ctab" + (i === active ? " on" : "") + "' data-i=" + i + " title='" + esc(title) + "'>" + label + (st ? "<span class='mark " + st + "'>" + st + "</span>" : "") + "<button class=tx data-x=" + i + " title='Close'>×</button></div>";
+    return "<div class='ctab" + (i === active ? " on" : "") + "' data-i=" + i + " title='" + esc(title) + "'>" + label + (st ? "<span class='mark " + st + "'>" + st + "</span>" : "") + (t.kind === "diagram" ? "" : "<button class=tx data-x=" + i + " title='Close'>×</button>") + "</div>";
   }).join("");
   for (const el of document.querySelectorAll(".ctab")) {
     el.onclick = (e) => { if (e.target.closest(".tx")) return; active = +el.dataset.i; picked = null; renderActive(); };
@@ -237,8 +246,10 @@ function renderActive() {
   $("#codeview").hidden = !isCode;
   if (!isCode) {
     hideMini();
-    main = t?.id ?? null; side = t?.side && byId(t.side) ? t.side : null;
+    if (!byId(t?.id)) t.id = home();
+    main = t?.id ?? null; side = null;
     drawDiagrams();
+    drawZoom();
   } else {
     for (const w of ["main", "side"]) if (panes[w]) { panes[w].destroy(); panes[w] = null; }
     if (t.kind === "file") showMini(t); else hideMini();
@@ -397,7 +408,7 @@ function drawPane(which) {
   cy.on("mouseout", "node, edge", () => { tip.hidden = true; cy.elements().removeClass("faded hl"); });
   cy.on("tap", "node", (e) => {
     const n = d.nodes.find((x) => x.id === e.target.id());
-    if (n.detail && byId(n.detail)) { if (which === "side") cur().id = d.id; zoom(n.detail); return; }
+    if (n.detail && byId(n.detail)) { dive(e.target); return; }
     picked = { pane: which, id: n.id };
     if (insp) { insp = null; drawHeader(); }
     for (const c of Object.values(panes)) c?.nodes().removeClass("picked");
@@ -405,6 +416,7 @@ function drawPane(which) {
     drawInspector();
   });
   cy.on("tap", (e) => { if (e.target === cy) { picked = null; cy.nodes().removeClass("picked"); drawInspector(); } });
+  if (which === "main") wireZoom(cy, box);
 }
 
 // Both panes get their size before either is drawn, so each fits its own half.
@@ -427,6 +439,155 @@ function restyle() {
     $("#pane-" + which + " .legend").innerHTML = legend(cy);
   }
 }
+
+// ---- semantic zoom: dive into a box, its detail grows out of it -------------
+// Double-click a box, or scroll in past the closest zoom: a box with ⤢ becomes its detail
+// diagram; a box without one becomes its code. Scroll out past the full view, press Esc or use
+// the breadcrumb to come back up: the view shrinks back into the box it came from.
+
+let zooming = false;
+const parentOfDiagram = (id) => S.diagrams.find((d) => d.nodes.some((n) => n.detail === id));
+const parentNode = (id) => parentOfDiagram(id)?.nodes.find((n) => n.detail === id);
+const DUR = 460, EASE = "cubic-bezier(.3,.7,.2,1)";
+
+function drawZoom() {
+  const t = tabs[0], d = byId(t.id), chain = [];
+  for (let x = d, k = 0; x && k < 8; x = parentOfDiagram(x.id), k++) chain.unshift(x);
+  const node = t.code && d?.nodes.find((n) => n.id === t.code);
+  $("#crumbs").innerHTML = chain.map((x, i) => (i === chain.length - 1 && !node ? "<b>" + esc(nameOf(x)) + "</b>" : "<a data-go='" + esc(x.id) + "'>" + esc(nameOf(x)) + "</a>")).join(" <span class=muted>›</span> ") +
+    (node ? " <span class=muted>›</span> <b>" + esc(node.label) + "</b>" : "") + (chain.length > 1 || node ? " <span class='muted zhint'>· Esc or scroll out to go up</span>" : " <span class='muted zhint'>· double-click a box to go in</span>");
+  for (const a of document.querySelectorAll("#crumbs [data-go]")) a.onclick = () => jumpTo(a.dataset.go);
+  $("#zcode").hidden = !node;
+  if (node) { placeZcode(); renderZoomCode(d, node); picked = { pane: "main", id: node.id }; drawInspector(); }
+}
+// The rectangle of a box inside the diagram area, in pixels.
+function boxRect(n, area) {
+  const b = n.renderedBoundingBox({ includeLabels: false }), W = area.clientWidth, H = area.clientHeight;
+  return { x: b.x1, y: b.y1, w: Math.max(8, b.w), h: Math.max(8, b.h), W, H };
+}
+// Transforms that map the whole pane onto a box, and a box onto the whole pane.
+const intoBox = (r) => { const k = r.w / r.W; return `translate(${r.x}px, ${r.y + r.h / 2 - (k * r.H) / 2}px) scale(${k})`; };
+const outOfBox = (r) => { const k = r.W / r.w; return `translate(${-k * r.x}px, ${r.H / 2 - k * (r.y + r.h / 2)}px) scale(${k})`; };
+// A still picture of the diagram as it is now, laid exactly over it, to animate away.
+function snapshot(area) {
+  const cy = panes.main;
+  if (!cy) return null;
+  const img = new Image();
+  img.src = cy.png({ full: false, bg: css("--bg") });
+  img.className = "zsnap";
+  Object.assign(img.style, { left: area.offsetLeft + "px", top: area.offsetTop + "px", width: area.clientWidth + "px", height: area.clientHeight + "px" });
+  area.parentElement.appendChild(img);
+  return img;
+}
+// The code card sits exactly over the diagram area.
+function placeZcode() {
+  const a = $("#pane-main .cyc").getBoundingClientRect(), c = $("#canvas").getBoundingClientRect(), z = $("#zcode");
+  Object.assign(z.style, { left: a.left - c.left + "px", top: a.top - c.top + "px", width: a.width + "px", height: a.height + "px" });
+}
+const play = (el, frames) => el.animate(frames, { duration: DUR, easing: EASE }).finished.catch(() => {});
+
+async function dive(node) {
+  if (zooming || !node) return;
+  const t = tabs[0], d = byId(t.id), n = d?.nodes.find((x) => x.id === node.id());
+  if (!n || n.zone) return;
+  const target = n.detail && byId(n.detail) ? byId(n.detail) : null;
+  if (!target && !(n.anchors ?? []).length) return;
+  zooming = true;
+  const area = $("#pane-main .cyc"), r = boxRect(node, area), img = snapshot(area);
+  if (target) { t.id = target.id; t.code = null; } else t.code = n.id;
+  picked = null;
+  if (target) { main = t.id; drawPane("main"); drawInspector(); }
+  saveTabs(); setHash(); drawTabs(); drawZoom(); drawSide();
+  const layer = target ? $("#pane-main .cyc") : $("#zcode");
+  layer.style.transformOrigin = "0 0";
+  await Promise.all([
+    play(layer, [{ transform: intoBox(r), opacity: 0 }, { transform: "none", opacity: 1 }]),
+    img && play(img, [{ transform: "none", opacity: 1 }, { transform: outOfBox(r), opacity: 0 }]),
+  ]);
+  img?.remove();
+  zooming = false;
+}
+
+async function ascend() {
+  const t = tabs[0];
+  if (zooming) return;
+  if (t.code) { // code back into its box
+    zooming = true;
+    const node = panes.main?.$id(t.code), z = $("#zcode");
+    const r = node?.nonempty() ? boxRect(node, $("#pane-main .cyc")) : null;
+    t.code = null; saveTabs(); setHash(); drawTabs(); drawInspector();
+    if (r) { z.style.transformOrigin = "0 0"; await play(z, [{ transform: "none", opacity: 1 }, { transform: intoBox(r), opacity: 0 }]); }
+    drawZoom();
+    zooming = false;
+    return;
+  }
+  const parent = parentOfDiagram(t.id), pn = parentNode(t.id);
+  if (!parent) return;
+  zooming = true;
+  const img = snapshot($("#pane-main .cyc"));
+  t.id = parent.id; main = t.id; picked = null;
+  drawPane("main"); drawInspector();
+  saveTabs(); setHash(); drawTabs(); drawZoom(); drawSide();
+  const layer = $("#pane-main .cyc"), node = panes.main.$id(pn.id), r = boxRect(node, layer);
+  layer.style.transformOrigin = "0 0";
+  if (img) img.style.transformOrigin = "0 0";
+  await Promise.all([
+    play(layer, [{ transform: outOfBox(r), opacity: 0.2 }, { transform: "none", opacity: 1 }]),
+    img && play(img, [{ transform: "none", opacity: 1 }, { transform: intoBox(r), opacity: 0 }]),
+  ]);
+  img?.remove();
+  node.flashClass("picked", 900);
+  zooming = false;
+}
+// Breadcrumb: go up several levels at once (or anywhere), with a simple fade.
+function jumpTo(id) {
+  const t = tabs[0];
+  if (id === t.id && t.code) return ascend();
+  t.id = id; t.code = null; main = id; picked = null;
+  renderActive();
+  play($("#pane-main .cyc"), [{ opacity: 0 }, { opacity: 1 }]);
+}
+
+// Scroll past the closest zoom onto a box to go in; past the full view to come out.
+function wireZoom(cy, box) {
+  const fitZoom = cy.zoom();
+  cy.minZoom(Math.min(fitZoom * 0.85, 1));
+  cy.on("dbltap", "node", (e) => dive(e.target));
+  const area = $(".cyc", box);
+  let armed = 0;
+  area.addEventListener("wheel", (ev) => {
+    if (zooming) return;
+    const z = cy.zoom(), now = Date.now();
+    if (ev.deltaY < 0 && z >= cy.maxZoom() * 0.97) {
+      const rect = area.getBoundingClientRect(), x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+      const hit = cy.nodes().filter((n) => !n.isParent() && (() => { const b = n.renderedBoundingBox(); return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2; })());
+      if (hit.nonempty()) dive(hit[0]);
+    } else if (ev.deltaY > 0 && z <= cy.minZoom() * 1.02) {
+      if (now - armed < 600) ascend(); else armed = now; // a second scroll at the limit goes up
+    }
+  }, { passive: true });
+}
+
+// The deepest level: the code of one box, cut to its own functions.
+async function renderZoomCode(d, n) {
+  const el = $("#zcode");
+  const parts = (n.anchors ?? []).map((a) => ({ a, w: where(a) })).filter((x) => x.w);
+  el.innerHTML = "<div class=zcard><div class=zhead><b>" + esc(n.label) + "</b><span class=muted> · " + esc(tldr(n, n.explain)) + "</span></div><div class=zbody><p class=dnote>loading…</p></div></div>";
+  const texts = {};
+  for (const { w } of parts) if (!(w.file in texts)) { try { texts[w.file] = (await (await fetch("api/file?path=" + encodeURIComponent(w.file))).json()).text ?? ""; } catch { texts[w.file] = ""; } }
+  if (tabs[0].code !== n.id) return;
+  const c = changed();
+  $(".zbody", el).innerHTML = parts.map(({ a, w }) => {
+    const lines = hlLines((texts[w.file] ?? "").replace(/\n$/, ""), langOf(w.file));
+    const from = w.line ? Math.max(1, w.line) : 1, to = w.line ? Math.min(lines.length, w.end ?? w.line) : Math.min(lines.length, 40);
+    return "<div class=zpart><div class=zfile><a data-file='" + esc(w.file) + "'" + (w.line ? " data-line=" + w.line + " data-end=" + (w.end ?? w.line) : "") + ">" + esc(a) + "</a>" +
+      (anchorChanged(a, c) ? " <span class=chg>● changed</span>" : "") + "<span class=muted> · " + esc(w.file) + (w.line ? ":" + from : "") + "</span></div>" +
+      "<table class=code>" + lines.slice(from - 1, to).map((l, i) => "<tr><td class=ln>" + (from + i) + "</td><td class=c>" + l + "</td></tr>").join("") + "</table>" +
+      (!w.line && lines.length > to ? "<p class=dnote>… " + (lines.length - to) + " more lines: open the file</p>" : "") + "</div>";
+  }).join("") || "<p class=dnote>No code linked.</p>";
+  wire(el);
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && cur()?.kind === "diagram" && !e.target.closest?.("input,textarea")) ascend(); });
 
 // ---- inspector -----------------------------------------------------------
 
@@ -751,6 +912,7 @@ else if (Q.get("diff")) openTab({ kind: "file", path: Q.get("diff"), view: "diff
 else if (Q.get("commit")) openTab({ kind: "commit", sha: Q.get("commit") });
 else if (H.startsWith("f=")) openTab({ kind: "file", path: H.slice(2) });
 else if (H.startsWith("c=")) openTab({ kind: "commit", sha: H.slice(2) });
-else if (byId(H.split(",")[0])) { openDiagram(H.split(",")[0]); if (byId(H.split(",")[1])) zoom(H.split(",")[1]); }
+else if (byId(Q.get("at"))) { tabs[0].id = Q.get("at"); tabs[0].code = Q.get("box") || null; active = 0; renderActive(); } // ?at=diagram[&box=node]: a place on the map
+else if (byId(H.split(",")[0])) openDiagram(H.split(",")[0]);
 else renderActive();
 setTimeout(poll, 2000);

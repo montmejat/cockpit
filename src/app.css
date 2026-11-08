@@ -190,3 +190,21 @@ p.q{color:var(--muted);font-size:12px;margin:0 0 6px}
 @media (max-width:900px){#mini{display:none}}
 table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color-mix(in oklab,var(--accent) 9%,transparent)}
 
+
+/* semantic zoom */
+#canvas{overflow:hidden}
+.pane{overflow:hidden}
+#crumbs{position:absolute;top:8px;left:12px;z-index:6;font-size:12.5px;background:color-mix(in oklab,var(--card) 85%,transparent);padding:3px 10px;border-radius:12px;border:1px solid var(--line)}
+#crumbs a{color:var(--muted)}#crumbs a:hover{color:var(--accent)}#crumbs b{font-weight:700}
+.zhint{font-size:11px}
+#pane-main .ptitle .pname{visibility:hidden}
+.zsnap{position:absolute;pointer-events:none;z-index:4;transform-origin:0 0}
+#zcode{position:absolute;z-index:5;display:flex;justify-content:center;padding:6px 24px 16px;background:var(--bg);transform-origin:0 0}
+#zcode[hidden]{display:none}
+.zcard{width:min(980px,100%);display:flex;flex-direction:column;background:var(--card);border:2px solid var(--accent);border-radius:10px;overflow:hidden;box-shadow:0 10px 40px rgba(0,0,0,.12)}
+.zhead{padding:9px 14px;border-bottom:1px solid var(--line)}
+.zbody{flex:1;overflow:auto}
+.zpart+.zpart{border-top:1px solid var(--line)}
+.zfile{padding:6px 12px;font-size:11.5px;background:var(--bg);position:sticky;top:0}
+.chg{color:var(--warn)}
+@media (prefers-reduced-motion:reduce){.zsnap{display:none}}

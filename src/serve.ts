@@ -177,6 +177,8 @@ const page = () => `<!doctype html>
     <section class="pane" id="pane-main"><div class="ptitle"></div><div class="cyc"></div><div class="legend"></div></section>
     <section class="pane" id="pane-side" hidden><div class="ptitle"></div><div class="cyc"></div><div class="legend"></div></section>
     <div id="tip" hidden></div>
+    <div id="crumbs"></div>
+    <div id="zcode" hidden></div>
     <div id="nodiagram" hidden>Open a diagram or a file from the left.</div>
   </section>
   <section id="codeview" hidden><div class="dhead"></div><div class="dbody"></div>
