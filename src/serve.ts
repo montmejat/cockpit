@@ -26,6 +26,9 @@ const map = createMapApp(root, name);
 // Where you placed the blocks, per zoom level. Saved as you drag.
 const layoutPath = join(COCKPIT, "data", name, "layout.json");
 const readLayout = () => (existsSync(layoutPath) ? JSON.parse(readFileSync(layoutPath, "utf8")) : {});
+// Where you placed the boxes of each diagram: { diagramId: { nodeId: {x, y} } }.
+const dlayoutPath = join(COCKPIT, "data", name, "diagram-layout.json");
+const readDLayout = () => (existsSync(dlayoutPath) ? JSON.parse(readFileSync(dlayoutPath, "utf8")) : {});
 
 // The description: the repo's architecture.json (E7, kept by the agents) if there is one,
 // else the one-shot draft from npm run describe (E6).
@@ -164,7 +167,7 @@ function diagramsData() {
     diagrams: readArch(root)?.diagrams ?? [],
     problems: checkArch(text, sk).filter((p) => p.where.startsWith("diagram")),
     modules: sk.modules.map((m) => ({ id: m.id, file: m.file, items: m.items.filter((i) => !i.test).map((i) => ({ key: itemKey(m.id, i), line: i.line })) })),
-    live: b.live, work: b.work,
+    live: b.live, work: b.work, layout: readDLayout(),
   };
 }
 const diagramsPage = () => `<!doctype html>
@@ -225,6 +228,18 @@ createServer((req, res) => {
       json(res, listFiles());
     } else if (req.method === "GET" && url.pathname === "/api/file") {
       try { json(res, readSource(url.searchParams.get("path") ?? "")); } catch (e) { json(res, { error: String(e) }, 400); }
+    } else if (req.method === "POST" && url.pathname === "/api/diagram-layout") {
+      readBody(req).then((b) => {
+        try {
+          const { id, positions } = JSON.parse(b);
+          if (typeof id !== "string" || (positions !== null && typeof positions !== "object")) throw new Error("expected {id, positions}");
+          const all = readDLayout();
+          if (positions) all[id] = positions; else delete all[id];
+          mkdirSync(join(COCKPIT, "data", name), { recursive: true });
+          writeFileSync(dlayoutPath, JSON.stringify(all, null, 1) + "\n");
+          json(res, { ok: true });
+        } catch (e) { res.writeHead(400).end(String(e)); }
+      });
     } else if (req.method === "POST" && url.pathname === "/api/layout") {
       readBody(req).then((b) => {
         try {

@@ -50,8 +50,15 @@ function elements(d) {
   // Labels go where they can't collide: by the source if it's the only edge leaving it,
   // else by the target if it's the only one arriving, else in the middle.
   const flows = d.edges.filter((e) => !e.next), outN = (id) => flows.filter((e) => e.from === id).length, inN = (id) => flows.filter((e) => e.to === id).length;
+  // Dataflow: each arrow takes the color of the box it leaves, so it can be followed by eye.
+  const PAL = ["#2b7bd6", "#d9622b", "#2a9d6f", "#a35bd1", "#c79a1c", "#d1477a", "#3a9fb5", "#7a8a2a"];
+  const srcs = [...new Set(d.edges.map((e) => e.from))], colorOf = (id) => PAL[srcs.indexOf(id) % PAL.length];
   d.edges.forEach((e, i) => els.push({ data: { id: "e" + i, source: e.from, target: e.to, label: e.next ? "↻ " + e.label : e.label,
-    pos: e.next ? "mid" : outN(e.from) === 1 ? "src" : inN(e.to) === 1 ? "tgt" : "mid" }, classes: e.next ? "edge next" : "edge" }));
+    pos: d.kind === "dataflow" ? "mid" : e.next ? "mid" : outN(e.from) === 1 ? "src" : inN(e.to) === 1 ? "tgt" : "mid",
+    c: d.kind === "dataflow" ? colorOf(e.from) : "" }, classes: (e.next ? "edge next" : "edge") + (d.kind === "dataflow" ? " colored" : "") }));
+  // Reads of a carried state ("the car at t") go to many boxes: faint until hovered.
+  const carried = new Set(d.nodes.filter((n) => n.carries).map((n) => n.id));
+  if (d.kind === "dataflow") for (const el of els) if (el.data.source && carried.has(el.data.source) && !el.classes.includes("next")) el.classes += " aux";
   // A loop shows its spine: the steps in order and the one arrow back to the first step.
   // Reads and writes of the carried state stay faint until you hover a box.
   if (d.kind === "loop") {
@@ -94,6 +101,7 @@ function style() {
     { selector: "edge.order", style: { visibility: "hidden" } },
     { selector: "edge.next", style: { "line-style": "dashed", "line-dash-pattern": [6, 4], "curve-style": "unbundled-bezier", "control-point-distances": [240], "control-point-weights": [0.5],
       color: data, "line-color": data, "target-arrow-color": data, "font-weight": 700 } },
+    { selector: "edge.colored", style: { "line-color": "data(c)", "target-arrow-color": "data(c)", color: "data(c)", width: 1.8 } },
     { selector: "edge.aux", style: { opacity: 0.12, label: "", "source-label": "", "target-label": "" } },
     { selector: "edge.aux.hl", style: { opacity: 1, label: "data(label)" } },
     { selector: "edge.hl", style: { "line-color": data, "target-arrow-color": data, width: 2.2 } },
@@ -123,17 +131,35 @@ function drawPane(which) {
   $(".dmain").classList.toggle("split", !!side && !!byId(side));
   if (!d) return;
   box.querySelector(".ptitle").innerHTML = "<span class=k>" + esc(d.kind) + (d.rate ? " · " + esc(d.rate) : "") + "</span>" + esc(d.question) +
-    (which === "side" ? " <button class=x title='Close'>×</button>" : "");
+    "<span class=pbtns><button class=reset title='Forget where you moved the boxes'" + (D.layout?.[d.id] ? "" : " hidden") + ">reset layout</button>" +
+    (which === "side" ? "<button class=x title='Close'>×</button>" : "") + "</span>";
   box.querySelector(".x")?.addEventListener("click", () => { side = null; picked = null; setHash(); drawAll(); });
+  box.querySelector(".reset").addEventListener("click", () => {
+    if (D.layout) delete D.layout[d.id];
+    fetch("api/diagram-layout", { method: "POST", body: JSON.stringify({ id: d.id, positions: null }) });
+    drawPane(which);
+  });
   const cy = cytoscape({ container: box.querySelector(".cyc"), elements: elements(d), wheelSensitivity: 0.2, minZoom: 0.25, maxZoom: 2.5, style: style() });
   panes[which] = cy;
-  if (d.kind !== "zones") cy.edges().not(".next").addClass("flow");
-  cy.elements().not(".next").layout({ name: "dagre", rankDir: "TB", nodeSep: 60, rankSep: d.kind === "dataflow" ? 90 : 50, edgeSep: 20, padding: 24 }).run();
+  if (d.kind === "pipeline" || d.kind === "loop") cy.edges().not(".next").addClass("flow");
+  const df = d.kind === "dataflow";
+  cy.elements().not(".next").layout({ name: "dagre", rankDir: "TB", nodeSep: df ? 110 : 60, rankSep: df ? 130 : 50, edgeSep: df ? 40 : 20, padding: 24 }).run();
+  if (df) cy.edges().not(".next").style({ "curve-style": "bezier", "control-point-step-size": 60 });
   if (d.kind === "loop") {
     const spine = cy.nodes().not(".carries"), bb = spine.boundingBox();
     cy.nodes(".carries").forEach((n, i) => n.position({ x: bb.x2 + 140, y: bb.y1 + bb.h / 2 + i * 70 }));
   }
+  const saved = D.layout?.[d.id];
+  if (saved) cy.nodes().forEach((n) => { if (saved[n.id()] && !n.isParent()) n.position(saved[n.id()]); });
   cy.fit(undefined, 30);
+  // Dragging a box keeps it there, for everyone opening this diagram.
+  cy.on("dragfree", "node", () => {
+    const pos = {};
+    cy.nodes().forEach((n) => { if (!n.isParent()) pos[n.id()] = { x: Math.round(n.position("x")), y: Math.round(n.position("y")) }; });
+    D.layout = { ...(D.layout ?? {}), [d.id]: pos };
+    fetch("api/diagram-layout", { method: "POST", body: JSON.stringify({ id: d.id, positions: pos }) });
+    box.querySelector(".reset").hidden = false;
+  });
   box.querySelector(".legend2").innerHTML = legend(d, cy);
 
   const tip = $("#tip"), area = $(".dmain");
@@ -153,7 +179,11 @@ function drawPane(which) {
     tip.innerHTML = (x.next ? "<span class=muted>used in the next round</span><br>" : "") + "<b>" + esc(x.label) + "</b>" + (x.explain ? "<br>" + esc(x.explain) : "");
     tip.hidden = false; place(e.originalEvent);
   });
-  cy.on("mouseout", "edge", () => (tip.hidden = true));
+  cy.on("mouseover", "edge", (e) => {
+    cy.elements().not(e.target).not(e.target.connectedNodes()).not(e.target.connectedNodes().ancestors()).addClass("faded");
+    e.target.addClass("hl");
+  });
+  cy.on("mouseout", "edge", () => { tip.hidden = true; cy.elements().removeClass("faded hl"); });
   cy.on("tap", "node", (e) => {
     const n = d.nodes.find((x) => x.id === e.target.id());
     picked = { pane: which, id: n.id };
@@ -216,7 +246,7 @@ async function poll() {
     if (r.ok) {
       const nd = await r.json(), s = JSON.stringify(nd);
       if (s !== stamp) {
-        const same = JSON.stringify(nd.diagrams) === JSON.stringify(D.diagrams);
+        const same = JSON.stringify(nd.diagrams) === JSON.stringify(D.diagrams) && JSON.stringify(nd.layout) === JSON.stringify(D.layout);
         D = nd; stamp = s;
         if (!byId(main)) main = D.diagrams[0]?.id ?? null;
         if (!byId(side)) side = null;

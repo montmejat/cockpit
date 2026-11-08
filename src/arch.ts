@@ -140,6 +140,9 @@ export function checkArch(text: string | null, sk: Skeleton): ArchProblem[] {
         for (const s of n.anchors ?? []) if (!symbols.has(s)) p(`${w} node ${n.id}`, `link "${s}" matches no module or item (format: crate/module::Item or crate/module::Type::method)`);
       }
       for (const n of d.nodes) if (n.in && !d.nodes.some((z) => z.id === n.in && z.zone)) p(`${w} node ${n.id}`, `"in": "${n.in}" is not a zone of this diagram`);
+      // Only what goes around is "next"; several of them mean the carried state wants its own box.
+      const nexts = d.edges.filter((e) => e.next);
+      if (nexts.length > 2) p(w, `${nexts.length} "next" edges: only the edge that closes a round is "next" (writes and reads within the same round are plain edges). Draw the state kept between rounds as one "carries" node: plain edges from it to what reads it, one "next" edge into it from where the new state is written`);
       for (const e of d.edges) {
         for (const end of [e.from, e.to]) if (!nodeIds.has(end)) p(w, `edge ${e.from} -> ${e.to}: no node "${end}"`);
         if (!e.label) p(w, `edge ${e.from} -> ${e.to} has no label (say what moves along it)`);

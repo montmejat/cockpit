@@ -141,7 +141,7 @@ a.modrow:hover,a.hrow:hover{background:color-mix(in oklab,var(--accent) 8%,trans
 .pane[hidden]{display:none}
 .ptitle{padding:8px 12px 0;font-weight:700;font-size:12.5px;display:flex;flex-direction:column;gap:1px;position:relative}
 .ptitle .k{font-weight:400;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-.ptitle .x{position:absolute;right:10px;top:6px;padding:0 7px}
+.ptitle .pbtns{position:absolute;right:10px;top:6px;display:flex;gap:6px}.ptitle .pbtns button{padding:0 7px;font-weight:400;font-size:11px}
 .cyc{flex:1;min-height:0}
 .legend2{display:flex;flex-wrap:wrap;gap:4px 14px;padding:6px 12px 10px;font-size:11px;color:var(--muted)}
 .legend2 .sw{display:inline-block;width:14px;height:10px;margin-right:5px;vertical-align:-1px;border-radius:2px;border:1.5px solid var(--fg);background:var(--card)}
