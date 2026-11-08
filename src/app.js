@@ -471,6 +471,9 @@ function placeZcode() {
   const a = $("#pane-main .cyc").getBoundingClientRect(), c = $("#canvas").getBoundingClientRect(), z = $("#zcode");
   Object.assign(z.style, { left: a.left - c.left + "px", top: a.top - c.top + "px", width: a.width + "px", height: a.height + "px" });
 }
+// The diagram library remembers where its box is on screen. If the mouse moves while a zoom animation
+// scales the box, it remembers the animated place and clicks land off target: re-measure once it ends.
+const settle = () => { panes.main?.resize(); panes.side?.resize(); };
 const play = (el, frames) => el.animate(frames, { duration: DUR, easing: EASE }).finished.catch(() => {});
 
 async function dive(node) {
@@ -492,6 +495,7 @@ async function dive(node) {
     img && play(img, [{ transform: "none", opacity: 1 }, { transform: outOfBox(r), opacity: 0 }]),
   ]);
   img?.remove();
+  settle();
   zooming = false;
 }
 
@@ -505,6 +509,7 @@ async function ascend() {
     t.code = null; saveTabs(); setHash(); drawTabs(); drawInspector();
     if (r) { z.style.transformOrigin = "0 0"; await play(z, [{ transform: "none", opacity: 1 }, { transform: intoBox(r), opacity: 0 }]); }
     drawZoom();
+    settle();
     zooming = false;
     return;
   }
@@ -526,6 +531,7 @@ async function ascend() {
   ]);
   img?.remove();
   node.flashClass("picked", 900);
+  settle();
   zooming = false;
 }
 // Breadcrumb: go up several levels at once (or anywhere), with a simple fade.
@@ -534,7 +540,7 @@ function jumpTo(id) {
   if (id === t.id && t.code) return ascend();
   t.id = id; t.code = null; main = id; picked = null;
   renderActive();
-  play($("#pane-main .cyc"), [{ opacity: 0 }, { opacity: 1 }]);
+  play($("#pane-main .cyc"), [{ opacity: 0 }, { opacity: 1 }]).then(settle);
 }
 
 // Scroll past the closest zoom onto a box to go in; past the full view to come out.
@@ -559,7 +565,11 @@ function wireZoom(cy) {
     }
   }, { passive: true });
   // The diagram library remembers where its box is; re-measure whenever the mouse comes in.
-  area.addEventListener("mouseenter", () => panes.main?.resize());
+  for (const w of ["main", "side"]) {
+    const c = $(`#pane-${w} .cyc`);
+    c.addEventListener("mouseenter", () => panes[w]?.resize());
+    new ResizeObserver(() => panes[w]?.resize()).observe(c);
+  }
 })();
 
 // The deepest level: the code of one box, cut to its own functions.
