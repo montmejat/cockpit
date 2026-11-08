@@ -179,7 +179,9 @@ const page = () => `<!doctype html>
     <div id="tip" hidden></div>
     <div id="nodiagram" hidden>Open a diagram or a file from the left.</div>
   </section>
-  <section id="codeview" hidden><div class="dhead"></div><div class="dbody"></div></section>
+  <section id="codeview" hidden><div class="dhead"></div><div class="dbody"></div>
+    <div id="mini" hidden><div class="mhead"><span class="mtitle"></span><span class="mtabs"></span><button class="mclose" title="Fold or unfold">–</button></div><div class="mcy"></div><div class="mfoot"></div></div>
+  </section>
   </section>
   <aside id="inspector"></aside>
 

@@ -236,10 +236,12 @@ function renderActive() {
   $("#canvas").hidden = !!isCode;
   $("#codeview").hidden = !isCode;
   if (!isCode) {
+    hideMini();
     main = t?.id ?? null; side = t?.side && byId(t.side) ? t.side : null;
     drawDiagrams();
   } else {
     for (const w of ["main", "side"]) if (panes[w]) { panes[w].destroy(); panes[w] = null; }
+    if (t.kind === "file") showMini(t); else hideMini();
     renderCode(t);
     drawInspector();
   }
@@ -619,30 +621,44 @@ async function renderCode(spec) {
   syncMini();
 }
 
-// ---- the open file in the right panel: where it sits in the diagrams -------
-// Boxes with code in this file are outlined; the ones whose code is on screen light up as you
-// scroll. Hover a box to see its lines, click it to go there.
+// ---- the open file: where it sits in the diagrams ----------------------------
+// A small diagram floats over the code in file tabs: boxes with code in this file are outlined,
+// the ones whose code is on screen light up as you scroll. Hover a box to see its lines, click it
+// to go there. Drag the title bar to move it, the corner to resize it; both are remembered.
 
 const mini = { cy: null, d: null, path: null };
-const diagramsIn = (path) => S.diagrams.filter((d) => d.nodes.some((n) => filesOfNode(n).includes(path)));
+const miniGeo = () => { try { return JSON.parse(store.get("cockpit-mini", "null")); } catch { return null; } };
+// The diagrams with boxes in this file, the one with the most boxes here first.
+const boxesHere = (d, path) => d.nodes.filter((n) => filesOfNode(n).includes(path)).length;
+const diagramsIn = (path) => S.diagrams.filter((d) => boxesHere(d, path)).sort((a, b) => boxesHere(b, path) - boxesHere(a, path));
 // The lines a box covers in this file; a whole-module link covers the file but isn't "on screen".
 function rangesIn(n, path) {
   return (n.anchors ?? []).map(where).filter((w) => w && w.file === path).map((w) => (w.line ? [w.line, w.end ?? w.line] : null));
 }
+// The right panel for a file: short, with the diagrams it appears in.
 function filePanel(t) {
   const el = $("#inspector"), path = t.path, ds = diagramsIn(path), st = statusOf(path);
-  if (mini.cy) { mini.cy.destroy(); mini.cy = null; }
-  const d = ds.find((x) => x.id === t.mini) || ds.find((x) => x.id === mini.d?.id) || ds[0];
-  const boxes = d ? d.nodes.filter((n) => filesOfNode(n).includes(path)) : [];
   el.innerHTML = "<div class=kicker>" + esc(path.split("/").slice(0, -1).join("/") || "file") + "</div><h2>" + esc(path.split("/").pop()) + "</h2>" +
     (st ? "<p class=notebox>" + (st === "A" ? "new, not committed" : st === "D" ? "deleted, not committed" : "changed, not committed") + "</p>" : "") +
-    (d ? "<p class=lead>In <b>" + esc(nameOf(d)) + "</b>: " + boxes.map((n) => esc(n.label)).join(", ") + "</p>" +
-      (ds.length > 1 ? "<div class=chips>" + ds.map((x) => "<a class='chip" + (x.id === d.id ? " on" : "") + "' data-mini='" + esc(x.id) + "'>" + esc(nameOf(x)) + "</a>").join("") + "</div>" : "") +
-      "<div class=mcy></div><div class=mfoot>hover a box to see its lines</div>"
+    (ds.length ? "<p class=lead>In " + ds.map((d) => "<b>" + esc(nameOf(d)) + "</b> (" + d.nodes.filter((n) => filesOfNode(n).includes(path)).map((n) => esc(n.label)).join(", ") + ")").join(", ") + "</p>" +
+      "<div class=chips>" + ds.map((d) => "<a class=chip data-open='" + esc(d.id) + "'>open " + esc(nameOf(d)) + "</a>").join("") + "</div>"
       : "<p class=hint>No diagram box points into this file.</p>");
-  for (const a of el.querySelectorAll("[data-mini]")) a.onclick = () => { t.mini = a.dataset.mini; filePanel(t); };
-  mini.d = d ?? null; mini.path = path;
-  if (!d) return;
+  wire(el);
+}
+function hideMini() { $("#mini").hidden = true; if (mini.cy) { mini.cy.destroy(); mini.cy = null; } mini.d = null; mini.path = null; }
+function showMini(t) {
+  const el = $("#mini"), path = t.path, ds = diagramsIn(path);
+  if (!ds.length) return hideMini();
+  const d = ds.find((x) => x.id === t.mini) || (mini.path === path && ds.find((x) => x.id === mini.d?.id)) || ds[0];
+  el.hidden = false;
+  const g = miniGeo();
+  if (g) Object.assign(el.style, { left: g.left + "px", top: g.top + "px", width: g.width + "px", height: g.height + "px", right: "auto", bottom: "auto" });
+  $(".mtitle", el).textContent = nameOf(d);
+  $(".mtitle", el).title = d.question;
+  $(".mtabs", el).innerHTML = ds.length > 1 ? ds.map((x) => "<button data-mini='" + esc(x.id) + "'" + (x.id === d.id ? " class=on" : "") + " title='" + esc(x.question) + "'>" + esc(nameOf(x)) + "</button>").join("") : "";
+  for (const b of el.querySelectorAll("[data-mini]")) b.onclick = (e) => { e.stopPropagation(); t.mini = b.dataset.mini; showMini(t); };
+  if (mini.cy) mini.cy.destroy();
+  mini.d = d; mini.path = path;
   const cy = (mini.cy = buildCy($(".mcy", el), d));
   cy.nodes().forEach((x) => { const n = d.nodes.find((m) => m.id === x.id()); if (n && filesOfNode(n).includes(path)) x.addClass("infile"); });
   const rows = () => [...document.querySelectorAll("#codeview .dbody tr[data-n]")];
@@ -650,8 +666,10 @@ function filePanel(t) {
     const rs = rangesIn(n, path).filter(Boolean);
     for (const tr of rows()) { const k = +tr.dataset.n; tr.classList.toggle("boxhl", on && rs.some(([a, b]) => k >= a && k <= b)); }
   };
+  const foot = "hover a box to see its lines";
+  $(".mfoot", el).textContent = foot;
   cy.on("mouseover", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); if (!n) return; $(".mfoot", el).textContent = n.label + ": " + tldr(n, n.explain); mark(n, true); });
-  cy.on("mouseout", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); $(".mfoot", el).textContent = "hover a box to see its lines"; if (n) mark(n, false); });
+  cy.on("mouseout", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); $(".mfoot", el).textContent = foot; if (n) mark(n, false); });
   cy.on("tap", "node", (e) => {
     const n = d.nodes.find((m) => m.id === e.target.id());
     if (!n) return;
@@ -677,6 +695,26 @@ function syncMini() {
 }
 let miniTick = 0;
 $("#codeview .dbody").addEventListener("scroll", () => { cancelAnimationFrame(miniTick); miniTick = requestAnimationFrame(syncMini); });
+(function () {
+  const el = $("#mini"), head = $(".mhead", el), save = () => {
+    const r = el.getBoundingClientRect(), p = el.offsetParent.getBoundingClientRect();
+    store.set("cockpit-mini", JSON.stringify({ left: r.left - p.left, top: r.top - p.top, width: r.width, height: r.height }));
+  };
+  head.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    const r = el.getBoundingClientRect(), p = el.offsetParent.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+    const move = (ev) => {
+      el.style.left = Math.max(0, Math.min(p.width - 80, ev.clientX - p.left - dx)) + "px";
+      el.style.top = Math.max(0, Math.min(p.height - 30, ev.clientY - p.top - dy)) + "px";
+      el.style.right = "auto"; el.style.bottom = "auto";
+    };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); save(); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  });
+  let t = 0;
+  new ResizeObserver(() => { if (!mini.cy || el.hidden) return; mini.cy.resize(); clearTimeout(t); t = setTimeout(() => { mini.cy?.fit(undefined, 16); save(); }, 120); }).observe(el);
+  $(".mclose", el).onclick = () => { el.classList.toggle("collapsed"); $(".mclose", el).textContent = el.classList.contains("collapsed") ? "+" : "–"; };
+})();
 
 // ---- wiring --------------------------------------------------------------
 
@@ -704,7 +742,7 @@ async function poll() {
         active = Math.min(active, Math.max(0, tabs.length - 1));
         drawHeader(); drawTabs();
         const t = cur();
-        if (t?.kind === "file") { if (filesMoved || !sameDiagrams) renderCode(t); if (!sameDiagrams) drawInspector(); else restyle(); } // live: the open file follows edits
+        if (t?.kind === "file") { if (filesMoved || !sameDiagrams) renderCode(t); if (!sameDiagrams) { showMini(t); drawInspector(); } else restyle(); } // live: the open file follows edits
         else if (sameDiagrams) { restyle(); drawInspector(); } else renderActive();
         drawSide();
       }
