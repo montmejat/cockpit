@@ -20,7 +20,7 @@ export interface Feature {
 }
 // Diagrams the agents draw to explain the code (E9). A small fixed vocabulary so cockpit can
 // check them against the code, draw them the same way, and light them up while agents work.
-export const DIAGRAM_KINDS = ["pipeline", "dataflow", "zones"] as const;
+export const DIAGRAM_KINDS = ["loop", "pipeline", "dataflow", "zones"] as const;
 export interface DiagramNode {
   id: string; label: string;
   explain: string; // one or two sentences, shown on hover: what this is, in plain words
@@ -30,12 +30,17 @@ export interface DiagramNode {
   outside?: boolean; // not code: the world around it
   focus?: boolean; // the one thing the diagram is about
   total?: boolean; // a shared total that several parts add into (an accumulator, a buffer, a shared state)
+  start?: boolean; // where it begins (program start, a request arriving)
+  end?: boolean; // where it stops
+  carries?: boolean; // state that survives from one round to the next
+  detail?: string; // id of another diagram that zooms into this box
 }
 // next: the value is used in the next round (next step, next frame, next request), not this one.
 export interface DiagramEdge { from: string; to: string; label: string; explain?: string; next?: boolean }
 export interface Diagram {
   id: string; question: string; kind: (typeof DIAGRAM_KINDS)[number];
   answer: string; // the claim the picture makes, in one or two sentences
+  rate?: string; // loop: what one round is and how often it repeats ("every screen frame, ~60 Hz")
   why: string; // why this is worth a diagram rather than a sentence
   nodes: DiagramNode[]; edges: DiagramEdge[];
 }
@@ -123,13 +128,15 @@ export function checkArch(text: string | null, sk: Skeleton): ArchProblem[] {
       const w = `diagram ${d.id}`;
       if (!DIAGRAM_KINDS.includes(d.kind)) p(w, `kind "${d.kind}" is not one of ${DIAGRAM_KINDS.join(", ")}`);
       for (const k of ["question", "answer", "why"] as const) if (!d[k]) p(w, `missing "${k}"`);
+      if (d.kind === "loop" && !d.rate) p(w, `a loop needs "rate": what one round is and how often it repeats`);
       if (!Array.isArray(d.nodes) || !Array.isArray(d.edges)) { p(w, `needs "nodes" and "edges" lists`); continue; }
       const nodeIds = new Set<string>();
       for (const n of d.nodes) {
         if (nodeIds.has(n.id)) p(w, `node id "${n.id}" is used twice`);
         nodeIds.add(n.id);
         if (!n.explain) p(`${w} node ${n.id}`, `missing "explain" (shown on hover)`);
-        if (!n.zone && !n.outside && !n.anchors?.length) p(`${w} node ${n.id}`, `has no code links: add anchors, or mark it "outside" if it is not code`);
+        if (n.detail && (n.detail === d.id || !a.diagrams.some((x) => x.id === n.detail))) p(`${w} node ${n.id}`, `"detail": "${n.detail}" is not another diagram's id`);
+        if (!n.zone && !n.outside && !n.start && !n.end && !n.anchors?.length) p(`${w} node ${n.id}`, `has no code links: add anchors, or mark it "outside" if it is not code`);
         for (const s of n.anchors ?? []) if (!symbols.has(s)) p(`${w} node ${n.id}`, `link "${s}" matches no module or item (format: crate/module::Item or crate/module::Type::method)`);
       }
       for (const n of d.nodes) if (n.in && !d.nodes.some((z) => z.id === n.in && z.zone)) p(`${w} node ${n.id}`, `"in": "${n.in}" is not a zone of this diagram`);

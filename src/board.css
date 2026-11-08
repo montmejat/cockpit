@@ -135,7 +135,26 @@ a.modrow:hover,a.hrow:hover{background:color-mix(in oklab,var(--accent) 8%,trans
 #dside h4{margin:18px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--bad);font-weight:500}
 .prob{font-size:11px;color:var(--muted);margin:4px 0}
 .dmain{flex:1;min-width:0;position:relative;background:var(--bg);background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:20px 20px}
-#cy{position:absolute;inset:0}
+.dmain{display:flex}
+.pane{flex:1;min-width:0;position:relative;display:flex;flex-direction:column}
+.dmain.split .pane+.pane{border-left:1px solid var(--line)}
+.pane[hidden]{display:none}
+.ptitle{padding:8px 12px 0;font-weight:700;font-size:12.5px;display:flex;flex-direction:column;gap:1px;position:relative}
+.ptitle .k{font-weight:400;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.ptitle .x{position:absolute;right:10px;top:6px;padding:0 7px}
+.cyc{flex:1;min-height:0}
+.legend2{display:flex;flex-wrap:wrap;gap:4px 14px;padding:6px 12px 10px;font-size:11px;color:var(--muted)}
+.legend2 .sw{display:inline-block;width:14px;height:10px;margin-right:5px;vertical-align:-1px;border-radius:2px;border:1.5px solid var(--fg);background:var(--card)}
+.sw.terminal{border-radius:6px;background:var(--fg)}
+.sw.focus{border-color:var(--hot);background:color-mix(in oklab,var(--hot) 15%,var(--card))}
+.sw.carries{border-style:dashed;border-color:var(--accent)}
+.sw.total{border-color:var(--accent);border-radius:5px;background:color-mix(in oklab,var(--accent) 15%,var(--card))}
+.sw.zoomable{border-style:double;border-width:4px}
+.sw.next{border:0;border-top:2px dashed var(--accent);border-radius:0;height:0;vertical-align:3px}
+.sw.live{border-color:var(--hot);box-shadow:0 0 6px var(--hot)}
+.sw.unc{border-style:dashed;border-color:var(--warn)}
+#dside a.q.on2{background:var(--bg);box-shadow:inset 2px 0 0 var(--accent)}
+#dside a.q.sub{margin-left:14px}
 #tip{position:absolute;z-index:5;max-width:320px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;box-shadow:0 6px 24px rgba(0,0,0,.18);pointer-events:none}
 .dmain #empty[hidden]{display:none}
 .dmain #empty{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted)}

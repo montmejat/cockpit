@@ -178,7 +178,7 @@ const diagramsPage = () => `<!doctype html>
 <style>${readFileSync(join(COCKPIT, "src", "board.css"), "utf8")}</style></head><body>
 <header><h1>${name}</h1><span class="nav"><a href="./">board</a><a class="on" href="diagrams">diagrams</a><a href="work">work</a></span><span id="live"></span></header>
 <div class="dwrap"><nav id="dside"><div id="dlist"></div><div id="problems"></div></nav>
-<div class="dmain"><div id="cy"></div><div id="tip" hidden></div><div id="empty" hidden>No diagram selected.</div></div><aside id="panel"></aside></div>
+<div class="dmain"><section class="pane" id="pane-main"><div class="ptitle"></div><div class="cyc"></div><div class="legend2"></div></section><section class="pane" id="pane-side" hidden><div class="ptitle"></div><div class="cyc"></div><div class="legend2"></div></section><div id="tip" hidden></div></div><aside id="panel"></aside></div>
 <script>window.INIT = ${JSON.stringify({ diagrams: diagramsData() }).replace(/</g, "\\u003c")};</script>
 <script>${readFileSync(join(COCKPIT, "src", "diagrams-client.js"), "utf8")}</script>
 </body></html>`;
