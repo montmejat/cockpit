@@ -180,6 +180,7 @@ const page = () => `<!doctype html>
   </section>
   <aside id="inspector"></aside>
   <section id="drawer" hidden><div class="dhead"></div><div class="dbody"></div></section>
+  <section id="mini" hidden><div class="mhead"><span class="mtitle"></span><span class="mtabs"></span><button class="mclose" title="Fold or unfold">–</button></div><div class="mcy"></div><div class="mfoot"></div></section>
 </main>
 <script>window.INIT = ${JSON.stringify(state()).replace(/</g, "\\u003c")};</script>
 <script>${readFileSync(join(COCKPIT, "src", "app.js"), "utf8")}</script>

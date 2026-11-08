@@ -228,6 +228,8 @@ function style() {
     { selector: "node.unc", style: { "border-style": "dashed", "border-color": warn, "border-width": 2.4 } },
     { selector: "node.live", style: { "border-color": sig, "border-width": 3, "underlay-color": sig, "underlay-opacity": 0.3, "underlay-padding": 9 } },
     { selector: "node.picked", style: { "border-color": data, "border-width": 3 } },
+    { selector: "node.infile", style: { "border-color": data, "border-width": 2, "background-color": data, "background-opacity": 0.07 } },
+    { selector: "node.inview", style: { "border-color": data, "border-width": 3.5, "background-opacity": 0.18, "underlay-color": data, "underlay-opacity": 0.22, "underlay-padding": 8 } },
     { selector: "edge", style: { width: 1.4, "line-color": soft, "target-arrow-color": soft, "target-arrow-shape": "triangle", "arrow-scale": 0.9,
       "curve-style": "bezier", label: "data(label)", "font-family": "JetBrains Mono, monospace", "font-size": 11.5, color: data,
       "text-background-color": panel, "text-background-opacity": 1, "text-background-padding": 2, "text-wrap": "wrap", "text-max-width": 130 } },
@@ -259,6 +261,23 @@ function legend(cy) {
   return items.join("");
 }
 
+// A diagram laid out in a container: the same picture in a pane or in the floating window.
+function buildCy(container, d) {
+  const cy = cytoscape({ container, elements: elements(d), wheelSensitivity: 0.2, minZoom: 0.2, maxZoom: 2.5, style: style() });
+  const df = d.kind === "dataflow";
+  if (d.kind === "pipeline" || d.kind === "loop") cy.edges().not(".next").addClass("flow");
+  cy.elements().not(".next").layout({ name: "dagre", rankDir: "TB", nodeSep: df ? 110 : 60, rankSep: df ? 130 : 50, edgeSep: df ? 40 : 20, padding: 24 }).run();
+  if (df) cy.edges().not(".next").style({ "curve-style": "bezier", "control-point-step-size": 60 });
+  if (d.kind === "loop") { // the carried state sits beside the loop, not in it
+    const bb = cy.nodes().not(".carries").boundingBox();
+    cy.nodes(".carries").forEach((n, i) => n.position({ x: bb.x2 + 140, y: bb.y1 + bb.h / 2 + i * 70 }));
+  }
+  const saved = S.layout?.[d.id];
+  if (saved) cy.nodes().forEach((n) => { if (saved[n.id()] && !n.isParent()) n.position(saved[n.id()]); });
+  cy.fit(undefined, 30);
+  return cy;
+}
+
 function drawPane(which) {
   const d = byId(which === "main" ? main : side), box = $("#pane-" + which);
   if (panes[which]) { panes[which].destroy(); panes[which] = null; }
@@ -273,19 +292,8 @@ function drawPane(which) {
     fetch("api/diagram-layout", { method: "POST", body: JSON.stringify({ id: d.id, positions: null }) });
     drawPane(which);
   });
-  const cy = cytoscape({ container: $(".cyc", box), elements: elements(d), wheelSensitivity: 0.2, minZoom: 0.25, maxZoom: 2.5, style: style() });
+  const cy = buildCy($(".cyc", box), d);
   panes[which] = cy;
-  const df = d.kind === "dataflow";
-  if (d.kind === "pipeline" || d.kind === "loop") cy.edges().not(".next").addClass("flow");
-  cy.elements().not(".next").layout({ name: "dagre", rankDir: "TB", nodeSep: df ? 110 : 60, rankSep: df ? 130 : 50, edgeSep: df ? 40 : 20, padding: 24 }).run();
-  if (df) cy.edges().not(".next").style({ "curve-style": "bezier", "control-point-step-size": 60 });
-  if (d.kind === "loop") { // the carried state sits beside the loop, not in it
-    const bb = cy.nodes().not(".carries").boundingBox();
-    cy.nodes(".carries").forEach((n, i) => n.position({ x: bb.x2 + 140, y: bb.y1 + bb.h / 2 + i * 70 }));
-  }
-  const saved = S.layout?.[d.id];
-  if (saved) cy.nodes().forEach((n) => { if (saved[n.id()] && !n.isParent()) n.position(saved[n.id()]); });
-  cy.fit(undefined, 30);
   if (picked?.pane === which) cy.$id(picked.id).addClass("picked");
   $(".legend", box).innerHTML = legend(cy);
 
@@ -343,6 +351,7 @@ function drawDiagrams() {
 // Only what's changing moved: restyle the boxes in place, keep zoom and positions.
 function restyle() {
   const c = changed();
+  if (mini.cy && mini.d) for (const n of mini.d.nodes) { const ns = nodeState(n, c); mini.cy.$id(n.id).toggleClass("live", ns.live).toggleClass("unc", ns.unc); }
   for (const [which, cy] of Object.entries(panes)) {
     const d = cy && byId(which === "main" ? main : side);
     if (!d) continue;
@@ -484,7 +493,7 @@ function diffHtml(patch) {
     } else if (l.startsWith("\\")) continue;
     else if (open && (l[0] === "+" || l[0] === "-" || l[0] === " ")) {
       const k = l[0] === "+" ? "add" : l[0] === "-" ? "del" : "";
-      h += "<tr class='" + k + "'><td class=ln>" + (k === "add" ? "" : o++) + "</td><td class=ln>" + (k === "del" ? "" : n++) + "</td><td class=sg>" + (k ? l[0] : "") + "</td><td class=c>" + hlLine(l.slice(1), lang) + "</td></tr>";
+      h += "<tr class='" + k + "'" + (k === "del" ? "" : " data-n=" + n) + "><td class=ln>" + (k === "add" ? "" : o++) + "</td><td class=ln>" + (k === "del" ? "" : n++) + "</td><td class=sg>" + (k ? l[0] : "") + "</td><td class=c>" + hlLine(l.slice(1), lang) + "</td></tr>";
     }
   }
   close();
@@ -530,16 +539,101 @@ async function showDrawer(spec) {
       if (r.error || r.text === null) { body.innerHTML = "<p class=dnote>" + esc(r.error ?? r.note) + "</p>"; }
       else {
         const lines = hlLines(r.text.replace(/\n$/, ""), langOf(spec.path)), a = spec.line ?? -1, b = spec.end ?? a;
-        body.innerHTML = "<table class=code>" + lines.map((l, i) => "<tr id=L" + (i + 1) + (i + 1 >= a && i + 1 <= b ? " class=hl" : "") + "><td class=ln>" + (i + 1) + "</td><td class=c>" + l + "</td></tr>").join("") + "</table>";
+        body.innerHTML = "<table class=code>" + lines.map((l, i) => "<tr id=L" + (i + 1) + " data-n=" + (i + 1) + (i + 1 >= a && i + 1 <= b ? " class=hl" : "") + "><td class=ln>" + (i + 1) + "</td><td class=c>" + l + "</td></tr>").join("") + "</table>";
         if (a > 0) $("#L" + a, body)?.scrollIntoView({ block: "center" });
       }
     }
   }
   $(".dclose", head).onclick = closeDrawer;
+  if (spec.kind === "file") showMini(spec.path); else hideMini();
   wire(el);
   if (tab !== "diagrams") drawSide();
 }
-function closeDrawer() { drawer = null; $("#drawer").hidden = true; if (tab !== "diagrams") drawSide(); }
+function closeDrawer() { drawer = null; $("#drawer").hidden = true; hideMini(); if (tab !== "diagrams") drawSide(); }
+
+// ---- the floating overview over the code ---------------------------------
+// While a file is open, a small diagram floats over it: boxes in this file are outlined, the
+// ones whose code is on screen light up as you scroll. Hover a box to see its lines, click it to
+// go there. Drag the title bar to move it, the corner to resize it.
+
+const mini = { cy: null, d: null, path: null };
+const miniGeo = () => { try { return JSON.parse(store.get("cockpit-mini", "null")); } catch { return null; } };
+const diagramsIn = (path) => S.diagrams.filter((d) => d.nodes.some((n) => filesOfNode(n).includes(path)));
+// The lines a box covers in this file; a whole-module link covers the file but isn't "on screen".
+function rangesIn(n, path) {
+  return (n.anchors ?? []).map(where).filter((w) => w && w.file === path).map((w) => (w.line ? [w.line, w.end ?? w.line] : null));
+}
+function hideMini() { $("#mini").hidden = true; if (mini.cy) { mini.cy.destroy(); mini.cy = null; } mini.path = null; }
+function showMini(path, id) {
+  const el = $("#mini"), ds = diagramsIn(path);
+  if (!ds.length) return hideMini();
+  const d = ds.find((x) => x.id === id) || (mini.path === path && ds.find((x) => x.id === mini.d?.id)) || ds.find((x) => x.id === main) || ds.find((x) => x.id === side) || ds[0];
+  el.hidden = false;
+  const g = miniGeo();
+  if (g) Object.assign(el.style, { left: g.left + "px", top: g.top + "px", width: g.width + "px", height: g.height + "px", right: "auto", bottom: "auto" });
+  $(".mtitle", el).textContent = d.question;
+  $(".mtabs", el).innerHTML = ds.length > 1 ? ds.map((x) => "<button data-mini='" + esc(x.id) + "'" + (x.id === d.id ? " class=on" : "") + " title='" + esc(x.question) + "'>" + esc(x.id.replace(/-/g, " ")) + "</button>").join("") : "";
+  for (const b of el.querySelectorAll("[data-mini]")) b.onclick = (e) => { e.stopPropagation(); showMini(path, b.dataset.mini); };
+  if (mini.cy) mini.cy.destroy();
+  mini.d = d; mini.path = path;
+  const cy = (mini.cy = buildCy($(".mcy", el), d));
+  cy.nodes().forEach((x) => { const n = d.nodes.find((m) => m.id === x.id()); if (n && filesOfNode(n).includes(path)) x.addClass("infile"); });
+  const rows = () => [...document.querySelectorAll("#drawer .dbody tr[data-n]")];
+  const mark = (n, on) => {
+    const rs = rangesIn(n, path).filter(Boolean);
+    for (const tr of rows()) { const k = +tr.dataset.n; tr.classList.toggle("boxhl", on && rs.some(([a, b]) => k >= a && k <= b)); }
+  };
+  cy.on("mouseover", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); if (!n) return; $(".mfoot", el).textContent = n.label + ": " + tldr(n, n.explain); mark(n, true); });
+  cy.on("mouseout", "node", (e) => { const n = d.nodes.find((m) => m.id === e.target.id()); $(".mfoot", el).textContent = ""; if (n) mark(n, false); });
+  cy.on("tap", "node", (e) => {
+    const n = d.nodes.find((m) => m.id === e.target.id());
+    if (!n) return;
+    const here = rangesIn(n, path).find(Boolean);
+    if (here) { const tr = document.querySelector("#drawer .dbody tr[data-n='" + here[0] + "']"); tr?.scrollIntoView({ block: "center", behavior: "smooth" }); return; }
+    const w = (n.anchors ?? []).map(where).find(Boolean);
+    if (w) showDrawer({ kind: "file", path: w.file, line: w.line, end: w.end });
+  });
+  syncMini();
+}
+// Which boxes have code on screen right now.
+function syncMini() {
+  if (!mini.cy || !mini.d) return;
+  const body = $("#drawer .dbody"), box = body.getBoundingClientRect();
+  let lo = Infinity, hi = -Infinity;
+  for (const tr of body.querySelectorAll("tr[data-n]")) {
+    const r = tr.getBoundingClientRect();
+    if (r.bottom < box.top) continue;
+    if (r.top > box.bottom) break;
+    lo = Math.min(lo, +tr.dataset.n); hi = Math.max(hi, +tr.dataset.n);
+  }
+  for (const n of mini.d.nodes) {
+    const on = lo <= hi && rangesIn(n, mini.path).some((r) => r && r[0] <= hi && r[1] >= lo);
+    mini.cy.$id(n.id).toggleClass("inview", on);
+  }
+}
+let miniTick = 0;
+$("#drawer .dbody").addEventListener("scroll", () => { cancelAnimationFrame(miniTick); miniTick = requestAnimationFrame(syncMini); });
+// Move by the title bar; resize from the corner (CSS); both remembered.
+(function () {
+  const el = $("#mini"), head = $(".mhead", el), save = () => {
+    const r = el.getBoundingClientRect(), p = el.offsetParent.getBoundingClientRect();
+    store.set("cockpit-mini", JSON.stringify({ left: r.left - p.left, top: r.top - p.top, width: r.width, height: r.height }));
+  };
+  head.addEventListener("pointerdown", (e) => {
+    if (e.target.closest("button")) return;
+    const r = el.getBoundingClientRect(), p = el.offsetParent.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+    const move = (ev) => {
+      el.style.left = Math.max(0, Math.min(p.width - 80, ev.clientX - p.left - dx)) + "px";
+      el.style.top = Math.max(0, Math.min(p.height - 30, ev.clientY - p.top - dy)) + "px";
+      el.style.right = "auto"; el.style.bottom = "auto";
+    };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); save(); };
+    addEventListener("pointermove", move); addEventListener("pointerup", up);
+  });
+  let t = 0;
+  new ResizeObserver(() => { if (!mini.cy || el.hidden) return; mini.cy.resize(); clearTimeout(t); t = setTimeout(() => { mini.cy?.fit(undefined, 16); save(); }, 120); }).observe(el);
+  $(".mclose", el).onclick = () => el.classList.toggle("collapsed");
+})();
 
 // ---- wiring --------------------------------------------------------------
 
@@ -570,7 +664,7 @@ async function poll() {
         if (!byId(main)) main = (S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0])?.id ?? null;
         if (!byId(side)) side = null;
         drawHeader();
-        if (sameDiagrams) { restyle(); drawInspector(); } else drawDiagrams();
+        if (sameDiagrams) { restyle(); drawInspector(); } else { drawDiagrams(); if (drawer?.kind === "file") showMini(drawer.path); }
         drawSide();
       }
     }
