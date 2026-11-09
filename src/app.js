@@ -1096,6 +1096,7 @@ function termView(meta) {
   term.attachCustomKeyEventHandler((e) => {
     if (e.type === "keydown" && e.ctrlKey && e.shiftKey && (e.key === "C" || e.key === "c")) { navigator.clipboard?.writeText(term.getSelection()).catch(() => {}); return false; }
     if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) return false;
+    if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K")) { if (e.type === "keydown") openAsk(); return false; }
     return true;
   });
   term.onData((d) => v.ws?.readyState === 1 && v.ws.send(JSON.stringify({ t: "in", d })));
@@ -1163,6 +1164,69 @@ async function showTerm(open = !T.open) {
   else if (open) showTermView(T.active ?? [...T.views.keys()][0]);
   settle();
 }
+// ---- the ask line: words → a command on the prompt (src/ask.ts). It never runs anything.
+const A = { asked: "", picks: [], sel: 0, busy: false };
+async function openAsk() {
+  if (!T.open) await showTerm(true);
+  $("#task").hidden = false;
+  const inp = $("#task input");
+  inp.focus(); inp.select();
+  termFit(T.views.get(T.active));
+}
+function closeAsk(refocus = true) {
+  $("#task").hidden = $("#tsugg").hidden = true;
+  A.picks = []; A.asked = "";
+  const v = T.views.get(T.active);
+  termFit(v);
+  if (refocus) v?.term.focus();
+}
+function drawPicks(note) {
+  const el = $("#tsugg");
+  el.hidden = !A.picks.length && !note;
+  el.innerHTML = A.picks.map((p, i) => "<div class='tpick" + (i === A.sel ? " on" : "") + "' data-i=" + i + "><code>" + esc(p.command) + "</code><span class=muted>" + esc(p.why) + "</span></div>").join("") +
+    (note ? "<div class='tnote'>" + esc(note) + "</div>" : "");
+}
+function insertPick(i) {
+  const p = A.picks[i], v = T.views.get(T.active);
+  if (!p || !v || v.ws?.readyState !== 1) return;
+  // Ctrl+E Ctrl+U empties the prompt line first, unless a program is running and reading keys.
+  v.ws.send(JSON.stringify({ t: "in", d: (v.meta.running ? "" : "\x05\x15") + p.command }));
+  closeAsk();
+}
+$("#task").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = $("#task input").value.trim();
+  if (!text) return;
+  if (A.picks.length && text === A.asked) return insertPick(A.sel);
+  if (A.busy) return;
+  A.busy = true; A.asked = text; A.picks = []; drawPicks("");
+  $("#task .tstate").textContent = "thinking…";
+  try {
+    const r = await fetch("/api/term/ask", { method: "POST", body: JSON.stringify({ id: T.active, text }) }).then((r) => r.json());
+    if (r.error) throw new Error(r.error);
+    A.picks = r.suggestions; A.sel = 0;
+    drawPicks(r.note);
+    $("#task .tstate").textContent = (r.ms / 1000).toFixed(1) + " s · $" + r.costUsd.toFixed(3);
+  } catch (err) {
+    A.asked = ""; drawPicks("Couldn't get a command: " + err.message);
+    $("#task .tstate").textContent = "";
+  } finally { A.busy = false; termFit(T.views.get(T.active)); }
+});
+$("#task input").addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { e.preventDefault(); closeAsk(); }
+  else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && A.picks.length) {
+    e.preventDefault();
+    A.sel = (A.sel + (e.key === "ArrowDown" ? 1 : A.picks.length - 1)) % A.picks.length;
+    drawPicks($("#tsugg .tnote")?.textContent ?? "");
+  }
+});
+$("#tsugg").addEventListener("click", (e) => { const p = e.target.closest("[data-i]"); if (p) insertPick(+p.dataset.i); });
+$("#taskbtn").onclick = () => openAsk();
+// Ctrl+K anywhere outside a text field also opens it.
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !e.target.closest?.("input,textarea,.xterm")) { e.preventDefault(); openAsk(); }
+});
+
 $("#ttoggle").onclick = () => showTerm();
 $("#thide").onclick = () => showTerm(false);
 $("#tnew").onclick = () => newTerm();

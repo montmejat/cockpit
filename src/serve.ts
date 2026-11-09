@@ -13,6 +13,7 @@ import { createChat } from "./chat.ts";
 import { createMapApp } from "./mapapp.ts";
 import { COCKPIT, listTurns } from "./turns.ts";
 import { createTerminals } from "./term.ts";
+import { createAsk } from "./ask.ts";
 import { WebSocketServer } from "ws";
 
 const args = process.argv.slice(2);
@@ -26,6 +27,7 @@ const root = resolve(dir);
 const name = opt("name") ?? basename(root);
 const map = createMapApp(root, name); // the code index (rust-analyzer), rebuilt when code changes
 const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
+const ask = createAsk(root); // the terminal's ask line: words → a command
 const chat = createChat(root, name, terms); // the agent, run by cockpit itself
 
 const tryGit = (...a: string[]) => {
@@ -195,7 +197,7 @@ const page = () => `<!doctype html>
     <div id="mini" hidden><div class="mhead"><span class="mtitle"></span><span class="mtabs"></span><button class="mclose" title="Fold or unfold">–</button></div><div class="mcy"></div><div class="mfoot"></div></div>
   </section>
   <div id="tsplit" hidden></div>
-  <section id="term" hidden><div class="ttabs"><span id="tlist"></span><button id="tnew" title="New terminal">+</button><span class="grow"></span><button id="thide" title="Hide  (Ctrl+\`)">hide</button></div><div id="tbody"></div></section>
+  <section id="term" hidden><div class="ttabs"><span id="tlist"></span><button id="tnew" title="New terminal">+</button><span class="grow"></span><button id="taskbtn" title="Ask for a command  (Ctrl+K)">✦ ask</button><button id="thide" title="Hide  (Ctrl+\`)">hide</button></div><div id="tbody"></div><div id="tsugg" hidden></div><form id="task" hidden><span class="tk">✦</span><input autocomplete="off" spellcheck="false" placeholder="What do you want to run?  Enter asks · ↑↓ pick · Enter puts it on the prompt · Esc"><span class="tstate muted"></span></form></section>
   </section>
   <aside id="right">
     <div class="rtabs"><button data-r="chat">chat<span class="unread" hidden></span></button><button data-r="details">details</button>
@@ -265,6 +267,10 @@ const server = createServer((req, res) => {
         try {
           const body = b ? JSON.parse(b) : {}, what = url.pathname.slice("/api/term/".length);
           if (what === "new") json(res, { id: terms.open(body.cols, body.rows) });
+          else if (what === "ask" && typeof body.text === "string" && body.text.trim()) {
+            const r = terms.recent(String(body.id ?? ""));
+            ask(body.text.trim(), r.cwd, r.text).then((a) => json(res, a), (e) => json(res, { error: String(e?.message ?? e) }, 500));
+          }
           else if (what === "close" && typeof body.id === "string") { terms.close(body.id); json(res, { ok: true }); }
           else throw new Error("unknown terminal action");
         } catch (e) { res.writeHead(400).end(String(e)); }

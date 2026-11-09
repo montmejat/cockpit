@@ -138,8 +138,18 @@ export function createTerminals(root: string, project: string) {
     }).join("\n\n");
   }
 
+  // A short account for the ask line: the last commands and how they ended, the latest output.
+  function recent(id: string) {
+    const t = terms.get(id);
+    if (!t) return { cwd: root, text: "" };
+    const cmds = t.cmds.slice(-6).map((c) => `$ ${c.cmd}   [exit ${c.exit}]`);
+    const last = t.cmds.at(-1), out = last ? plain(last.out).trimEnd().slice(-1500) : "";
+    return { cwd: t.cwd, text: cmds.join("\n") + (out ? "\nlast output:\n" + out : "") };
+  }
+
   return {
     open,
+    recent,
     attach,
     read,
     list: () => [...terms.values()].map(meta),

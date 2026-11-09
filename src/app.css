@@ -268,3 +268,14 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 #tbody{flex:1;min-height:0;position:relative;padding:4px 0 0 8px}
 .tview{position:absolute;inset:4px 0 0 8px}.tview[hidden]{display:none}
 .tview .xterm{height:100%}.tview .xterm-viewport{background:var(--card)!important}
+#task{display:flex;align-items:center;gap:8px;padding:4px 10px;border-top:1px solid var(--line);background:var(--bg)}
+#task[hidden],#tsugg[hidden]{display:none}
+#task .tk{color:var(--accent)}
+#task input{flex:1;font:inherit;color:var(--fg);background:transparent;border:0;outline:0;padding:3px 0}
+#task .tstate{font-size:11px;white-space:nowrap}
+#tsugg{border-top:1px solid var(--line);background:var(--card);padding:3px 0;max-height:40%;overflow:auto}
+.tpick{display:flex;gap:14px;align-items:baseline;padding:3px 12px;cursor:pointer}
+.tpick code{font:inherit;white-space:pre-wrap;word-break:break-all}
+.tpick span{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tpick:hover{background:var(--bg)}.tpick.on{background:var(--sel)}
+.tnote{padding:3px 12px;color:var(--warn);font-size:12px}
