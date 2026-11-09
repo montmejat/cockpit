@@ -328,6 +328,28 @@ function legend(cy) {
   return items.join("");
 }
 
+// Fit a diagram to its pane, but never bigger than life size: labels stay the size of the text
+// around them, and a small diagram sits centered instead of blown up.
+const LIFE = 1;
+function fitCapped(cy, pad = 30) {
+  cy.fit(undefined, pad);
+  if (cy.zoom() > LIFE) { cy.zoom(LIFE); cy.center(); }
+}
+// Refit when the pane changes size (window, drawers), until the user zooms or pans it themselves.
+function autoFit(cy, container) {
+  cy.scratch("_manual", false);
+  const mark = () => cy.scratch("_manual", true);
+  container.addEventListener("wheel", mark, { passive: true });
+  cy.on("dragpan pinchzoom", mark);
+  let t;
+  const ro = new ResizeObserver(() => {
+    clearTimeout(t);
+    t = setTimeout(() => { if (cy.destroyed()) return ro.disconnect(); cy.resize(); if (!cy.scratch("_manual") && !zooming) fitCapped(cy); }, 80);
+  });
+  ro.observe(container);
+  cy.on("destroy", () => ro.disconnect());
+}
+
 // A diagram laid out in a container: the same picture in a pane or in the floating window.
 function buildCy(container, d) {
   const cy = cytoscape({ container, elements: elements(d), wheelSensitivity: 0.2, minZoom: 0.2, maxZoom: 2.5, style: style() });
@@ -341,7 +363,8 @@ function buildCy(container, d) {
   }
   const saved = S.layout?.[d.id];
   if (saved) cy.nodes().forEach((n) => { if (saved[n.id()] && !n.isParent()) n.position(saved[n.id()]); });
-  cy.fit(undefined, 30);
+  fitCapped(cy);
+  autoFit(cy, container);
   return cy;
 }
 
