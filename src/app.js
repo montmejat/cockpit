@@ -1071,6 +1071,121 @@ $("#cnew").onclick = () => { if (!chatItems.size || confirm("Start a new convers
 showRight(insp ? "details" : rtab);
 connectChat();
 
+// ---- terminal drawer -------------------------------------------------------
+// Real shells in the project folder (src/term.ts), under the center. They outlive the page:
+// a reload reattaches to them. Ctrl+` shows and hides the drawer.
+
+const T = { open: false, h: Math.max(120, +store.get("cockpit-term-h", "260") || 260), views: new Map(), active: null };
+const termTheme = () => ({
+  background: css("--card"), foreground: css("--fg"), cursor: css("--fg"), cursorAccent: css("--card"), selectionBackground: css("--sel"),
+  black: css("--muted"), red: css("--bad"), green: css("--ok"), yellow: css("--warn"), blue: css("--accent"), magenta: css("--k"), cyan: css("--t"), white: css("--fg"),
+  brightBlack: css("--muted"), brightRed: css("--bad"), brightGreen: css("--ok"), brightYellow: css("--warn"), brightBlue: css("--accent"), brightMagenta: css("--k"), brightCyan: css("--t"), brightWhite: css("--fg"),
+});
+const termPost = (what, body = {}) => fetch("/api/term/" + what, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json());
+
+function termView(meta) {
+  if (T.views.has(meta.id)) return T.views.get(meta.id);
+  const el = document.createElement("div");
+  el.className = "tview"; el.hidden = true;
+  $("#tbody").append(el);
+  const term = new Terminal({ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, theme: termTheme(), allowProposedApi: true });
+  const fit = new FitAddon.FitAddon();
+  term.loadAddon(fit);
+  const v = { id: meta.id, meta, el, term, fit, ws: null, opened: false, size: "" };
+  // Ctrl+Shift+C copies; Ctrl+Shift+V is left to the browser, which pastes into the terminal.
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type === "keydown" && e.ctrlKey && e.shiftKey && (e.key === "C" || e.key === "c")) { navigator.clipboard?.writeText(term.getSelection()).catch(() => {}); return false; }
+    if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) return false;
+    return true;
+  });
+  term.onData((d) => v.ws?.readyState === 1 && v.ws.send(JSON.stringify({ t: "in", d })));
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/term/ws?id=" + encodeURIComponent(meta.id));
+  v.ws = ws;
+  ws.onopen = () => { v.size = ""; termFit(v); };
+  ws.onmessage = (e) => {
+    const d = String(e.data);
+    if (d[0] === "o") term.write(d.slice(1));
+    else if (d[0] === "m") { v.meta = JSON.parse(d.slice(1)); drawTermTabs(); }
+  };
+  ws.onclose = () => termGone(v.id);
+  T.views.set(meta.id, v);
+  return v;
+}
+function termGone(id) {
+  const v = T.views.get(id);
+  if (!v) return;
+  v.term.dispose(); v.el.remove(); T.views.delete(id);
+  if (T.active === id) T.active = [...T.views.keys()].at(-1) ?? null;
+  if (!T.views.size) showTerm(false); else showTermView(T.active);
+}
+function termFit(v) {
+  if (!v || v.el.hidden || !v.opened) return;
+  try { v.fit.fit(); } catch { return; }
+  const size = v.term.cols + "x" + v.term.rows;
+  if (size !== v.size && v.ws?.readyState === 1) { v.size = size; v.ws.send(JSON.stringify({ t: "size", cols: v.term.cols, rows: v.term.rows })); }
+}
+function showTermView(id) {
+  T.active = id;
+  for (const v of T.views.values()) v.el.hidden = v.id !== id;
+  const v = T.views.get(id);
+  if (v && !v.opened) { v.term.open(v.el); v.opened = true; }
+  drawTermTabs();
+  requestAnimationFrame(() => { termFit(v); if (T.open) v?.term.focus(); });
+}
+function drawTermTabs() {
+  const label = (m) => {
+    const dir = m.cwd.split("/").pop() || "/";
+    const dot = m.running ? "<span class='trun' title='running'>●</span>" : m.last && m.last.exit !== 0 ? "<span class='tbad' title='last command failed (exit " + m.last.exit + ")'>✕</span>" : "";
+    return dot + esc(m.running ? m.running.split(/\s+/).slice(0, 2).join(" ") : dir);
+  };
+  $("#tlist").innerHTML = [...T.views.values()].map((v) =>
+    "<span class='ttab" + (v.id === T.active ? " on" : "") + "' data-t='" + v.id + "' title='" + esc(v.meta.running ?? v.meta.cwd) + "'>" + label(v.meta) +
+    "<button class=tx data-x='" + v.id + "' title='Close this terminal'>×</button></span>").join("");
+}
+$("#tlist").addEventListener("click", (e) => {
+  const x = e.target.closest("[data-x]");
+  if (x) { termPost("close", { id: x.dataset.x }); return; }
+  const t = e.target.closest("[data-t]");
+  if (t) showTermView(t.dataset.t);
+});
+async function newTerm() {
+  const { id } = await termPost("new", { cols: 100, rows: 20 });
+  termView({ id, n: 0, cwd: "", running: null, last: null });
+  showTermView(id);
+}
+async function showTerm(open = !T.open) {
+  T.open = open;
+  store.set("cockpit-term-open-" + S.project, open ? "1" : "0");
+  $("#term").hidden = $("#tsplit").hidden = !open;
+  $("#term").style.height = T.h + "px";
+  $("#ttoggle").classList.toggle("on", open);
+  if (open && !T.views.size) await newTerm();
+  else if (open) showTermView(T.active ?? [...T.views.keys()][0]);
+  settle();
+}
+$("#ttoggle").onclick = () => showTerm();
+$("#thide").onclick = () => showTerm(false);
+$("#tnew").onclick = () => newTerm();
+document.addEventListener("keydown", (e) => {
+  if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); showTerm(); }
+}, true);
+new ResizeObserver(() => termFit(T.views.get(T.active))).observe($("#tbody"));
+$("#tsplit").addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  const y0 = e.clientY, h0 = T.h, max = () => $("#center").clientHeight - 120;
+  const move = (ev) => { T.h = Math.max(100, Math.min(max(), h0 + y0 - ev.clientY)); $("#term").style.height = T.h + "px"; };
+  const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); store.set("cockpit-term-h", String(T.h)); settle(); };
+  addEventListener("pointermove", move); addEventListener("pointerup", up);
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { for (const v of T.views.values()) v.term.options.theme = termTheme(); });
+// Terminals still running on the server come back after a reload.
+for (const m of S.terminals ?? []) termView(m);
+T.active = (S.terminals ?? []).at(-1)?.id ?? null;
+drawTermTabs();
+if (store.get("cockpit-term-open-" + S.project, "0") === "1") showTerm(true);
+// Cells are measured with the font: measure again once it has loaded.
+document.fonts.ready.then(() => { for (const v of T.views.values()) if (v.opened) { v.term.options.fontFamily = v.term.options.fontFamily + ""; v.size = ""; } termFit(T.views.get(T.active)); });
+
 // ---- desktop app: the header is the window's title bar -----------------------------
 // Only inside the Tauri window (desktop/), which has no system title bar.
 if (window.__TAURI__) {

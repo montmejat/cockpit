@@ -12,6 +12,8 @@ import { itemKey } from "./describe.ts";
 import { createChat } from "./chat.ts";
 import { createMapApp } from "./mapapp.ts";
 import { COCKPIT, listTurns } from "./turns.ts";
+import { createTerminals } from "./term.ts";
+import { WebSocketServer } from "ws";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : undefined);
@@ -23,7 +25,8 @@ if (!dir) {
 const root = resolve(dir);
 const name = opt("name") ?? basename(root);
 const map = createMapApp(root, name); // the code index (rust-analyzer), rebuilt when code changes
-const chat = createChat(root, name); // the agent, run by cockpit itself
+const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
+const chat = createChat(root, name, terms); // the agent, run by cockpit itself
 
 const tryGit = (...a: string[]) => {
   try { return execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"] }).trimEnd(); } catch (e: any) { return String(e.stdout ?? "").trimEnd(); }
@@ -147,6 +150,7 @@ function state() {
     features: feats,
     tests: testsOf(sk),
     summary: arch?.summary ?? "",
+    terminals: terms.list(),
   };
 }
 
@@ -160,6 +164,9 @@ const page = () => `<!doctype html>
 <script src="/vendor/dagre.min.js"></script>
 <script src="/vendor/cytoscape-dagre.min.js"></script>
 <script src="/vendor/highlight.min.js"></script>
+<link rel="stylesheet" href="/vendor/xterm.css">
+<script src="/vendor/xterm.js"></script>
+<script src="/vendor/xterm-fit.js"></script>
 <style>${readFileSync(join(COCKPIT, "src", "app.css"), "utf8")}</style></head><body>
 <header>
   <h1>${name}</h1>
@@ -168,6 +175,7 @@ const page = () => `<!doctype html>
   <span id="probs"></span>
   <span class="grow"></span>
   <span id="live"></span>
+  <button id="ttoggle" title="Terminal  (Ctrl+\`)">▭ terminal</button>
 </header>
 <main>
   <nav id="side">
@@ -186,6 +194,8 @@ const page = () => `<!doctype html>
   <section id="codeview" hidden><div class="dhead"></div><div class="dbody"></div>
     <div id="mini" hidden><div class="mhead"><span class="mtitle"></span><span class="mtabs"></span><button class="mclose" title="Fold or unfold">–</button></div><div class="mcy"></div><div class="mfoot"></div></div>
   </section>
+  <div id="tsplit" hidden></div>
+  <section id="term" hidden><div class="ttabs"><span id="tlist"></span><button id="tnew" title="New terminal">+</button><span class="grow"></span><button id="thide" title="Hide  (Ctrl+\`)">hide</button></div><div id="tbody"></div></section>
   </section>
   <aside id="right">
     <div class="rtabs"><button data-r="chat">chat<span class="unread" hidden></span></button><button data-r="details">details</button>
@@ -208,8 +218,13 @@ const page = () => `<!doctype html>
 const json = (res: any, data: unknown, code = 200) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(data));
 const readBody = (req: any) => new Promise<string>((ok) => { let b = ""; req.on("data", (c: any) => (b += c)); req.on("end", () => ok(b)); });
 
-createServer((req, res) => {
+// Only the page itself may act: a page from another site, open in the same browser, could
+// otherwise talk to the agent or open a shell here.
+const sameOrigin = (req: any) => { const o = req.headers.origin; if (!o) return true; try { return new URL(o).host === req.headers.host; } catch { return false; } };
+
+const server = createServer((req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
+  if (req.method !== "GET" && !sameOrigin(req)) return res.writeHead(403).end("cross-origin request refused");
   const q = (k: string) => url.searchParams.get(k) ?? "";
   try {
     if (req.method === "GET" && url.pathname === "/") res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page());
@@ -244,6 +259,17 @@ createServer((req, res) => {
         } catch (e) { res.writeHead(400).end(String(e)); }
       });
     }
+    else if (req.method === "GET" && url.pathname === "/api/term/list") json(res, terms.list());
+    else if (req.method === "POST" && url.pathname.startsWith("/api/term/")) {
+      readBody(req).then((b) => {
+        try {
+          const body = b ? JSON.parse(b) : {}, what = url.pathname.slice("/api/term/".length);
+          if (what === "new") json(res, { id: terms.open(body.cols, body.rows) });
+          else if (what === "close" && typeof body.id === "string") { terms.close(body.id); json(res, { ok: true }); }
+          else throw new Error("unknown terminal action");
+        } catch (e) { res.writeHead(400).end(String(e)); }
+      });
+    }
     else if (req.method === "GET" && url.pathname === "/api/state") json(res, state());
     else if (req.method === "GET" && url.pathname === "/api/files") json(res, listFiles());
     else if (req.method === "GET" && url.pathname === "/api/file") {
@@ -271,6 +297,14 @@ createServer((req, res) => {
   } catch (e) {
     res.writeHead(500).end(String(e));
   }
-}).listen(Number(opt("port") ?? 4173), opt("host") ?? "127.0.0.1", () =>
+});
+const wss = new WebSocketServer({ noServer: true });
+server.on("upgrade", (req, sock, head) => {
+  const url = new URL(req.url ?? "/", "http://x");
+  if (url.pathname !== "/api/term/ws" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
+  wss.handleUpgrade(req, sock, head, (ws) => terms.attach(ws, url.searchParams.get("id") ?? ""));
+});
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); process.exit(0); });
+server.listen(Number(opt("port") ?? 4173), opt("host") ?? "127.0.0.1", () =>
   console.log(`serving ${name} on http://${opt("host") ?? "127.0.0.1"}:${opt("port") ?? 4173}`),
 );

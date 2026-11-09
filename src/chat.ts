@@ -9,10 +9,12 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { query, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 import { ARCH_DIR } from "./arch.ts";
 import { turnStart, turnTool, type HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
+import type { Terminals } from "./term.ts";
 
 export type Item = { id: string; kind: string; at: string; [k: string]: unknown };
 type Event = { type: "item"; item: Item } | { type: "state"; busy: boolean; model: string; cost: number };
@@ -40,6 +42,7 @@ function brief(root: string) {
   return [
     "You are working inside cockpit. Its owner watches live diagrams of this code while you work, and reads your replies in a narrow chat panel: keep replies short, outcome first, details only if asked.",
     "Create and change files with the Write and Edit tools, not shell commands: cockpit follows those tools to show your changes as you make them.",
+    "The owner also works in terminals inside cockpit (build, run, the project's CLI). When they mention a command, its output, an error, or say \"that\" about something they ran, read their terminals with the mcp__cockpit__terminals tool instead of asking them to paste it.",
     `To check ${ARCH_DIR}/ against the code yourself, run: cd ${COCKPIT} && npm run -s check-arch -- ${root}`,
     has
       ? `The project is described in ${ARCH_DIR}/ (features and diagrams). Read ${ARCH_DIR}/README.md before you start and keep the folder true as you work.`
@@ -61,6 +64,7 @@ function describe(root: string, name: string, input: any): { title: string; deta
     case "Task": case "Agent": return { title: "agent: " + (input?.description ?? ""), detail: input?.prompt };
     case "WebFetch": return { title: "fetch " + (input?.url ?? "") };
     case "WebSearch": return { title: "search the web: " + (input?.query ?? "") };
+    case "mcp__cockpit__terminals": return { title: "read your terminal" + (input?.terminal ? " " + input.terminal : "s") };
     case "TodoWrite": return { title: "plan", detail: (input?.todos ?? []).map((t: any) => (t.status === "completed" ? "✓ " : t.status === "in_progress" ? "▸ " : "· ") + t.content).join("\n") };
     default: return { title: name, detail: JSON.stringify(input ?? {}).slice(0, 400) };
   }
@@ -68,7 +72,21 @@ function describe(root: string, name: string, input: any): { title: string; deta
 
 const now = () => new Date().toISOString();
 
-export function createChat(root: string, project: string) {
+// Tools cockpit gives the agent: read the owner's terminals.
+function cockpitTools(terms: Terminals) {
+  return createSdkMcpServer({
+    name: "cockpit",
+    tools: [tool(
+      "terminals",
+      "Read the owner's terminals in cockpit: for each one, the last commands they ran with exit codes and output (colors stripped), and what is running now. Use it when the owner refers to something they ran.",
+      { terminal: z.string().optional().describe("one terminal id, like t1; all terminals when left out"), last: z.number().int().min(1).max(20).optional().describe("how many recent commands per terminal, default 3") },
+      async ({ terminal, last }) => ({ content: [{ type: "text", text: terms.read(terminal, last ?? 3) }] }),
+      { annotations: { readOnlyHint: true } },
+    )],
+  });
+}
+
+export function createChat(root: string, project: string, terms: Terminals) {
   const file = join(outDir(project), "chat.json");
   const saved = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
   let items: Item[] = saved.items ?? [];
@@ -129,6 +147,8 @@ export function createChat(root: string, project: string) {
         settingSources: ["user", "project"],
         systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) },
         disallowedTools: ["AskUserQuestion"], // the agent asks in the chat instead
+        mcpServers: { cockpit: cockpitTools(terms) },
+        allowedTools: ["mcp__cockpit__terminals"],
         ...(sessionId ? { resume: sessionId } : {}),
         canUseTool: async (tool, input, { signal, decisionReason }) => {
           const id = "ask-" + Math.random().toString(36).slice(2, 10);
