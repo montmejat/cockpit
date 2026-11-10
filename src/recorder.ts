@@ -1,16 +1,16 @@
 // Recording agent turns: shared by the Claude Code hooks (hook.ts) and cockpit's own chat (chat.ts).
 //   turnStart: snapshot the code, open a turn
 //   turnTool:  note which file changed, for the live view
-//   turnStop:  snapshot again, close the turn, start the analysis in the background. If the repo's
-//              .cockpit/ doesn't match the code, returns the problems instead and leaves the turn
-//              open, so the agent can be sent back once to fix them.
+//   turnStop:  for outside Claude Code sessions: if the repo's .cockpit/ doesn't match the code,
+//              return the problems and leave the turn open, so the agent can be sent back once;
+//              else snapshot again and close the turn
+//   turnEnd:   snapshot and close, no check (cockpit's chat checks against its own live index)
 
-import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { basename, join, relative } from "node:path";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
 import { repoRoot, skeletonOf, snapshot } from "./snapshot.ts";
-import { COCKPIT, currentTurn, outDir, PROTO, saveTurn, setCurrent, type Turn } from "./turns.ts";
+import { currentTurn, outDir, PROTO, saveTurn, setCurrent, type Turn } from "./turns.ts";
 
 function lineCount(path: string): number {
   try {
@@ -20,24 +20,12 @@ function lineCount(path: string): number {
   }
 }
 
-function startAnalysis(t: Turn) {
-  const log = join(outDir(t.project), "analyze.log");
-  const child = spawn(
-    join(COCKPIT, "node_modules", ".bin", "tsx"),
-    [join(COCKPIT, "src", "analyze.ts"), t.project, t.id],
-    { cwd: COCKPIT, detached: true, stdio: ["ignore", "ignore", "ignore"] },
-  );
-  child.unref();
-  appendFileSync(log, `${new Date().toISOString()} started analysis of ${t.id} (pid ${child.pid})\n`);
-}
-
 function closeTurn(t: Turn, after: string, transcriptTo: number) {
   t.after = after;
   t.transcriptTo = transcriptTo;
   t.endedAt = new Date().toISOString();
-  t.status = "analyzing";
+  t.status = "done";
   saveTurn(t);
-  startAnalysis(t);
 }
 
 export interface HookInput {
@@ -99,7 +87,6 @@ export function turnStop(input: HookInput): string | null {
   if (t?.status !== "running") return null;
   const snap = snapshot(repo, "turn end");
   if (existsSync(join(repo, ARCH_DIR)) && !input.stop_hook_active) {
-    // Same cache as the analysis, so this index build isn't wasted.
     const sk = skeletonOf(repo, snap, join(outDir(project), "skeletons"), PROTO);
     const problems = checkArch(loadArch(repo), sk);
     if (problems.length) {
@@ -110,4 +97,10 @@ export function turnStop(input: HookInput): string | null {
   }
   closeTurn(t, snap, lineCount(t.transcript));
   return null;
+}
+
+export function turnEnd(input: HookInput) {
+  const { repo, project, session } = ctx(input);
+  const t = currentTurn(project, session);
+  if (t?.status === "running") closeTurn(t, snapshot(repo, "turn end"), lineCount(t.transcript));
 }

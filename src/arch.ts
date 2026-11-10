@@ -10,9 +10,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { itemKey } from "./describe.ts";
-import type { Overlay } from "./overlay.ts";
-import type { Skeleton } from "./skeleton.ts";
+import { itemKey, type Skeleton } from "./skeleton.ts";
 
 export const ARCH_DIR = ".cockpit";
 const PROJECT = `${ARCH_DIR}/project.json`, DIAGRAMS = `${ARCH_DIR}/diagrams`;
@@ -142,33 +140,6 @@ export function checkArch(loaded: { arch: Architecture | null; problems: ArchPro
       if (!e.label) p(w, `edge ${e.from} -> ${e.to} has no label (say what moves along it)`);
     }
   }
-  return out;
-}
-
-// Map components without a model call: one per crate.
-export function crateOverlay(sk: Skeleton): Overlay & { groupOf: Record<string, string> } {
-  const groupOf: Record<string, string> = {};
-  for (const m of sk.modules) groupOf[m.id] = m.crate;
-  const components = [...new Set(sk.modules.map((m) => m.crate))].map((c) => ({ name: c, description: "", modules: sk.modules.filter((m) => m.crate === c).map((m) => m.id) }));
-  return { components, roles: {}, groupOf };
-}
-
-// What the agent changed in .cockpit/ during a turn, item by item.
-export interface ArchChange { kind: string; id: string; name: string; change: "added" | "removed" | "changed" }
-export function archDiff(before: Architecture | null, after: Architecture | null): ArchChange[] {
-  if (!after) return [];
-  const all = (a: Architecture | null) => new Map(
-    a ? [...a.features.map((f) => ["features", f] as const), ...a.diagrams.map((d) => ["diagrams", { ...d, name: d.question }] as const)]
-      .map(([k, x]) => [`${k}\u0000${x.id}`, { k, x }]) : [],
-  );
-  const b = all(before), a = all(after), out: ArchChange[] = [];
-  for (const [key, { k, x }] of a) {
-    const old = b.get(key);
-    if (!old) out.push({ kind: k, id: x.id, name: x.name, change: "added" });
-    else if (JSON.stringify(old.x) !== JSON.stringify(x)) out.push({ kind: k, id: x.id, name: x.name, change: "changed" });
-  }
-  for (const [key, { k, x }] of b) if (!a.has(key)) out.push({ kind: k, id: x.id, name: x.name, change: "removed" });
-  if (before && before.summary !== after.summary) out.push({ kind: "summary", id: "summary", name: "summary", change: "changed" });
   return out;
 }
 

@@ -3,6 +3,7 @@
 # The binary runs the cockpit sources from this checkout (or $COCKPIT_HOME), so keep the checkout where it is.
 set -e
 cd "$(dirname "$0")"
+(cd .. && npm install --no-audit --no-fund && npm run build)   # the page the window shows
 cargo build --release
 mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/512x512/apps
 install -m 755 target/release/cockpit ~/.local/bin/cockpit

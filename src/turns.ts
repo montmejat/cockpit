@@ -1,10 +1,10 @@
-// A turn = one request to the agent and everything it did until it stopped.
-// Stored as out/<project>/turns/<id>.json.
+// A turn = one request to the agent and everything it did until it stopped: the code before and
+// after (snapshot commits) and the files it touched. Stored as out/<project>/turns/<id>.json.
+// The page uses the running turn to light up what the agent is changing.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { FileChange } from "./snapshot.ts";
 
 export const COCKPIT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const PROTO = join(COCKPIT, "vendor", "scip.proto");
@@ -15,65 +15,6 @@ export interface Touch {
   tool: string;
   file: string;
   at: string;
-}
-
-export interface ItemChange {
-  name: string; // "Curve::eval" or "TireModel"
-  kind: string;
-  test?: boolean;
-  change: "added" | "removed" | "changed";
-  line: number; // in the new file (old file for removed)
-}
-
-export interface ModuleChange {
-  id: string;
-  component: string;
-  componentGuessed?: boolean; // module isn't on the map yet: placed by its references
-  file: string;
-  status: "added" | "removed" | "changed";
-  linesBefore: number;
-  linesAfter: number;
-  items: ItemChange[];
-  role?: string;
-}
-
-export interface DepChange {
-  from: string;
-  to: string;
-  before: number; // reference count
-  after: number;
-}
-
-export interface TurnDecision {
-  title: string;
-  chose: string;
-  over: string[];
-  because: string;
-  level: string;
-  area: string;
-  decided_by: string;
-}
-
-export interface Analysis {
-  files: FileChange[];
-  summary: string;
-  decisions: TurnDecision[];
-  components: string[]; // touched components
-  modules: ModuleChange[];
-  deps: DepChange[]; // module dependencies that appeared, disappeared or changed a lot
-  componentDeps: DepChange[];
-  patch: string;
-  patchTruncated: boolean;
-  costUsd: number;
-  arch?: TurnArch; // only when the repo keeps .cockpit/
-}
-
-// What the agent did to .cockpit/ in this turn, and what still doesn't match.
-export interface TurnArch {
-  updated: boolean;
-  changes: { kind: string; id: string; name: string; change: "added" | "removed" | "changed" }[];
-  problems: { where: string; problem: string }[];
-  flags: string[];
 }
 
 export interface Turn {
@@ -90,9 +31,7 @@ export interface Turn {
   before: string; // snapshot commit
   after?: string;
   touched: Touch[];
-  status: "running" | "analyzing" | "done" | "error";
-  error?: string;
-  analysis?: Analysis;
+  status: "running" | "done";
 }
 
 export function saveTurn(t: Turn) {

@@ -42,6 +42,9 @@ export interface Crate {
 // Bump when the skeleton's shape or rules change, so cached skeletons are rebuilt.
 export const SKELETON_VERSION = 4;
 
+// How a diagram links to an item: "crate/module::Type::method" or "crate/module::item".
+export const itemKey = (mod: string, i: { owner?: string; name: string }) => `${mod}::${i.owner ? i.owner + "::" : ""}${i.name}`;
+
 export interface Skeleton {
   root: string;
   crates: Crate[];

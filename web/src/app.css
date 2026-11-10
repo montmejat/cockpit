@@ -1,4 +1,4 @@
-/* cockpit: one view. Sidebar (overview, files, git) | tabs: diagrams, files, commits | right panel. */
+/* cockpit, one view: sidebar (files, git) | center tabs (map, files, commits) over the terminal drawer | right panel (chat, details). */
 :root{--bg:#f4f5f7;--fg:#1f2329;--muted:#6e7781;--line:#e1e4e8;--card:#ffffff;--accent:#2f6fde;
 --ok:#1f9e7a;--warn:#c98a0b;--bad:#d1453b;--hot:#ef6a2d;--add-bg:#e6f6ec;--del-bg:#fdecea;--add:#1a7f45;--del:#b8332a;
 --k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#e7eefc}
@@ -9,8 +9,14 @@
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
 --k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;color-scheme:dark}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%}
-body{background:var(--bg);color:var(--fg);font:12.5px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;display:flex;flex-direction:column}
+html,body,#app{margin:0;height:100%}
+#app{display:flex;flex-direction:column}
+body{background:var(--bg);color:var(--fg);font:12.5px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+.hide{display:none!important}
+[hidden]{display:none!important}
+/* buttons that read as links or rows */
+button.link,button.file,button.folder,button.gitfile,button.grow-row,button.mlink,button.chip,button.tname,button.csess,button.ctitle,button.tpick,button.g{font:inherit;color:inherit;background:none;border:0;border-radius:0;padding:0;text-align:left;cursor:pointer}
+button.link{color:var(--accent)}button.link:hover{text-decoration:underline}
 a{color:var(--accent);text-decoration:none;cursor:pointer}
 button{font:inherit;font-size:12px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:2px 9px;cursor:pointer}
 button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
@@ -19,7 +25,7 @@ h4{margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.0
 
 header{display:flex;align-items:center;gap:14px;padding:7px 14px;border-bottom:1px solid var(--line);background:var(--card);flex-wrap:wrap}
 header h1{font-size:13px;margin:0;font-weight:700}
-.pill{border:1px solid var(--line);border-radius:10px;padding:0 9px;color:var(--fg);font-size:11.5px}
+.pill{border:1px solid var(--line);border-radius:10px;padding:0 9px;color:var(--fg);font-size:11.5px;background:none}
 .pill:hover{border-color:var(--accent)}
 .pill .dirty{color:var(--warn)}.pill .ahead{color:var(--accent)}
 #metrics{font-size:11.5px}#metrics b{color:var(--fg);font-weight:500}
@@ -279,3 +285,77 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 .tpick span{font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tpick:hover{background:var(--bg)}.tpick.on{background:var(--sel)}
 .tnote{padding:3px 12px;color:var(--warn);font-size:12px}
+
+/* ---- additions for the Svelte page ---- */
+#work{flex:1;min-height:0;display:flex;position:relative}
+#metrics .mlink,header .mlink{color:var(--muted);border-bottom:1px dotted var(--muted);font-size:11.5px}
+header .mlink.bad{color:var(--bad);border-bottom-color:var(--bad)}
+header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--accent)}
+#winctl button.close:hover{background:var(--bad);color:#fff;filter:none}
+
+/* files tree */
+.sidetools{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--line);font-size:11px}
+.sidetools .icon{padding:0 7px;font-size:11px;color:var(--muted)}.sidetools .icon:hover{color:var(--fg);border-color:var(--accent)}
+.tree button.folder{display:block;width:100%;padding:1px 10px;white-space:nowrap}
+.tree button.folder .chev{color:var(--muted);display:inline-block;width:1.4ch}
+.tree button.file{display:flex;gap:6px;width:100%;padding:1px 10px 1px 24px;white-space:nowrap}
+.tree button.file .fname{overflow:hidden;text-overflow:ellipsis}
+.tree button.file:hover,.tree button.folder:hover{background:var(--sel)}
+.tree button.file.sel{background:var(--sel)}
+button.gitfile{width:100%}
+button.grow-row{width:100%;text-align:left}
+
+/* code: changes in the file itself */
+table.code td.gut{width:6px;padding:0;position:relative}
+.g{display:block;position:absolute;left:1px;top:0;bottom:0;width:4px}
+.g.add{background:var(--add)}
+.g.mod{background:var(--accent)}
+.g.del{background:var(--del);opacity:.6}
+button.g{cursor:pointer}button.g:hover{width:6px}
+.g.delmark::after{content:"";position:absolute;left:-1px;top:-4px;border:4px solid transparent;border-left:6px solid var(--del)}
+button.g.delmark{background:none}
+table.code tr.chg td.c{background:color-mix(in oklab,var(--add-bg) 45%,transparent)}
+table.code tr.del td.c{background:var(--del-bg);opacity:.85;text-decoration:line-through;text-decoration-color:color-mix(in oklab,var(--del) 40%,transparent)}
+.dhead .toggle{display:flex;align-items:center;gap:4px;font-size:11.5px;cursor:pointer}
+.dhead button{padding:0 7px}
+
+/* map */
+#canvas.hide{display:none}
+button.chip,button.tname{border:1px solid var(--line);border-radius:10px;padding:0 8px;font-size:11.5px;color:var(--fg)}
+button.tname{display:block;border:0;padding:1px 0 1px 14px;color:var(--accent)}
+button.chip:hover{border-color:var(--accent);color:var(--accent)}
+#crumbs button.link{color:var(--muted)}#crumbs button.link:hover{color:var(--accent);text-decoration:none}
+#zcode{left:0;right:0;top:34px;bottom:30px}
+
+/* chat */
+#chat.hide{display:none}
+.ctools{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line)}
+.ctools select{font:inherit;font-size:11.5px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1px 4px}
+button.ctitle{flex:1;min-width:0;display:flex;gap:4px;color:var(--fg);font-size:12px}
+button.ctitle .chev{color:var(--muted)}
+.ctname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.ctitle:hover .ctname{color:var(--accent)}
+.clist{max-height:45%;overflow:auto;border-bottom:1px solid var(--line);padding:4px 0;background:var(--bg)}
+.clist p{padding:4px 12px;margin:0}
+button.csess{display:flex;flex-direction:column;width:100%;padding:4px 12px;border-left:2px solid transparent}
+button.csess:hover{background:var(--sel)}button.csess.on{border-left-color:var(--accent);background:var(--card)}
+.cst{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button.csess .muted{font-size:11px}
+.ctool .chip{flex:none}
+.meters{display:flex;flex-direction:column;gap:2px;margin-top:7px;font-size:10.5px;color:var(--muted)}
+.meter{display:flex;align-items:center;gap:7px;cursor:default}
+.mlabel{width:9ch;flex:none}
+.meter .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.meter .bar i{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
+.meter .bar i.warn{background:var(--warn)}.meter .bar i.bad{background:var(--bad)}
+.mval{width:11ch;flex:none;text-align:right;font-variant-numeric:tabular-nums}
+.rtabs button{border:0;background:none;color:var(--muted);padding:3px 8px;position:relative}
+.rtabs button.on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
+
+/* terminal */
+#tsplit.hide,#term.hide{display:none}
+button.tpick{display:flex;width:100%}
+button.gitfile,button.file,button.grow-row,button.tpick{justify-content:flex-start;text-align:left}
+button.csess{align-items:flex-start;text-align:left}
+.gitfile .mark{margin-left:0;flex:none}
+button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}

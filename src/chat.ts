@@ -1,23 +1,34 @@
-// The agent chat: cockpit runs Claude Code itself (Claude Agent SDK, on the user's own login),
-// so a project needs no other session and no hooks installed. One conversation per project,
-// kept in out/<project>/chat.json; the page follows it over server-sent events.
+// The agent chat: cockpit runs Claude Code itself (Claude Agent SDK, on the user's own Claude Code
+// login), so a project needs no other session and no hooks installed.
+//
+// Conversations are Claude Code sessions, stored where Claude Code keeps them (~/.claude): the
+// page lists the project's sessions, including ones started in a terminal, and any of them can be
+// reopened and continued. Cockpit keeps its own view of each one (the items below) in
+// out/<project>/chats/<session>.json; a session it didn't run is read from Claude Code's record.
 //
 // What the page gets is a list of items, each added once and then replaced by id as it changes:
 //   user · text (grows while the agent writes) · tool (running → ok/error) · ask (an Allow/Deny
-//   card, when auto mode wants the user) · done (one per turn, with its cost) · note
+//   card, when auto mode wants the user) · done (one per turn) · note
 
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { createSdkMcpServer, query, tool, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import {
+  createSdkMcpServer, getSessionMessages, listSessions, query, tool,
+  type Query, type SDKMessage, type SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { ARCH_DIR } from "./arch.ts";
-import { turnStart, turnTool, type HookInput } from "./recorder.ts";
+import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
+import type { createIndex } from "./codeindex.ts";
+import { turnEnd, turnStart, turnTool, type HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
 import type { Terminals } from "./term.ts";
 
 export type Item = { id: string; kind: string; at: string; [k: string]: unknown };
-type Event = { type: "item"; item: Item } | { type: "state"; busy: boolean; model: string; cost: number };
+type Context = { used: number; max: number } | null;
+type Event =
+  | { type: "item"; item: Item }
+  | { type: "state"; busy: boolean; model: string; context: Context; session: string | null }
+  | { type: "init"; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null };
 
 export const MODELS = ["haiku", "sonnet", "opus"];
 
@@ -35,6 +46,7 @@ function inbox() {
     },
   };
 }
+async function* never(): AsyncGenerator<SDKUserMessage> { await new Promise(() => {}); }
 
 // The brief added to Claude Code's own system prompt.
 function brief(root: string) {
@@ -71,6 +83,7 @@ function describe(root: string, name: string, input: any): { title: string; deta
 }
 
 const now = () => new Date().toISOString();
+const textOf = (c: any): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map((x: any) => (x.type === "text" ? x.text ?? "" : "")).join("\n") : "");
 
 // Tools cockpit gives the agent: read the owner's terminals.
 function cockpitTools(terms: Terminals) {
@@ -86,13 +99,53 @@ function cockpitTools(terms: Terminals) {
   });
 }
 
-export function createChat(root: string, project: string, terms: Terminals) {
-  const file = join(outDir(project), "chat.json");
-  const saved = existsSync(file) ? JSON.parse(readFileSync(file, "utf8")) : {};
-  let items: Item[] = saved.items ?? [];
-  let sessionId: string | null = saved.sessionId ?? null;
-  let model: string = saved.model ?? "sonnet";
-  let cost: number = saved.cost ?? 0;
+// A Claude Code session cockpit didn't run (or ran before it kept items), as chat items.
+function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSessionMessages>>): Item[] {
+  const items: Item[] = [], byTool = new Map<string, Item>();
+  for (const m of msgs) {
+    if (m.parent_tool_use_id) continue;
+    const msg = m.message as any, at = now();
+    if (m.type === "user") {
+      if (typeof msg?.content === "string") {
+        if (!msg.content.startsWith("<")) items.push({ id: m.uuid, kind: "user", at, text: msg.content }); // "<command-…>" and the like are Claude Code's own
+        continue;
+      }
+      for (const b of msg?.content ?? []) {
+        if (b.type === "text" && !String(b.text).startsWith("<")) items.push({ id: m.uuid + ":t", kind: "user", at, text: b.text });
+        else if (b.type === "tool_result" && byTool.has(b.tool_use_id)) Object.assign(byTool.get(b.tool_use_id)!, { status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
+      }
+    } else if (m.type === "assistant") {
+      (msg?.content ?? []).forEach((b: any, i: number) => {
+        if (b.type === "text" && b.text.trim()) items.push({ id: `${m.uuid}:${i}`, kind: "text", at, text: b.text });
+        else if (b.type === "tool_use") { const it = { id: b.id, kind: "tool", at, tool: b.name, sub: false, status: "ok", ...describe(root, b.name, b.input) }; byTool.set(b.id, it); items.push(it); }
+      });
+    }
+  }
+  return items;
+}
+
+export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>) {
+  const dir = join(outDir(project), "chats");
+  mkdirSync(dir, { recursive: true });
+  const fileOf = (id: string) => join(dir, `${id}.json`);
+  // Which conversation is open, and the model picked, survive a restart.
+  const metaFile = join(dir, "current.json");
+  const legacy = join(outDir(project), "chat.json");
+  if (existsSync(legacy) && !existsSync(metaFile)) { // cockpit's single conversation, before the list
+    try {
+      const old = JSON.parse(readFileSync(legacy, "utf8"));
+      if (old.sessionId) writeFileSync(fileOf(old.sessionId), JSON.stringify({ items: old.items ?? [], context: null }));
+      writeFileSync(metaFile, JSON.stringify({ session: old.sessionId ?? null, model: old.model ?? "sonnet" }));
+      renameSync(legacy, legacy + ".old");
+    } catch {}
+  }
+  const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, "utf8")) : {};
+  let session: string | null = meta.session ?? null;
+  let model: string = meta.model ?? "sonnet";
+  let items: Item[] = [];
+  let context: Context = null;
+  if (session && existsSync(fileOf(session))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(session), "utf8")) });
+
   let busy = false;
   let q: Query | null = null;
   let box: ReturnType<typeof inbox> | null = null;
@@ -109,12 +162,13 @@ export function createChat(root: string, project: string, terms: Terminals) {
     if (saveTimer) return;
     saveTimer = setTimeout(() => {
       saveTimer = null;
-      mkdirSync(outDir(project), { recursive: true });
-      writeFileSync(file, JSON.stringify({ sessionId, model, cost, items }, null, 1));
+      writeFileSync(metaFile, JSON.stringify({ session, model }));
+      if (session) writeFileSync(fileOf(session), JSON.stringify({ items, context }));
     }, 300);
   };
   const emit = (e: Event) => { for (const l of listeners) l(e); };
-  const state = () => emit({ type: "state", busy, model, cost });
+  const state = () => emit({ type: "state", busy, model, context, session });
+  const snapshot = () => ({ items, busy, model, models: MODELS, context, session });
   const put = (item: Item) => {
     const i = items.findIndex((x) => x.id === item.id);
     if (i >= 0) items[i] = item; else items.push(item);
@@ -123,14 +177,38 @@ export function createChat(root: string, project: string, terms: Terminals) {
   };
   const get = (id: string) => items.find((x) => x.id === id);
 
-  // The Stop check can build the code index (seconds), so it runs in its own process.
-  const stopCheck = (input: HookInput) => new Promise<string | null>((ok) => {
-    const p = spawn("node", ["--import", "tsx", join(COCKPIT, "src", "hook.ts"), "stop"], { cwd: COCKPIT, stdio: ["pipe", "pipe", "ignore"] });
-    let out = "";
-    p.stdout.on("data", (c) => (out += c));
-    p.on("close", () => { try { ok(out ? JSON.parse(out).reason ?? null : null); } catch { ok(null); } });
-    p.stdin.end(JSON.stringify(input));
-  });
+  // A conversation cockpit hasn't measured yet: its size from the last reply's token counts, out
+  // of the window the model had then (from the session's own record, else the model's usual one).
+  const WINDOW: Record<string, number> = {};
+  async function estimate() {
+    const id = session;
+    if (!id || context) return;
+    try {
+      const msgs = await getSessionMessages(id, { dir: root });
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i].message as any;
+        if (msgs[i].type !== "assistant" || !m?.usage || msgs[i].parent_tool_use_id) continue;
+        const u = m.usage, used = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
+        const max = WINDOW[m.model] ?? await windowOf(m.model);
+        if (session === id && !context && max) { context = { used, max }; save(); state(); }
+        return;
+      }
+    } catch {}
+  }
+  // The context window of a model, asked of a short-lived idle session (no message is sent).
+  async function windowOf(model: string) {
+    const probe = query({ prompt: never(), options: { cwd: root, model, settingSources: [] } });
+    try { const c = await probe.getContextUsage({ detail: "summary" }); return (WINDOW[model] = c.maxTokens); }
+    catch { return 0; } finally { probe.close(); }
+  }
+
+  // How full the conversation's context is, asked of the running session after each turn.
+  async function measure() {
+    try {
+      const c = await q?.getContextUsage({ detail: "summary" });
+      if (c) { context = { used: c.totalTokens, max: c.maxTokens }; save(); state(); }
+    } catch {}
+  }
 
   function start() {
     box = inbox();
@@ -149,7 +227,7 @@ export function createChat(root: string, project: string, terms: Terminals) {
         disallowedTools: ["AskUserQuestion"], // the agent asks in the chat instead
         mcpServers: { cockpit: cockpitTools(terms) },
         allowedTools: ["mcp__cockpit__terminals"],
-        ...(sessionId ? { resume: sessionId } : {}),
+        ...(session ? { resume: session } : {}),
         canUseTool: async (tool, input, { signal, decisionReason }) => {
           const id = "ask-" + Math.random().toString(36).slice(2, 10);
           put({ id, kind: "ask", at: now(), tool, ...describe(root, tool, input), reason: decisionReason ?? null, status: "waiting" });
@@ -165,24 +243,39 @@ export function createChat(root: string, project: string, terms: Terminals) {
           UserPromptSubmit: [{ hooks: [async (i) => { checks = 0; try { turnStart(i as HookInput); } catch {} return {}; }] }],
           PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { try { turnTool(i as HookInput); } catch {} return {}; }] }],
           Stop: [{ hooks: [async (i) => {
-            // Up to 3 rounds of "fix what the check found" per turn, then let it stop.
-            const reason = await stopCheck({ ...(i as HookInput), stop_hook_active: checks >= 3 });
-            if (!reason) return {};
-            checks++;
-            put({ id: "note-" + Date.now(), kind: "note", at: now(), text: `${ARCH_DIR}/ doesn't match the code yet: sent the agent back to fix it.`, detail: reason });
-            return { decision: "block", reason };
+            // .cockpit/ must match the code: up to 3 rounds of "fix what the check found" per
+            // turn, against the live index once it has caught up with the agent's edits.
+            if (existsSync(join(root, ARCH_DIR)) && checks < 3) {
+              const problems = checkArch(loadArch(root), await index.fresh());
+              if (problems.length) {
+                checks++;
+                const reason = `${ARCH_DIR}/ doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
+                  `Fix it before finishing, as described in ${ARCH_DIR}/README.md:\n` + problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");
+                put({ id: "note-" + Date.now(), kind: "note", at: now(), text: `${ARCH_DIR}/ doesn't match the code yet: sent the agent back to fix it.`, detail: reason });
+                return { decision: "block", reason };
+              }
+            }
+            try { turnEnd(i as HookInput); } catch {}
+            return {};
           }] }],
         },
       },
     });
-    pump(q).catch((e) => put({ id: "err-" + Date.now(), kind: "note", at: now(), text: "The agent stopped: " + String(e?.message ?? e), error: true }))
-      .finally(() => { q = null; box = null; busy = false; state(); });
+    const mine = q;
+    pump(mine).catch((e) => { if (q === mine) put({ id: "err-" + Date.now(), kind: "note", at: now(), text: "The agent stopped: " + String(e?.message ?? e), error: true }); })
+      .finally(() => { if (q === mine) { q = null; box = null; busy = false; state(); } });
   }
 
   async function pump(cur: Query) {
     for await (const m of cur as AsyncIterable<SDKMessage>) {
+      if (cur !== q) return; // another conversation was opened
       const mm = m as any;
-      if (mm.type === "system" && mm.subtype === "init") { sessionId = mm.session_id; save(); continue; }
+      if (mm.type === "system" && mm.subtype === "init") {
+        if (session !== mm.session_id) { session = mm.session_id; state(); }
+        save();
+        continue;
+      }
+      if (mm.type === "rate_limit_event") { lastUsage = null; continue; } // read it fresh next time
       if (mm.parent_tool_use_id && mm.type !== "user" && mm.type !== "assistant") continue;
       if (mm.type === "stream_event") {
         if (mm.parent_tool_use_id) continue; // a subagent's own writing
@@ -210,22 +303,59 @@ export function createChat(root: string, project: string, terms: Terminals) {
       } else if (mm.type === "user" && Array.isArray(mm.message?.content)) {
         for (const b of mm.message.content) {
           if (b.type !== "tool_result" || !get(b.tool_use_id)) continue;
-          const text = typeof b.content === "string" ? b.content : (b.content ?? []).map((c: any) => c.text ?? "").join("\n");
-          put({ ...get(b.tool_use_id)!, status: b.is_error ? "error" : "ok", output: text.slice(0, 4000) });
+          put({ ...get(b.tool_use_id)!, status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
         }
       } else if (mm.type === "result") {
-        cost += mm.total_cost_usd ?? 0;
         busy = false;
-        put({ id: "done-" + mm.uuid, kind: "done", at: now(), cost: mm.total_cost_usd ?? 0, ms: mm.duration_ms, turns: mm.num_turns, error: mm.subtype !== "success" ? mm.subtype : null });
+        put({ id: "done-" + mm.uuid, kind: "done", at: now(), ms: mm.duration_ms, turns: mm.num_turns, error: mm.subtype !== "success" ? mm.subtype : null });
         state();
+        void measure();
+        lastUsage = null;
       }
     }
   }
 
+  // Plan usage (the numbers behind /usage), cached for a minute. Asked of the running session, or
+  // of a short-lived idle one: no message is sent, so it costs nothing.
+  let lastUsage: { at: number; data: unknown } | null = null;
+  async function usage() {
+    if (lastUsage && Date.now() - lastUsage.at < 60_000) return lastUsage.data;
+    let probe: Query | null = null;
+    try {
+      const src = q ?? (probe = query({ prompt: never(), options: { cwd: root, model, settingSources: [] } }));
+      const u = await src.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true });
+      const w = (x: any) => (x && x.utilization != null ? { pct: x.utilization, resets: x.resets_at } : null);
+      const r = u.rate_limits;
+      const data = u.rate_limits_available && r ? {
+        plan: u.subscription_type,
+        windows: [
+          { name: "5 hours", ...w(r.five_hour) },
+          { name: "week", ...w(r.seven_day) },
+          ...(r.seven_day_opus ? [{ name: "week · opus", ...w(r.seven_day_opus) }] : []),
+          ...(r.seven_day_sonnet ? [{ name: "week · sonnet", ...w(r.seven_day_sonnet) }] : []),
+          ...(r.model_scoped ?? []).filter((m) => m.utilization).map((m) => ({ name: "week · " + m.display_name.toLowerCase(), ...w(m) })),
+        ].filter((x: any) => x.pct != null),
+      } : { plan: u.subscription_type, windows: [] };
+      lastUsage = { at: Date.now(), data };
+      return data;
+    } catch (e: any) {
+      return { error: String(e?.message ?? e), windows: [] };
+    } finally {
+      probe?.close();
+    }
+  }
+
+  function stopRunning() {
+    for (const r of waiting.values()) r(false);
+    abort?.abort();
+    q = null; box = null; busy = false;
+  }
+
+  void estimate();
+
   return {
-    items: () => items,
-    snapshot: () => ({ items, busy, model, cost, models: MODELS }),
-    subscribe(l: (e: Event) => void) { listeners.add(l); return () => listeners.delete(l); },
+    snapshot,
+    subscribe(l: (e: Event) => void) { listeners.add(l); return () => { listeners.delete(l); }; },
     send(text: string) {
       if (!text.trim()) return;
       put({ id: "u-" + Date.now(), kind: "user", at: now(), text });
@@ -242,11 +372,32 @@ export function createChat(root: string, project: string, terms: Terminals) {
       await q?.setModel(m).catch(() => {});
       save(); state();
     },
+    usage,
+    // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere.
+    async sessions() {
+      const list = await listSessions({ dir: root, limit: 60 });
+      return list.map((s) => ({
+        id: s.sessionId, title: s.customTitle || s.summary || s.firstPrompt || "(empty)", at: s.lastModified,
+        branch: s.gitBranch ?? null, here: existsSync(fileOf(s.sessionId)),
+      }));
+    },
+    // Open another conversation; the next message continues it.
+    async open(id: string) {
+      if (id === session) return;
+      stopRunning();
+      session = id; context = null; items = [];
+      if (existsSync(fileOf(id))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(id), "utf8")) });
+      else items = itemsFromTranscript(root, await getSessionMessages(id, { dir: root }));
+      save();
+      emit({ type: "init", ...snapshot() });
+      void estimate();
+    },
+    // A fresh conversation. The old one stays in the list.
     reset() {
-      abort?.abort();
-      q = null; box = null; busy = false; sessionId = null; cost = 0; items = [];
-      save(); emit({ type: "state", busy, model, cost });
-      for (const l of listeners) l({ type: "item", item: { id: "reset", kind: "reset", at: now() } });
+      stopRunning();
+      session = null; context = null; items = [];
+      save();
+      emit({ type: "init", ...snapshot() });
     },
   };
 }

@@ -151,7 +151,7 @@ fn main() {
         .setup(|app| {
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("cockpit")
-                .decorations(false) // the page's header is the title bar (app.js, "desktop app")
+                .decorations(false) // the page's header is the title bar (web/src/components/Header.svelte)
                 .inner_size(1600.0, 1000.0)
                 .min_inner_size(800.0, 500.0)
                 .build()?;
