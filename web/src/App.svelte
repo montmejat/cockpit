@@ -40,6 +40,8 @@
   // Ctrl+` toggles the terminal drawer, Ctrl+K opens the ask line, anywhere.
   function keys(e: KeyboardEvent) {
     if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
+    // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
+    else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r"))) { e.preventDefault(); location.reload(); }
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { e.preventDefault(); term?.openAsk(); }
   }
 </script>

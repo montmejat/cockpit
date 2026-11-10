@@ -4,11 +4,28 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 export const COCKPIT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const PROTO = join(COCKPIT, "vendor", "scip.proto");
-export const outDir = (project: string) => join(COCKPIT, "out", project);
+// What cockpit generates for the projects you open (indexes, turns, chats and
+// snapshots) lives outside this checkout too: $COCKPIT_STATE, else
+// ~/.local/share/cockpit. out/<project>/ in the checkout is still used where it already exists.
+export const STATE = process.env.COCKPIT_STATE || join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "cockpit");
+export function outDir(project: string): string {
+  const legacy = join(COCKPIT, "out", project);
+  return existsSync(legacy) ? legacy : join(STATE, "projects", project);
+}
+// Your settings and corrections for a project. They live outside this checkout, in
+// ~/.config/cockpit/projects/<project>/, so nothing about the projects you open ends up in
+// cockpit's own repo. data/<project>/ in the checkout is still used where it already exists.
+export function dataDir(project: string): string {
+  const legacy = join(COCKPIT, "data", project);
+  if (existsSync(legacy)) return legacy;
+  const config = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
+  return join(config, "cockpit", "projects", project);
+}
 export const turnsDir = (project: string) => join(outDir(project), "turns");
 
 export interface Touch {

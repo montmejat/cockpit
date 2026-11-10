@@ -123,7 +123,7 @@
       <div class="cempty">
         <p>Talk to the agent here. It works in <b>{S.project}</b>, and what it changes lights up on the diagrams.</p>
         {#if fresh}<p class="muted">This project has no description yet.</p>
-          <button onclick={() => post("send", { text: "Describe this project in .cockpit/: the summary, the features, and the 2 or 3 diagrams that best explain how it works. Don't change the code." })}>Describe this project</button>{/if}
+          <button onclick={() => post("send", { text: "Describe this project in .cockpit/: the summary, the features, and the diagrams that best explain how it works, as many as this project needs. Don't change the code." })}>Describe this project</button>{/if}
       </div>
     {/each}
   </div>

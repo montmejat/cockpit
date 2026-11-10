@@ -3,10 +3,10 @@
 // Rules: be fast, print nothing (UserPromptSubmit output would reach the agent),
 // and always exit 0 so a cockpit problem never blocks Claude Code.
 
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { turnStart, turnStop, turnTool } from "./recorder.ts";
-import { COCKPIT } from "./turns.ts";
+import { STATE } from "./turns.ts";
 
 function main() {
   const event = process.argv[2];
@@ -23,7 +23,8 @@ try {
   main();
 } catch (e) {
   try {
-    appendFileSync(join(COCKPIT, "out", "hook-errors.log"), `${new Date().toISOString()} ${process.argv[2]}: ${e}\n`);
+    mkdirSync(STATE, { recursive: true });
+    appendFileSync(join(STATE, "hook-errors.log"), `${new Date().toISOString()} ${process.argv[2]}: ${e}\n`);
   } catch {}
 }
 process.exit(0);

@@ -87,7 +87,7 @@ export function turnStop(input: HookInput): string | null {
   if (t?.status !== "running") return null;
   const snap = snapshot(repo, "turn end");
   if (existsSync(join(repo, ARCH_DIR)) && !input.stop_hook_active) {
-    const sk = skeletonOf(repo, snap, join(outDir(project), "skeletons"), PROTO);
+    const sk = skeletonOf(repo, snap, join(outDir(project), "skeletons"), PROTO, project);
     const problems = checkArch(loadArch(repo), sk);
     if (problems.length) {
       const list = problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");

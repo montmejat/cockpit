@@ -1,5 +1,5 @@
 // Checks a project's .cockpit/ against its code: npm run check-arch -- <project dir>
-// Uses the code index of the working copy (rebuilt only if the code changed).
+// Uses the code index of the working copy (rebuilt only if the code changed). No model call.
 
 import { basename, resolve } from "node:path";
 import { checkArch, loadArch } from "./arch.ts";

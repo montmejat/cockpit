@@ -6,6 +6,7 @@
   import { onMount, tick } from "svelte";
   import type { Core, NodeSingular } from "cytoscape";
   import ZoomCode from "./ZoomCode.svelte";
+  import DiagramList from "./DiagramList.svelte";
   import { buildCy, legend, positionsOf, relayout, restyle, syncCy } from "../lib/diagram";
   import { byId, C, mapTab, nameOf, nodeState, parentOfDiagram, S, saveTabs, showRight, tldr, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
@@ -16,6 +17,7 @@
   let cy: Core | null = null;
   let legendItems = $state<{ cls: string; text: string }[]>([]);
   let tip = $state<{ html: string; x: number; y: number } | null>(null);
+  let listOpen = $state(false); // the list of every diagram, over the top left of the map
 
   const t = $derived(mapTab());
   const d = $derived(byId(t.id));
@@ -233,7 +235,7 @@
     }
   }
   function keys(e: KeyboardEvent) {
-    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) ascend();
+    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { if (listOpen) listOpen = false; else ascend(); }
   }
 </script>
 
@@ -251,6 +253,7 @@
   {#if tip}<div id="tip" style="left:{tip.x}px;top:{tip.y}px">{@html tip.html}</div>{/if}
   {#if d}
     <div id="crumbs">
+      <button class="dtoggle" class:on={listOpen} title="All diagrams" aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰</button>
       {#each chain as x, i (x.id)}
         {#if i}<span class="muted"> › </span>{/if}
         {#if i === chain.length - 1 && !codeNode}<b>{nameOf(x)}</b>{:else}<button class="link" onclick={() => jumpTo(x.id)}>{nameOf(x)}</button>{/if}
@@ -258,6 +261,9 @@
       {#if codeNode}<span class="muted"> › </span><b>{codeNode.label}</b>{/if}
       <span class="muted zhint"> · {chain.length > 1 || codeNode ? "Esc or scroll out to go up" : "double-click a box to go in"}</span>
     </div>
+  {/if}
+  {#if listOpen && S.diagrams.length}
+    <DiagramList current={t.code ? null : t.id} onpick={(id) => { listOpen = false; if (id !== t.id || t.code) jumpTo(id); }} onclose={() => (listOpen = false)} />
   {/if}
   {#if codeNode && d}
     <div id="zcode" bind:this={zcodeEl}>

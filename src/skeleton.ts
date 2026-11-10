@@ -1,7 +1,7 @@
 // E2 skeleton: the project's real structure, from tools rather than a model.
 //   cargo metadata -> crates and their declared dependencies
 //   SCIP index     -> modules, their items, and which module references which
-// Rust-only for now; SCIP indexers exist for other languages too.
+// This file reads rust-analyzer's index; skeleton-cpp.ts reads scip-clang's into the same shape.
 
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -39,14 +39,26 @@ export interface Crate {
   deps: string[]; // declared dependencies (workspace and external)
 }
 
+// Test code, by where it lives or how it's named: a tests/ or test/ dir anywhere in the path,
+// or a file named *_test.*, *-test.*, test_*.*, *Test.* / *Tests.*, *_spec.*. Test modules need
+// no feature in .cockpit/; cockpit shows them in its tests view instead.
+export function isTestPath(path: string): boolean {
+  if (/(^|\/)(tests?|testing|__tests__|specs?)\//.test(path)) return true;
+  const name = path.split("/").pop() ?? "";
+  return /^test_|[_-](test|spec)\.[^.]+$|[a-z0-9]Tests?\.[^.]+$/.test(name);
+}
+
 // Bump when the skeleton's shape or rules change, so cached skeletons are rebuilt.
-export const SKELETON_VERSION = 4;
+export const SKELETON_VERSION = 5;
+
+export type Lang = "rust" | "cpp";
 
 // How a diagram links to an item: "crate/module::Type::method" or "crate/module::item".
 export const itemKey = (mod: string, i: { owner?: string; name: string }) => `${mod}::${i.owner ? i.owner + "::" : ""}${i.name}`;
 
 export interface Skeleton {
   root: string;
+  lang?: Lang; // missing in skeletons cached before C++ support: rust
   crates: Crate[];
   modules: Module[];
   edges: Edge[];
@@ -173,5 +185,5 @@ export function buildSkeleton(root: string, scipPath: string, protoPath: string)
     .filter((e) => ids.has(e.to)); // drop references to modules with no file of their own
 
   modules.sort((a, b) => a.id.localeCompare(b.id));
-  return { root, crates, modules, edges };
+  return { root, lang: "rust", crates, modules, edges };
 }

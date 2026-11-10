@@ -10,7 +10,8 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { itemKey, type Skeleton } from "./skeleton.ts";
+import { isTestPath, itemKey, type Skeleton } from "./skeleton.ts";
+import { snapGitDir } from "./snapshot.ts";
 
 export const ARCH_DIR = ".cockpit";
 const PROJECT = `${ARCH_DIR}/project.json`, DIAGRAMS = `${ARCH_DIR}/diagrams`;
@@ -54,8 +55,10 @@ export interface ArchProblem { where: string; problem: string }
 
 // Read .cockpit/ from the working tree, or from a commit (rev) for turn snapshots.
 export function loadArch(repo: string, rev?: string): { arch: Architecture | null; problems: ArchProblem[] } {
+  // A rev is a turn snapshot: read it from cockpit's snapshot store when it is there.
+  const gitDir = rev ? snapGitDir(repo, rev) : undefined;
   const git = (...a: string[]) => {
-    try { return execFileSync("git", a, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
+    try { return execFileSync("git", gitDir ? ["--git-dir", gitDir, ...a] : a, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
   };
   const read = (p: string) => (rev ? git("show", `${rev}:${p}`) : existsSync(join(repo, p)) ? readFileSync(join(repo, p), "utf8") : null);
   const list = (d: string) => rev
@@ -100,14 +103,14 @@ export function checkArch(loaded: { arch: Architecture | null; problems: ArchPro
     if (f.status !== "planned" && !f.modules.length) p(w, `is ${f.status} but lists no modules`);
     if ((f.status === "partial" || f.status === "broken") && !f.note) p(w, `is ${f.status}: say what's missing or wrong in "note"`);
     for (const id of f.modules) {
-      if (!mods.has(id)) { const guess = closestLink(id, mods); p(w, `module "${id}" does not exist` + (guess ? `: did you mean "${guess}"?` : ` (module ids look like crate/module)`)); }
+      if (!mods.has(id)) { const guess = closestLink(id, mods); p(w, `module "${id}" does not exist` + (guess ? `: did you mean "${guess}"?` : ` (module ids look like crate/module; for C++, project/path/File.hpp)`)); }
       served.add(id);
     }
   }
-  if (a.features.length) for (const m of sk.modules) if (!served.has(m.id)) p("features", `module "${m.id}" (${m.file}) serves no feature`);
+  // Test code needs no feature: cockpit lists it in the tests view.
+  if (a.features.length) for (const m of sk.modules) if (!served.has(m.id) && !isTestPath(m.file)) p("features", `module "${m.id}" (${m.file}) serves no feature`);
 
   // Diagrams: known kinds, real links, edges and zones that point at real nodes.
-  if (a.diagrams.length > 5) p("diagrams", `${a.diagrams.length} diagrams: keep at most 5, the ones that explain the most`);
   if (a.diagrams.length && !a.diagrams.some((d) => d.kind === "loop")) p("diagrams", `no main loop: the first diagram is the program's main loop, kind "loop"`);
   for (const d of a.diagrams) {
     const w = `diagram ${d.id}`;
@@ -128,7 +131,7 @@ export function checkArch(loaded: { arch: Architecture | null; problems: ArchPro
       if (!n.zone && !n.outside && !n.start && !n.end && !n.anchors?.length) p(`${w} node ${n.id}`, `has no code links: add anchors, or mark it "outside" if it is not code`);
       for (const s of n.anchors ?? []) if (!symbols.has(s)) {
         const guess = closestLink(s, symbols);
-        p(`${w} node ${n.id}`, `link "${s}" matches no module or item` + (guess ? `: did you mean "${guess}"?` : ` (format: crate/module::Item or crate/module::Type::method)`));
+        p(`${w} node ${n.id}`, `link "${s}" matches no module or item` + (guess ? `: did you mean "${guess}"?` : ` (format: crate/module::Item or crate/module::Type::method; for C++, project/path/File.cpp::Type::method)`));
       }
     }
     for (const n of d.nodes) if (n.in && !d.nodes.some((z) => z.id === n.in && z.zone)) p(`${w} node ${n.id}`, `"in": "${n.in}" is not a zone of this diagram`);

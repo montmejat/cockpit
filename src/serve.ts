@@ -26,7 +26,7 @@ if (!dir) {
 const root = resolve(dir);
 const name = opt("name") ?? basename(root);
 const WEB = join(COCKPIT, "web", "dist");
-const index = createIndex(root, name); // the code index (rust-analyzer), rebuilt when code changes
+const index = createIndex(root, name); // the code index (rust-analyzer or scip-clang), rebuilt when code changes
 const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
 const ask = createAsk(root); // the terminal's ask line: words → a command
 const chat = createChat(root, name, terms, index); // the agent, run by cockpit itself
@@ -137,8 +137,13 @@ function liveTurn() {
 const dlayoutPath = join(root, ARCH_DIR, "layout.json");
 const readDLayout = () => { try { return existsSync(dlayoutPath) ? JSON.parse(readFileSync(dlayoutPath, "utf8")) : {}; } catch { return {}; } };
 
-// What is tested: #[test] functions inside each module, and in the integration test files
-// (tests/*.rs), by name.
+// What is tested, by name. Rust: #[test] functions inside each module and in the integration
+// test files (tests/*.rs). C/C++: test files (*_test.cpp, test_*.cpp, *Test.cpp, or anything
+// under a test/ dir), with their GoogleTest / Catch2 / Boost.Test cases, else their test_*() functions
+// (plain main() tests), else the file as one test.
+const CXX_TEST_FILE = /(^|\/)(tests?\/.*|[^/]*[_-]test|test_[^/]*|[^/]*Tests?)\.(c|cc|cpp|cxx)$/;
+const CXX_TEST_FN = /^[ \t]*(?:static\s+)?(?:inline\s+)?void\s+(test_?\w*)\s*\(\s*(?:void)?\s*\)\s*\{/gm;
+const CXX_TEST_CASE = /^[ \t]*(?:TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE|SCENARIO|BOOST_AUTO_TEST_CASE|BOOST_FIXTURE_TEST_CASE)\s*\(\s*([^)]*)\)/gm;
 function testsOf(sk: Skeleton, files: string[]) {
   const unit = sk.modules.map((m) => ({ module: m.id, file: m.file, crate: m.crate, tests: m.items.filter((i) => i.test && i.kind === "Function").map((i) => ({ name: i.name, line: i.line })) }));
   const integration = files.filter((f) => /(^|\/)tests\/.*\.rs$/.test(f)).flatMap((file) => {
@@ -149,6 +154,17 @@ function testsOf(sk: Skeleton, files: string[]) {
       return [{ file, tests }];
     } catch { return []; }
   });
+  if (sk.lang === "cpp") for (const file of files.filter((f) => CXX_TEST_FILE.test(f))) {
+    let text: string;
+    try { text = readFileSync(join(root, file), "utf8"); } catch { continue; }
+    const tests: { name: string; line: number }[] = [];
+    for (let m; (m = CXX_TEST_CASE.exec(text)); ) {
+      const args = m[1].split(",").map((a) => a.trim().replace(/^"|"$/g, ""));
+      tests.push({ name: args.length > 1 && !/^"/.test(m[1].trim()) ? `${args[0]}.${args[1]}` : args[0], line: text.slice(0, m.index).split("\n").length });
+    }
+    if (!tests.length) for (let m; (m = CXX_TEST_FN.exec(text)); ) tests.push({ name: m[1], line: text.slice(0, m.index).split("\n").length });
+    integration.push({ file, tests: tests.length ? tests : [{ name: file.split("/").pop()!.replace(/\.[^.]+$/, ""), line: 1 }] });
+  }
   return { unit, integration };
 }
 
@@ -206,14 +222,14 @@ function recompute() {
 // git's HEAD, index and branches, and the folder where agent turns are recorded.
 const watchers = new Map<string, FSWatcher>();
 let debounce: NodeJS.Timeout | null = null;
-function changed(rust = false) {
-  if (rust) void index.refresh();
+function changed(code = false) {
+  if (code) void index.refresh();
   if (debounce) clearTimeout(debounce);
   debounce = setTimeout(() => { debounce = null; try { recompute(); syncWatchers(); } catch (e) { console.error("state:", e); } }, 150);
 }
 function syncWatchers() {
   const want = new Map<string, (f: string) => void>();
-  const project = (f: string) => changed(f.endsWith(".rs") || f.endsWith("Cargo.toml"));
+  const project = (f: string) => changed(index.affects(f));
   for (const f of current.files) want.set(dirname(join(root, f)), project);
   want.set(root, project);
   want.set(join(root, ARCH_DIR), project);

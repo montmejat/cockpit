@@ -124,7 +124,11 @@ function layout(cy: Core, d: Diagram, positions?: Record<string, { x: number; y:
 
 // A diagram in a container. Refits when the container changes size, until you zoom or pan it.
 export function buildCy(container: HTMLElement, d: Diagram, positions?: Record<string, { x: number; y: number }>) {
-  const cy = cytoscape({ container, elements: elements(d), wheelSensitivity: 0.2, minZoom: 0.2, maxZoom: 2.5, style: style() });
+  // Draw at 2x or more: the library caches boxes and labels as bitmaps at a few zoom levels and
+  // scales them in between, which looks blurry at 1x (and on fractional desktop scaling, where
+  // the reported ratio is often rounded down). Diagrams are small, so the extra pixels are cheap.
+  const cy = cytoscape({ container, elements: elements(d), wheelSensitivity: 0.2, minZoom: 0.2, maxZoom: 2.5, style: style(),
+    pixelRatio: Math.max(2, window.devicePixelRatio || 1) });
   cy.scratch("_shape", shapeKey(d)); cy.scratch("_id", d.id);
   layout(cy, d, positions);
   fitCapped(cy);

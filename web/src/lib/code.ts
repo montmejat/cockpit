@@ -12,13 +12,19 @@ import bash from "highlight.js/lib/languages/bash";
 import python from "highlight.js/lib/languages/python";
 import css from "highlight.js/lib/languages/css";
 import xml from "highlight.js/lib/languages/xml";
+import c from "highlight.js/lib/languages/c";
+import cpp from "highlight.js/lib/languages/cpp";
+import cmake from "highlight.js/lib/languages/cmake";
 
-for (const [n, l] of Object.entries({ rust, typescript, javascript, json, ini, markdown, yaml, bash, python, css, xml })) hljs.registerLanguage(n, l);
+for (const [n, l] of Object.entries({ rust, typescript, javascript, json, ini, markdown, yaml, bash, python, css, xml, c, cpp, cmake })) hljs.registerLanguage(n, l);
 
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
-const LANGS: Record<string, string> = { rs: "rust", ron: "rust", ts: "typescript", js: "javascript", svelte: "xml", json: "json", toml: "ini", md: "markdown", yml: "yaml", yaml: "yaml", sh: "bash", py: "python", css: "css", html: "xml" };
-export const langOf = (p: string) => LANGS[p.split(".").pop() ?? ""] ?? null;
+const LANGS: Record<string, string> = { rs: "rust", ron: "rust", ts: "typescript", js: "javascript", svelte: "xml", json: "json", toml: "ini", md: "markdown", yml: "yaml", yaml: "yaml", sh: "bash", py: "python", css: "css", html: "xml",
+  c: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", h: "cpp", hh: "cpp", hpp: "cpp", hxx: "cpp", ipp: "cpp", inl: "cpp", tpp: "cpp", cmake: "cmake" };
+// By whole name, for files without a telling extension.
+const NAMES: Record<string, string> = { "CMakeLists.txt": "cmake", Dockerfile: "bash", Makefile: "bash" };
+export const langOf = (p: string) => NAMES[p.split("/").pop() ?? ""] ?? LANGS[p.split(".").pop() ?? ""] ?? null;
 
 // Highlight the whole text, then cut the HTML into lines, closing and reopening spans at each
 // line break so multi-line comments and strings keep their color.

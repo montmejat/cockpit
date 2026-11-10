@@ -9,7 +9,8 @@
     "build": "vite build --config web/vite.config.ts",
     "dev:web": "vite build --watch --config web/vite.config.ts",
     "check": "tsc --noEmit",
-    "check-arch": "tsx src/check-arch.ts"
+    "check-arch": "tsx src/check-arch.ts",
+    "modules": "tsx src/modules.ts"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

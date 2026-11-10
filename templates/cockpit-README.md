@@ -17,10 +17,25 @@ don't change what's written here.
 A check runs when you finish a turn. If this folder doesn't match the code (unknown links,
 modules in no feature, broken diagrams), you get the list and should fix it before stopping.
 
+## Before you write
+
+1. Read what the project says about itself first: its README, any docs folder, and any
+   files that explain its context or architecture (CONTEXT.md, ARCHITECTURE.md, design notes,
+   a CLAUDE.md or AGENTS.md). Use their words for things, and check them against the code:
+   where the docs and the code disagree, the code wins, and say so in a feature's `note`.
+2. List what cockpit knows about the code: the module list command in your brief prints every
+   module and item exactly as links must write them, grouped by crate or build project, with
+   test code marked. Give it a filter to see one part. Link only to names from that list.
+3. Then read the code behind what you are about to describe. Describe what the code does
+   today, not what a comment or a plan says it should do.
+
 ## Code links
 
-Features and diagram nodes link to code by module or item: `crate/module`, `crate/module::Item`
+Features and diagram nodes link to code by module or item, written exactly as the module list
+prints them: `crate/module`, `crate/module::Item`
 or `crate/module::Type::method`. The crate root module is just the crate, e.g. `game::main`.
+In C/C++ a module is one file: `<CMake project>/<path inside it, without src/ or include/>`,
+e.g. `engine/World.hpp`, `engine/World.cpp::World::step`, `net/Socket.hpp::Socket`.
 
 ## Summary
 
@@ -34,7 +49,8 @@ the list, in cockpit. Each feature: `{"id", "name", "status", "description", "mo
   now), or `planned` (no code yet, `modules` empty). Be honest: this is what people read to
   know where the project stands.
 - `modules`: the modules that make it. A module can serve several features (the UI usually
-  does). Every module serves at least one feature.
+  does). Every module serves at least one feature, except test code (marked `[test]` in the
+  module list): cockpit shows tests on their own.
 - `note`: one line on what's missing or wrong. Required for `partial` and `broken`.
 - Ids are short kebab-case and stable: edit features, don't rename them.
 
@@ -60,8 +76,9 @@ What earns a diagram:
   what the picture shows that prose doesn't.
 - Start with the code where most behavior lives and most changes land. A diagram of the core
   is worth more than one about a single use case.
-- At most 5 diagrams for the whole project, usually 2 or 3. Adding one means it explains more
-  than the weakest one already there; replace that one if not.
+- As many diagrams as this project needs, no fixed number: a small tool may need one, a large
+  system several. Each one answers a question none of the others answers; if a new one mostly
+  repeats an existing one, improve that one instead.
 
 The first diagram is always the main loop, `kind: "loop"`. Every program has one: a game's
 frame loop, a server's request loop, a CLI's single pass. It shows where the program starts,

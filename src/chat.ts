@@ -55,6 +55,7 @@ function brief(root: string) {
     "You are working inside cockpit. Its owner watches live diagrams of this code while you work, and reads your replies in a narrow chat panel: keep replies short, outcome first, details only if asked.",
     "Create and change files with the Write and Edit tools, not shell commands: cockpit follows those tools to show your changes as you make them.",
     "The owner also works in terminals inside cockpit (build, run, the project's CLI). When they mention a command, its output, an error, or say \"that\" about something they ran, read their terminals with the mcp__cockpit__terminals tool instead of asking them to paste it.",
+    `To list every module and item cockpit knows, written exactly as ${ARCH_DIR}/ links them, run: cd ${COCKPIT} && npm run -s modules -- ${root} [filter]`,
     `To check ${ARCH_DIR}/ against the code yourself, run: cd ${COCKPIT} && npm run -s check-arch -- ${root}`,
     has
       ? `The project is described in ${ARCH_DIR}/ (features and diagrams). Read ${ARCH_DIR}/README.md before you start and keep the folder true as you work.`
