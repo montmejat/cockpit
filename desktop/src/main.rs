@@ -24,6 +24,33 @@ fn cockpit_home() -> PathBuf {
         .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf())
 }
 
+/// The node to run the server with: $COCKPIT_NODE, else node on PATH, else the newest one nvm
+/// installed. An app opened from the menu doesn't get the PATH that ~/.bashrc sets up for nvm.
+fn find_node() -> PathBuf {
+    if let Some(n) = std::env::var_os("COCKPIT_NODE") {
+        return PathBuf::from(n);
+    }
+    let on_path = std::env::var_os("PATH").and_then(|p| {
+        std::env::split_paths(&p).map(|d| d.join("node")).find(|n| n.is_file())
+    });
+    if let Some(n) = on_path {
+        return n;
+    }
+    let nvm = std::env::var_os("NVM_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".nvm")));
+    let newest = nvm.and_then(|d| std::fs::read_dir(d.join("versions").join("node")).ok()).and_then(|dirs| {
+        let version = |p: &Path| -> Vec<u64> {
+            p.file_name().unwrap_or_default().to_string_lossy().trim_start_matches('v')
+                .split('.').map(|x| x.parse().unwrap_or(0)).collect()
+        };
+        dirs.filter_map(|e| e.ok().map(|e| e.path().join("bin").join("node")))
+            .filter(|n| n.is_file())
+            .max_by_key(|n| version(n.parent().unwrap().parent().unwrap()))
+    });
+    newest.unwrap_or_else(|| PathBuf::from("node"))
+}
+
 fn last_project_file() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
@@ -90,7 +117,15 @@ fn run(app: tauri::AppHandle, win: WebviewWindow) -> Result<(), String> {
     let port = free_port().map_err(|e| format!("no free port: {e}"))?;
     // `node --import tsx` keeps it to one process, so stopping it leaves nothing behind.
     let mut child = unsafe {
-        Command::new("node")
+        let node = find_node();
+        // npm, git and docker are found the same way the server's own child processes look them up.
+        let path = match (node.parent(), std::env::var_os("PATH")) {
+            (Some(dir), Some(p)) => std::env::join_paths(std::iter::once(dir.to_path_buf()).chain(std::env::split_paths(&p))).ok(),
+            _ => None,
+        };
+        let mut cmd = Command::new(&node);
+        if let Some(path) = path { cmd.env("PATH", path); }
+        cmd
             .current_dir(&home)
             .args(["--import", "tsx", "src/serve.ts"])
             .arg(&project)
