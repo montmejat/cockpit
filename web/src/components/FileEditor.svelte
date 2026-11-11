@@ -8,7 +8,7 @@
   //   One buffer per file, kept while you switch tabs (undo history included).
   import { onMount } from "svelte";
   import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, drawSelection } from "@codemirror/view";
-  import { Compartment, EditorState } from "@codemirror/state";
+  import { Compartment, EditorState, Text } from "@codemirror/state";
   import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
   import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
   import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
@@ -67,10 +67,15 @@
       ],
     });
   }
+  // Unsaved: the text differs from the last saved one. Compared as CodeMirror texts, without
+  // building the whole file as a string on every keystroke.
+  let savedDoc: { path: string; saved: string; doc: Text } | null = null;
   function dirtyNow() {
     const b = shown ? bufs.get(shown) : null;
     if (!view || !b) return false;
-    return view.state.doc.length !== b.saved.length || view.state.doc.toString() !== b.saved;
+    if (view.state.doc.length !== b.saved.length) return true;
+    if (savedDoc?.path !== shown || savedDoc.saved !== b.saved) savedDoc = { path: shown!, saved: b.saved, doc: Text.of(b.saved.split("\n")) };
+    return !view.state.doc.eq(savedDoc.doc);
   }
   function markDirty() {
     if (!shown) return;
@@ -193,14 +198,14 @@
   }
 
   // ---- what the rest of the page sees: lines on screen, the line you're on, the changes ---------
-  let raf = 0;
+  let raf = 0, lastView: [number, number] = [0, 0];
   function reportView() {
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(() => {
       if (!view) return;
       const top = view.scrollDOM.scrollTop, h = view.scrollDOM.clientHeight, doc = view.state.doc;
       const lo = doc.lineAt(view.lineBlockAtHeight(top).from).number, hi = doc.lineAt(view.lineBlockAtHeight(top + h - 1).from).number;
-      onview([lo, hi]);
+      if (lo !== lastView[0] || hi !== lastView[1]) { lastView = [lo, hi]; onview([lo, hi]); }
       reportChanges();
     });
   }

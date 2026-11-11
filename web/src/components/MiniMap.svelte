@@ -43,11 +43,15 @@
     cy.nodes().forEach((x) => { const n = dd.nodes.find((m) => m.id === x.id()); x.toggleClass("infile", !!n && filesOfNode(n).includes(path)); });
   });
   $effect(() => { void C.items; void C.files; void C.touched; if (cy && d) restyle(cy, d); });
-  // Boxes whose code is on screen.
+  // Boxes whose code is on screen. Only boxes whose state changes are touched: any class change
+  // redraws the diagram, and this runs on every scroll and edit.
   $effect(() => {
     const [lo, hi] = view;
     if (!cy || !d) return;
-    for (const n of d.nodes) cy.getElementById(n.id).toggleClass("inview", lo <= hi && ranges(n).some(([a, b]) => a <= hi && b >= lo));
+    for (const n of d.nodes) {
+      const x = cy.getElementById(n.id), on = lo <= hi && ranges(n).some(([a, b]) => a <= hi && b >= lo);
+      if (x.hasClass("inview") !== on) x.toggleClass("inview", on);
+    }
   });
 
   // The box holding the line you're on: the tightest one, when boxes nest (a fn inside its type).
@@ -69,11 +73,15 @@
   };
   const here_ = $derived(hereIn(d, cursor));
   let hovering = false;
+  // Only when the box changes (each cursor move gets here; a class change redraws the diagram).
   $effect(() => {
     const h = here_;
     if (!cy || !d) return;
-    cy.nodes().removeClass("here");
-    if (h) cy.getElementById(h.id).addClass("here");
+    const was = cy.nodes(".here");
+    if (!(h && was.length === 1 && was[0].id() === h.id)) {
+      was.removeClass("here");
+      if (h) cy.getElementById(h.id).addClass("here");
+    }
     if (!hovering) foot = h ? `line ${cursor} · ${h.label}: ${tldr(h, h.explain)}` : "hover a box to see its lines";
   });
   // Other diagrams with a box at this line get a dot on their tab.
