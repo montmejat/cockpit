@@ -8,7 +8,7 @@
   import { C, filesOfNode, nameOf, openFile, S, store, tldr, where } from "../lib/state.svelte";
   import type { Diagram, DiagramNode } from "../lib/types";
 
-  let { path, view, onlines, onjump }: { path: string; view: [number, number]; onlines: (l: [number, number][]) => void; onjump: (line: number) => void } = $props();
+  let { path, view, cursor = 0, onlines, onjump }: { path: string; view: [number, number]; cursor?: number; onlines: (l: [number, number][]) => void; onjump: (line: number) => void } = $props();
 
   let el: HTMLElement, mcy: HTMLElement;
   let cy: Core | null = null;
@@ -50,10 +50,39 @@
     for (const n of d.nodes) cy.getElementById(n.id).toggleClass("inview", lo <= hi && ranges(n).some(([a, b]) => a <= hi && b >= lo));
   });
 
+  // The box holding the line you're on: the tightest one, when boxes nest (a fn inside its type).
+  // A box that links the whole file holds every line of it, so it's the fallback.
+  const span = (n: DiagramNode, line: number) => {
+    let best = Infinity;
+    for (const w of (n.anchors ?? []).map(where)) {
+      if (!w || w.file !== path) continue;
+      if (!w.line) best = Math.min(best, 1e9);
+      else if (w.line <= line && line <= (w.end ?? w.line)) best = Math.min(best, (w.end ?? w.line) - w.line);
+    }
+    return best;
+  };
+  const hereIn = (dd: Diagram | null, line: number): DiagramNode | null => {
+    if (!dd || !line) return null;
+    let best: DiagramNode | null = null, bs = Infinity;
+    for (const n of dd.nodes) { const s = span(n, line); if (s < bs) { best = n; bs = s; } }
+    return best;
+  };
+  const here_ = $derived(hereIn(d, cursor));
+  let hovering = false;
+  $effect(() => {
+    const h = here_;
+    if (!cy || !d) return;
+    cy.nodes().removeClass("here");
+    if (h) cy.getElementById(h.id).addClass("here");
+    if (!hovering) foot = h ? `line ${cursor} · ${h.label}: ${tldr(h, h.explain)}` : "hover a box to see its lines";
+  });
+  // Other diagrams with a box at this line get a dot on their tab.
+  const elsewhere = $derived(new Set(ds.filter((x) => x.id !== d?.id && hereIn(x, cursor)).map((x) => x.id)));
+
   function wire(cy: Core) {
     const node = (id: string) => d?.nodes.find((m) => m.id === id);
-    cy.on("mouseover", "node", (e) => { const n = node(e.target.id()); if (!n) return; foot = n.label + ": " + tldr(n, n.explain); onlines(ranges(n)); });
-    cy.on("mouseout", "node", () => { foot = "hover a box to see its lines"; onlines([]); });
+    cy.on("mouseover", "node", (e) => { const n = node(e.target.id()); if (!n) return; hovering = true; foot = n.label + ": " + tldr(n, n.explain); onlines(ranges(n)); });
+    cy.on("mouseout", "node", () => { hovering = false; const h = here_; foot = h ? `line ${cursor} · ${h.label}: ${tldr(h, h.explain)}` : "hover a box to see its lines"; onlines([]); });
     cy.on("tap", "node", (e) => {
       const n = node(e.target.id());
       if (!n) return;
@@ -80,7 +109,7 @@
 <div id="mini" bind:this={el} class:collapsed={folded} hidden={!d}>
   <div class="mhead" onpointerdown={drag} role="presentation">
     <span class="mtitle" title={d?.question}>{nameOf(d)}</span>
-    {#if ds.length > 1}<span class="mtabs">{#each ds as x (x.id)}<button class:on={x.id === d?.id} title={x.question} onclick={() => (chosen[path] = x.id)}>{nameOf(x)}</button>{/each}</span>{/if}
+    {#if ds.length > 1}<span class="mtabs">{#each ds as x (x.id)}<button class:on={x.id === d?.id} class:has={elsewhere.has(x.id)} title={x.question + (elsewhere.has(x.id) ? " (has a box at this line)" : "")} onclick={() => (chosen[path] = x.id)}>{nameOf(x)}</button>{/each}</span>{/if}
     <button class="mclose" title="Fold or unfold" onclick={() => (folded = !folded)}>{folded ? "+" : "–"}</button>
   </div>
   <div class="mcy" bind:this={mcy}></div>

@@ -223,6 +223,7 @@ a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-col
 .mhead{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line);cursor:move;user-select:none;background:var(--bg);border-radius:8px 8px 0 0}
 .mtitle{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .mtabs{display:flex;gap:3px}.mtabs button{font-size:10.5px;padding:0 6px;color:var(--muted)}.mtabs button.on{color:var(--fg);border-color:var(--accent)}
+.mtabs button.has::after{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);margin-left:4px;vertical-align:middle}
 .mclose{padding:0 7px}
 .mcy{flex:1;min-height:0}
 .mfoot{font-size:11px;color:var(--muted);padding:3px 8px 5px;min-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -231,6 +232,7 @@ a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-col
 p.q{color:var(--muted);font-size:12px;margin:0 0 6px}
 @media (max-width:900px){#mini{display:none}}
 table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color-mix(in oklab,var(--accent) 9%,transparent)}
+table.code tr.cur td.ln{color:var(--fg);font-weight:700}table.code tr.cur td.c{background:color-mix(in oklab,var(--fg) 6%,transparent)}
 
 
 /* semantic zoom */

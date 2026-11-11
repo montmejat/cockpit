@@ -124,6 +124,12 @@
     cancelAnimationFrame(tick); tick = requestAnimationFrame(visible);
   }
   const inBox = (n?: number) => !!n && boxLines.some(([a, b]) => n >= a && n <= b);
+  // Where you are in the code: the line under the mouse, else the line you last clicked. The
+  // floating diagram lights up the box that holds it.
+  let hoverLine = $state(0), clickLine = $state(0);
+  const cursor = $derived(hoverLine || clickLine);
+  $effect(() => { void path; hoverLine = 0; clickLine = 0; });
+  const lineOf = (e: Event) => Number((e.target as HTMLElement).closest?.("tr[data-n]")?.getAttribute("data-n")) || 0;
   const files_ = $derived(commit ? parsePatch(commit.patch) : []);
 </script>
 
@@ -139,7 +145,9 @@
         <label class="muted toggle"><input type="checkbox" bind:checked={showAll} onchange={() => store.set("cockpit-show-removed", showAll ? "1" : "0")}> show removed</label>
       {/if}
     </div>
-    <div class="dbody" bind:this={body} onscroll={scrolled}>
+    <div class="dbody" bind:this={body} onscroll={scrolled} role="presentation"
+      onmousemove={(e) => { const n = lineOf(e); if (n && n !== hoverLine) hoverLine = n; }} onmouseleave={() => (hoverLine = 0)}
+      onclick={(e) => { const n = lineOf(e); if (n) clickLine = n; }}>
       {#if !file}<p class="dnote">loading…</p>
       {:else if file.error || file.text == null}<p class="dnote">{file.error ?? file.note}</p>
       {:else}
@@ -149,7 +157,7 @@
               <tr class="del"><td class="ln"></td><td class="gut"><span class="g del"></span></td><td class="c">{@html r.html}</td></tr>
             {:else}
               {@const h = r.hunk}
-              <tr data-n={r.n} class:hl={r.n! >= want.a && r.n! <= want.b} class:chg={!!r.mark} class:boxhl={inBox(r.n)} class:first={firstOfHunk(r)}>
+              <tr data-n={r.n} class:hl={r.n! >= want.a && r.n! <= want.b} class:chg={!!r.mark} class:boxhl={inBox(r.n)} class:first={firstOfHunk(r)} class:cur={r.n === clickLine}>
                 <td class="ln">{r.n}</td>
                 <td class="gut">
                   {#if r.mark || r.delBefore}
@@ -166,7 +174,7 @@
         </tbody></table>
       {/if}
     </div>
-    <MiniMap {path} {view} onlines={(ls) => (boxLines = ls)} onjump={(n) => body?.querySelector(`[data-n="${n}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
+    <MiniMap {path} {view} {cursor} onlines={(ls) => (boxLines = ls)} onjump={(n) => body?.querySelector(`[data-n="${n}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
   {:else if sha}
     <div class="dhead"><span class="path">commit {sha}</span></div>
     <div class="dbody">

@@ -76,6 +76,8 @@ export function style(): any[] {
     { selector: "node.picked", style: { "border-color": data, "border-width": 3 } },
     { selector: "node.infile", style: { "border-color": data, "border-width": 2, "background-color": data, "background-opacity": 0.07 } },
     { selector: "node.inview", style: { "border-color": data, "border-width": 3.5, "background-opacity": 0.18, "underlay-color": data, "underlay-opacity": 0.22, "underlay-padding": 8 } },
+    // The box holding the line you're on in the code.
+    { selector: "node.here", style: { "border-color": data, "border-width": 5, "background-color": data, "background-opacity": 0.35, "underlay-color": data, "underlay-opacity": 0.45, "underlay-padding": 12 } },
     { selector: "edge", style: { width: 1.4, "line-color": soft, "target-arrow-color": soft, "target-arrow-shape": "triangle", "arrow-scale": 0.9,
       "curve-style": "bezier", label: "data(label)", "font-family": font, "font-size": 11.5, color: data,
       "text-background-color": panel, "text-background-opacity": 1, "text-background-padding": 2, "text-wrap": "wrap", "text-max-width": 130 } },
@@ -199,7 +201,7 @@ export function syncCy(cy: Core, d: Diagram, positions?: Record<string, { x: num
         if (x.data("label") !== el.data.label) x.data("label", el.data.label);
         if (el.data.c !== undefined && x.data("c") !== el.data.c) x.data("c", el.data.c);
         // Classes the page adds on top (picked, in this file, on screen) stay.
-        const keep = ["picked", "infile", "inview"].filter((c) => x.hasClass(c)).map((c) => " " + c).join("");
+        const keep = ["picked", "infile", "inview", "here"].filter((c) => x.hasClass(c)).map((c) => " " + c).join("");
         const cls = (el.classes ?? "") + keep;
         if ((x.classes() as unknown as string[]).join(" ") !== cls.trim()) x.classes(cls);
       }
