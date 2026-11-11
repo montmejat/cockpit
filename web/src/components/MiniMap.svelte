@@ -95,13 +95,17 @@
 
   function drag(e: PointerEvent) {
     if ((e.target as HTMLElement).closest("button")) return;
+    // No text selection while dragging: the pointer crosses the code underneath.
+    e.preventDefault();
+    document.body.style.userSelect = "none";
+    getSelection()?.removeAllRanges();
     const r = el.getBoundingClientRect(), p = (el.offsetParent as HTMLElement).getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
     const move = (ev: PointerEvent) => {
       el.style.left = Math.max(0, Math.min(p.width - 80, ev.clientX - p.left - dx)) + "px";
       el.style.top = Math.max(0, Math.min(p.height - 30, ev.clientY - p.top - dy)) + "px";
       el.style.right = "auto"; el.style.bottom = "auto";
     };
-    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); keep(); cy?.resize(); };
+    const up = () => { removeEventListener("pointermove", move); removeEventListener("pointerup", up); document.body.style.userSelect = ""; keep(); cy?.resize(); };
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   }
 </script>

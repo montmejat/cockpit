@@ -216,7 +216,7 @@ a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-col
 
 /* the floating diagram over the code, in file tabs */
 #codeview{position:relative}
-#mini{position:absolute;right:22px;bottom:22px;width:400px;height:480px;min-width:220px;min-height:140px;z-index:20;resize:both;overflow:hidden;
+#mini{position:absolute;user-select:none;right:22px;bottom:22px;width:400px;height:480px;min-width:220px;min-height:140px;z-index:20;resize:both;overflow:hidden;
   display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 36px rgba(0,0,0,.22)}
 #mini[hidden]{display:none}
 #mini.collapsed{height:auto!important;min-height:0;resize:none}#mini.collapsed .mcy,#mini.collapsed .mfoot{display:none}
