@@ -1,17 +1,20 @@
 /* cockpit, one view: sidebar (files, git) | center tabs (map, files, commits) over the terminal drawer | right panel (chat, details). */
 :root{--bg:#f4f5f7;--fg:#1f2329;--muted:#6e7781;--line:#e1e4e8;--card:#ffffff;--accent:#2f6fde;
 --ok:#1f9e7a;--warn:#c98a0b;--bad:#d1453b;--hot:#ef6a2d;--add-bg:#e6f6ec;--del-bg:#fdecea;--add:#1a7f45;--del:#b8332a;
---k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#e7eefc}
+--k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#e7eefc;--edge:#cdd2d8;--rev:#8250df}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111317;--fg:#dde1e7;--muted:#7d8590;--line:#262a31;--card:#181b20;--accent:#6ea8ff;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
---k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;color-scheme:dark}}
+--k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#454b54;--rev:#b392f0;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#111317;--fg:#dde1e7;--muted:#7d8590;--line:#262a31;--card:#181b20;--accent:#6ea8ff;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
---k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;color-scheme:dark}
+--k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#454b54;--rev:#b392f0;color-scheme:dark}
 *{box-sizing:border-box}
 html,body,#app{margin:0;height:100%}
 #app{display:flex;flex-direction:column}
 body{background:var(--bg);color:var(--fg);font:12.5px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+/* A hairline around the whole page (browser tab or desktop window), so it doesn't melt into
+   white windows next to it. Drawn over everything and never in the way of the mouse. */
+body::after{content:"";position:fixed;inset:0;border:1px solid var(--edge);pointer-events:none;z-index:2147483647}
 .hide{display:none!important}
 [hidden]{display:none!important}
 /* buttons that read as links or rows */
@@ -25,6 +28,10 @@ h4{margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.0
 
 header{display:flex;align-items:center;gap:14px;padding:7px 14px;border-bottom:1px solid var(--line);background:var(--card);flex-wrap:wrap}
 header h1{font-size:13px;margin:0;font-weight:700}
+header{position:relative}header button.wsbtn{background:none;border:0;padding:0;font-size:13px;color:var(--muted);font-weight:500}header button.wsbtn:hover,header button.wsbtn.on{color:var(--accent)}header .wssep{margin:0 -10px}
+.wsmenu{position:absolute;top:calc(100% + 4px);left:10px;z-index:40;width:min(440px,calc(100vw - 24px));background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgb(0 0 0 / .16);padding:6px 0;font-size:12px}
+.wsmenu .wshead,.wsmenu .wsfoot{padding:4px 12px;font-size:11px}.wsmenu .wsfoot{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
+.wsrow{padding:5px 12px}.wsrow.here{background:var(--sel)}.wsname{display:flex;align-items:center;gap:8px}.wsname button{margin-left:auto;font-size:11px;padding:0 8px}.wssum{font-size:11px;line-height:1.4;margin-top:2px}
 .pill{border:1px solid var(--line);border-radius:10px;padding:0 9px;color:var(--fg);font-size:11.5px;background:none}
 .pill:hover{border-color:var(--accent)}
 .pill .dirty{color:var(--warn)}.pill .ahead{color:var(--accent)}
@@ -42,7 +49,14 @@ header h1{font-size:13px;margin:0;font-weight:700}
 @keyframes breathe{50%{opacity:.55}}
 
 main{flex:1;min-height:0;display:flex;position:relative}
-#side{width:280px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--card)}
+#side{width:280px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--card);position:relative}
+/* the sidebar's resize handle: a few pixels over its right edge, lit while hovered or dragged */
+/* a panel's resize handle (Grip.svelte): a few pixels over its edge, lit while hovered or dragged */
+.sgrip{position:absolute;top:0;bottom:0;width:7px;z-index:8;cursor:col-resize}
+.sgrip.right{right:-4px}.sgrip.left{left:-4px}
+.sgrip::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:transparent;transition:background .15s}
+.sgrip:hover::after,.sgrip.dragging::after{background:var(--accent)}
+body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
 .tabs button{white-space:nowrap;flex:1;border:0;border-radius:0;background:none;padding:7px;color:var(--muted);border-bottom:2px solid transparent}
 .tabs button.on{color:var(--fg);border-bottom-color:var(--accent)}
@@ -89,21 +103,22 @@ main{flex:1;min-height:0;display:flex;position:relative}
 .pane{flex:1;min-width:0;position:relative;display:flex;flex-direction:column}
 .pane[hidden],#nodiagram[hidden]{display:none}
 #nodiagram{position:absolute;inset:0;display:grid;place-items:center;color:var(--muted);padding:20px;text-align:center}
-.ptitle{padding:8px 12px 0;font-weight:700;font-size:12.5px;display:flex;flex-direction:column;gap:1px;position:relative;padding-right:150px}
+.ptitle{padding:8px 12px 0;font-weight:700;font-size:12.5px;display:flex;flex-direction:column;gap:1px;position:relative;z-index:6;padding-right:150px}
 .ptitle .k{font-weight:400;font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
-.pbtns{position:absolute;right:10px;top:6px;display:flex;gap:6px}.pbtns button{padding:0 7px;font-weight:400;font-size:11px}
+.pbtns{position:absolute;right:10px;top:6px;display:flex;gap:6px;z-index:6}.pbtns button{padding:0 7px;font-weight:400;font-size:11px}
 .cyc{flex:1;min-height:0}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;padding:6px 12px 10px;font-size:11px;color:var(--muted)}
+.zhint{font-size:11px}
 .legend .sw{display:inline-block;width:14px;height:10px;margin-right:5px;vertical-align:-1px;border-radius:2px;border:1.5px solid var(--fg);background:var(--card)}
-.sw.terminal{border-radius:6px;background:var(--fg)}
 .sw.focus{border-color:var(--hot);background:color-mix(in oklab,var(--hot) 15%,var(--card))}
+.sw.zoomable{border-style:double;border-width:4px}
+.sw.terminal{border-radius:6px;background:var(--fg)}
 .sw.carries{border-style:dashed;border-color:var(--accent)}
 .sw.total{border-color:var(--accent);border-radius:5px;background:color-mix(in oklab,var(--accent) 15%,var(--card))}
-.sw.zoomable{border-style:double;border-width:4px}
 .sw.next{border:0;border-top:2px dashed var(--accent);border-radius:0;height:0;vertical-align:3px}
 .sw.live{border-color:var(--hot);box-shadow:0 0 6px var(--hot)}
 .sw.unc{border-style:dashed;border-color:var(--warn)}
-#tip{position:absolute;z-index:5;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;box-shadow:0 6px 24px rgba(0,0,0,.18);pointer-events:none}
+#tip{position:absolute;z-index:7;max-width:340px;background:var(--card);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;box-shadow:0 6px 24px rgba(0,0,0,.18);pointer-events:none}
 
 /* inspector */
 #inspector[hidden]{display:none}
@@ -118,8 +133,28 @@ a.code .chg{color:var(--warn)}
 .io{font-size:12px;padding:2px 0}.dv{color:var(--accent)}
 .agentbox{border-left:2px solid var(--hot);padding-left:8px;color:var(--hot)}
 .notebox{border-left:2px solid var(--warn);padding-left:8px;color:var(--muted)}
+/* review mode */
+.revbox{border-left:2px solid var(--rev);padding-left:8px;color:var(--muted)}.revbox.add{border-left-color:var(--add)}.revbox.del{border-left-color:var(--del)}
+.sw.rev{border-color:var(--rev);border-width:2px;background:color-mix(in oklab,var(--rev) 12%,var(--card))}
+.sw.added{border-color:var(--add);border-width:2px;background:color-mix(in oklab,var(--add) 12%,var(--card))}
+header .revpill{display:flex;align-items:center;gap:6px;border:1px solid color-mix(in oklab,var(--rev) 45%,var(--line));color:var(--rev);border-radius:12px;padding:1px 4px 1px 10px;font-size:11.5px;max-width:42ch}
+header .revpill > *{white-space:nowrap}
+header .revpill .rt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
+header .revpill button{border:0;background:none;color:var(--muted);padding:0 5px;font-size:11px}header .revpill button:hover{color:var(--fg)}
+.review .rhead{display:flex;align-items:baseline;gap:6px}.review .rhead b{color:var(--rev)}
+.review .rbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.review .err{color:var(--bad);white-space:pre-wrap}.review .note{color:var(--warn)}
+button.mrrow{display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:4px 12px;text-align:left;border:0;background:none;border-left:2px solid transparent;font:inherit;color:inherit;cursor:pointer}
+button.mrrow:hover{background:var(--sel);border-left-color:var(--rev)}
+button.mrrow .mt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+button.mrrow .mm{font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.mrrow .tag{font-size:10px;border:1px solid var(--line);border-radius:6px;padding:0 4px;margin-left:4px;color:var(--muted)}
+.review select{font:inherit;font-size:11.5px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1px 4px;width:100%;margin-top:3px}
+.mark.rev{color:var(--rev)}
+#dlist .rc{color:var(--rev);font-size:11px;margin-left:6px}#dlist .rn{color:var(--add);font-size:10px;margin-left:6px}
 .hint{color:var(--muted);font-size:11.5px}
 .back{font-size:11px}
+.updrow{display:flex;align-items:center;gap:8px;margin:4px 0 8px}.updrow .hint{margin:0}button:disabled{opacity:.6;cursor:default}
 
 /* center: tabs, then a diagram or code */
 #center{flex:1;min-width:0;display:flex;flex-direction:column}
@@ -157,9 +192,10 @@ tr.add td.sg{color:var(--add)}tr.del td.sg{color:var(--del)}
 
 @media (max-width:900px){
   main{flex-direction:column;overflow:auto}
-  #side{width:auto;max-height:30vh;border-right:0;border-bottom:1px solid var(--line)}
+  #side{width:auto !important;max-height:30vh;border-right:0;border-bottom:1px solid var(--line)}
+  .sgrip{display:none}
   #canvas{min-height:65vh}
-  #right{width:auto;border-left:0;border-top:1px solid var(--line);height:70vh}
+  #right{width:auto !important;border-left:0;border-top:1px solid var(--line);height:70vh}
 }
 @media (prefers-reduced-motion:reduce){.livepill{animation:none}}
 
@@ -202,7 +238,6 @@ table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color
 .pane{overflow:hidden}
 #crumbs{position:absolute;top:8px;left:12px;z-index:6;font-size:12.5px;background:color-mix(in oklab,var(--card) 85%,transparent);padding:3px 10px;border-radius:12px;border:1px solid var(--line)}
 #crumbs a{color:var(--muted)}#crumbs a:hover{color:var(--accent)}#crumbs b{font-weight:700}
-.zhint{font-size:11px}
 #pane-main .ptitle .pname{visibility:hidden}
 .zsnap{position:absolute;pointer-events:none;z-index:4;transform-origin:0 0}
 #zcode{position:absolute;z-index:5;display:flex;justify-content:center;padding:6px 24px 16px;background:var(--bg);transform-origin:0 0}
@@ -224,7 +259,7 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 #winctl button[data-w="close"]:hover{background:var(--bad);color:#fff;filter:none}
 #winctl svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
 /* right panel: chat and details */
-#right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);min-height:0}
+#right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);min-height:0;position:relative}
 .rtabs{display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
 .rtabs [data-r]{border:0;background:none;color:var(--muted);padding:3px 8px;position:relative}
 .rtabs [data-r].on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
@@ -232,12 +267,14 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 .rtabs select{font:inherit;font-size:11.5px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1px 4px}
 #chat{flex:1;min-height:0;display:flex;flex-direction:column}
 #chat[hidden]{display:none}
-#msgs{flex:1;min-height:0;overflow:auto;padding:12px 14px;font-size:12.5px;line-height:1.5}
+#msgs{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere;padding:12px 14px;font-size:12.5px;line-height:1.5}
 #msgs > div{margin:0 0 8px}
 .cuser{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-top:14px;white-space:normal}
 .ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:12.5px}
 .ctext code{background:var(--bg);border-radius:3px;padding:0 3px;font-size:11.5px}
 #msgs pre{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;overflow:auto;font-size:11px;max-height:260px;white-space:pre-wrap;word-break:break-word}
+#msgs pre.diff{padding:6px 0}#msgs pre.diff>span{display:block;padding:0 8px}#msgs pre.diff .da{background:var(--add-bg);color:var(--add)}#msgs pre.diff .dd{background:var(--del-bg);color:var(--del)}#msgs pre.diff .dh{color:var(--accent)}#msgs pre.diff .df{color:var(--muted);font-weight:700}
+#msgs .mdtable{overflow-x:auto;margin:6px 0}#msgs .mdtable table{border-collapse:collapse;font-size:11.5px}#msgs .mdtable th,#msgs .mdtable td{overflow-wrap:break-word;min-width:6ch;border:1px solid var(--line);padding:3px 7px;text-align:left;vertical-align:top}#msgs .mdtable th{background:var(--bg);font-weight:700}
 .ctool{display:flex;align-items:baseline;gap:6px;color:var(--muted);font-size:11.5px;margin-bottom:2px!important}
 .ctool.sub{padding-left:16px}
 .ctool details,.ctool > span:not(.spin):not(.ok):not(.bad){flex:1;min-width:0}
@@ -298,7 +335,9 @@ header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--a
 .sidetools .icon{padding:0 7px;font-size:11px;color:var(--muted)}.sidetools .icon:hover{color:var(--fg);border-color:var(--accent)}
 .tree button.folder{display:block;width:100%;padding:1px 10px;white-space:nowrap}
 .tree button.folder .chev{color:var(--muted);display:inline-block;width:1.4ch}
-.tree button.file{display:flex;gap:6px;width:100%;padding:1px 10px 1px 24px;white-space:nowrap}
+/* file names start where folder names do, after the chevron's column; the agent's dot sits in that column */
+.tree button.file{display:flex;gap:6px;width:100%;padding:1px 10px 1px calc(10px + 1.4ch);white-space:nowrap;position:relative}
+.tree button.file .agentdot{position:absolute;left:10px;width:1.4ch;font-size:10px;line-height:inherit}
 .tree button.file .fname{overflow:hidden;text-overflow:ellipsis}
 .tree button.file:hover,.tree button.folder:hover{background:var(--sel)}
 .tree button.file.sel{background:var(--sel)}
@@ -329,6 +368,7 @@ button.chip:hover{border-color:var(--accent);color:var(--accent)}
 
 /* chat */
 #chat.hide{display:none}
+#right.hide{display:none}
 .ctools{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line)}
 .ctools select{font:inherit;font-size:11.5px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1px 4px}
 button.ctitle{flex:1;min-width:0;display:flex;gap:4px;color:var(--fg);font-size:12px}
@@ -344,6 +384,7 @@ button.csess .muted{font-size:11px}
 .ctool .chip{flex:none}
 .meters{display:flex;flex-direction:column;gap:2px;margin-top:7px;font-size:10.5px;color:var(--muted)}
 .meter{display:flex;align-items:center;gap:7px;cursor:default}
+.crow .meter.ctx{flex:1;min-width:0;font-size:10.5px;color:var(--muted);margin-right:4px}
 .mlabel{width:9ch;flex:none}
 .meter .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .meter .bar i{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .4s}

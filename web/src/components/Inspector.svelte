@@ -1,7 +1,8 @@
 <script lang="ts">
   // The right panel's details: a short line first, more on click. It explains the box you picked
   // on the map, the diagram on screen, or the features, tests and problems from the header.
-  import { anchorChanged, byId, cur, mapTab, nameOf, nodeState, openDiagram, openFile, plural, S, tldr, ui, where } from "../lib/state.svelte";
+  import { api } from "../lib/code";
+  import { anchorChanged, byId, cur, mapTab, nameOf, nodeState, openDiagram, openFile, plural, S, showRight, tldr, ui, where } from "../lib/state.svelte";
 
   const ORDER = ["broken", "partial", "working", "planned"] as const;
   const fileOfModule = (id: string) => S.modules.find((m) => m.id === id)?.file;
@@ -16,6 +17,16 @@
   const t = $derived(S.tests);
   const unitN = $derived(t.unit.reduce((k, m) => k + m.tests.length, 0)), intN = $derived(t.integration.reduce((k, f) => k + f.tests.length, 0));
   const bare = $derived(S.features.filter((f) => f.status !== "planned" && !unitTestsIn(f.modules)));
+
+  // "Update": hand the list to the chat's agent, which fixes .cockpit/ (not the code).
+  let asked = $state("");
+  const problemsKey = $derived(S.problems.map((p) => p.problem + "@" + p.where).join("\n"));
+  function update() {
+    const list = S.problems.map((p) => `- ${p.problem} (${p.where})`).join("\n");
+    api.post("api/chat/send", { text: `The description in .cockpit/ no longer matches the code here:\n${list}\n\nUpdate .cockpit/ so it matches the code again: fix the anchors, features and diagrams these point to. Don't change the code.` });
+    asked = problemsKey;
+    showRight("chat");
+  }
 </script>
 
 {#snippet chip(a: string)}
@@ -51,7 +62,8 @@
   {:else if ui.insp === "problems"}
     <button class="back link" onclick={back}>← back</button>
     <h2>Out of date</h2><p class="lead">Where the agents’ description in .cockpit/ no longer matches the code.</p>
-    <details class="more"><summary>what happens next</summary><p class="hint">An agent finishing a turn gets this list and must fix it before stopping. You can also ask one to fix it.</p></details>
+    <p class="updrow"><button disabled={asked === problemsKey} onclick={update}>{asked === problemsKey ? "asked the agent ✓" : "Update"}</button> <span class="hint">the chat's agent fixes .cockpit/, not the code</span></p>
+    <details class="more"><summary>what happens next</summary><p class="hint">An agent finishing a turn gets this list and must fix it before stopping. "Update" asks the chat's agent to do it now.</p></details>
     {#each S.problems as p}<div class="trow"><span>{p.problem}</span></div><p class="hint" style="margin:0 0 6px">{p.where}</p>{/each}
   {:else if ui.insp === "tests"}
     <button class="back link" onclick={back}>← back</button>
@@ -88,13 +100,14 @@
   {:else}
     {#if parent}<button class="back link" onclick={() => openDiagram(parent.id)}>↑ {nameOf(parent)}</button>{/if}
     {#if n}
-      {@const ns = nodeState(n)}
+      {@const ns = nodeState(n, d.id)}
       {@const ins = d.edges.filter((e) => e.to === n.id)}
       {@const outs = d.edges.filter((e) => e.from === n.id)}
       <div class="kicker">{nameOf(d)}</div>
       <h2>{n.label}</h2>
       <p class="lead">{tldr(n, n.explain)}</p>
       {#if ns.live}<p class="agentbox">◉ the agent is changing it now</p>{:else if ns.unc}<p class="notebox">changed, not committed</p>{/if}
+      {#if ns.added}<p class="revbox add">new in this review</p>{:else if ns.rev}<p class="revbox">changed in this review</p>{/if}
       {#if (n.anchors ?? []).length}<div class="chips">{#each n.anchors ?? [] as a}{@render chip(a)}{/each}</div>{/if}
       <details class="more"><summary>more</summary>
         {#if n.tldr || tldr(n, n.explain) !== n.explain}<p>{n.explain}</p>{/if}
@@ -111,11 +124,19 @@
       <p class="q">{d.question}</p>
       <p class="lead">{tldr(d, d.answer)}</p>
       {#if busy.length}<p class="notebox">changed: {busy.map((x) => x.label).join(", ")}</p>{/if}
+      {#if S.review}
+        {@const rd = S.review.diagrams[d.id]}
+        {@const rv = d.nodes.filter((x) => { const s = nodeState(x, d.id); return s.rev && !s.added; })}
+        {#if rd?.isNew}<p class="revbox add">new diagram in this review</p>{/if}
+        {#if rv.length}<p class="revbox">changed in this review: {rv.map((x) => x.label).join(", ")}</p>{/if}
+        {#if rd && !rd.isNew && rd.added.length}<p class="revbox add">new boxes: {rd.added.map((id) => d.nodes.find((x) => x.id === id)?.label ?? id).join(", ")}</p>{/if}
+        {#if rd?.removed.length}<p class="revbox del">removed boxes: {rd.removed.map((x) => x.label).join(", ")}</p>{/if}
+      {/if}
       <details class="more"><summary>more</summary>
         {#if d.tldr || tldr(d, d.answer) !== d.answer}<p>{d.answer}</p>{/if}
         <p class="hint">Why a picture: {d.why}</p>
       </details>
-      <p class="hint">Hover a box · click for its details · double-click to go in</p>
+      {#if ui.help}<p class="hint">Hover a box · click for its details · double-click to go in</p>{/if}
     {/if}
   {/if}
 </aside>

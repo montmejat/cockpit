@@ -132,16 +132,16 @@
       onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
     <div class="crow">
       {#if busy}<span class="muted"><span class="spin"></span> working…</span>{/if}
-      <span class="grow"></span>
-      {#if busy}<button type="button" onclick={() => post("stop")}>stop</button>{/if}
-      <button type="submit">send</button>
-    </div>
-    <div class="meters">
-      <div class="meter" title={context ? `This conversation uses ${context.used.toLocaleString()} of ${context.max.toLocaleString()} tokens of context. Near the end, Claude Code compacts it.` : "Context size shows after the agent's next reply"}>
+      <!-- how full the context is, on the send button's line -->
+      <div class="meter ctx" title={context ? `This conversation uses ${context.used.toLocaleString()} of ${context.max.toLocaleString()} tokens of context. Near the end, Claude Code compacts it.` : "Context size shows after the agent's next reply"}>
         <span class="mlabel">context</span>
         <span class="bar"><i style="width:{context ? Math.min(100, (100 * context.used) / context.max) : 0}%" class={context ? level((100 * context.used) / context.max) : ""}></i></span>
         <span class="mval">{context ? k(context.used) + " / " + k(context.max) : "–"}</span>
       </div>
+      {#if busy}<button type="button" onclick={() => post("stop")}>stop</button>{/if}
+      <button type="submit">send</button>
+    </div>
+    {#if usage?.windows?.length}<div class="meters">
       {#each usage?.windows ?? [] as w (w.name)}
         <div class="meter" title="Your {usage?.plan ?? 'Claude'} plan: {w.pct}% of the {w.name} limit used, {resets(w.resets)}">
           <span class="mlabel">{w.name}</span>
@@ -149,6 +149,6 @@
           <span class="mval">{Math.round(w.pct)}%</span>
         </div>
       {/each}
-    </div>
+    </div>{/if}
   </form>
 </section>

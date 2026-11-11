@@ -11,7 +11,7 @@
 //   card, when auto mode wants the user) · done (one per turn) · note
 
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import {
   createSdkMcpServer, getSessionMessages, listSessions, query, tool,
   type Query, type SDKMessage, type SDKUserMessage,
@@ -22,6 +22,7 @@ import type { createIndex } from "./codeindex.ts";
 import { turnEnd, turnStart, turnTool, type HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
 import type { Terminals } from "./term.ts";
+import { workspaceBrief, workspaceOf } from "./workspace.ts";
 
 export type Item = { id: string; kind: string; at: string; [k: string]: unknown };
 type Context = { used: number; max: number } | null;
@@ -212,6 +213,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
   }
 
   function start() {
+    const ws = workspaceOf(root);
     box = inbox();
     abort = new AbortController();
     q = query({
@@ -224,7 +226,11 @@ export function createChat(root: string, project: string, terms: Terminals, inde
         abortController: abort,
         // Not "local": that is where cockpit's hooks for outside Claude Code sessions live.
         settingSources: ["user", "project"],
-        systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) },
+        // In a workspace (workspace.ts) the agent also reads the other projects, and keeps the
+        // workspace's SYSTEM.md; the brief says what each project is. Read when a conversation
+        // starts, so a change to the workspace shows from the next one.
+        ...(ws ? { additionalDirectories: [...ws.projects.filter((p) => !p.here).map((p) => p.path), ws.dir] } : {}),
+        systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) + (ws ? "\n\n" + workspaceBrief(ws, COCKPIT) : "") },
         disallowedTools: ["AskUserQuestion"], // the agent asks in the chat instead
         mcpServers: { cockpit: cockpitTools(terms) },
         allowedTools: ["mcp__cockpit__terminals"],
@@ -241,6 +247,17 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           return allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "The owner declined this in cockpit." };
         },
         hooks: {
+          // Edits in the workspace's other projects need the owner's yes (an Allow/Deny card),
+          // even in auto mode; the workspace's own notes (SYSTEM.md) don't.
+          PreToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
+            const f = i.tool_input?.file_path ?? i.tool_input?.notebook_path;
+            if (!ws || typeof f !== "string") return {};
+            const abs = isAbsolute(f) ? f : resolve(root, f);
+            const inside = (d: string) => abs === d || abs.startsWith(d + "/");
+            const other = ws.projects.find((p) => !p.here && inside(p.path));
+            if (!other || inside(root)) return {};
+            return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `edits ${other.name}, another project of the workspace` } };
+          }] }],
           UserPromptSubmit: [{ hooks: [async (i) => { checks = 0; try { turnStart(i as HookInput); } catch {} return {}; }] }],
           PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { try { turnTool(i as HookInput); } catch {} return {}; }] }],
           Stop: [{ hooks: [async (i) => {

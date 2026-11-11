@@ -33,6 +33,20 @@ export interface Live {
     integration: { file: string; tests: { name: string; line: number }[] }[];
   };
   summary: string;
+  review: Review | null;
+  workspace: Workspace | null;
+}
+// The workspace this project is in (src/workspace.ts): projects that work together.
+export interface Workspace { name: string; system: string | null; projects: { name: string; path: string; summary: string | null; here: boolean }[] }
+export interface MergeRequest { id: number; ref: string; title: string; source: string; target: string; author: string; url: string; draft: boolean; fork: boolean }
+// Review mode (src/review.ts): what the checked-out branch changes against its target.
+export interface Review {
+  mr: MergeRequest | null; branch: string; target: string; returnTo: string | null;
+  base: string | null; error: string | null; commits: number;
+  files: { path: string; st: string }[];
+  changedFiles: string[]; changedItems: string[];
+  diagrams: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }>;
+  removedDiagrams: { id: string; question: string }[];
 }
 export interface TermMeta { id: string; n: number; cwd: string; running: string | null; exited?: number | null; last: { cmd: string; exit?: number } | null }
 

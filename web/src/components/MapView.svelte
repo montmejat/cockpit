@@ -15,7 +15,7 @@
 
   let area: HTMLElement, box: HTMLElement;
   let cy: Core | null = null;
-  let legendItems = $state<{ cls: string; text: string }[]>([]);
+  let legendItems = $state<{ cls: string; text: string; help?: boolean }[]>([]);
   let tip = $state<{ html: string; x: number; y: number } | null>(null);
   let listOpen = $state(false); // the list of every diagram, over the top left of the map
 
@@ -31,9 +31,8 @@
   // ---- drawing -----------------------------------------------------------
 
   onMount(() => {
-    const ro = new ResizeObserver(() => { if (cy && !hidden) cy.resize(); });
-    ro.observe(area);
-    return () => { ro.disconnect(); cy?.destroy(); cy = null; };
+    // Size changes are handled where the diagram is built (buildCy), in the same frame.
+    return () => { cy?.destroy(); cy = null; };
   });
 
   // The diagram itself, or where its boxes were placed, changed: update in place.
@@ -49,7 +48,7 @@
   });
   // What's changing moved (uncommitted code, the agent's files): restyle only.
   $effect(() => {
-    void C.items; void C.files; void C.touched;
+    void C.items; void C.files; void C.touched; void C.rItems; void C.rFiles; void S.review?.diagrams;
     if (cy && d) { restyle(cy, d); legendItems = legend(cy); }
   });
   // The picked box is outlined.
@@ -92,10 +91,11 @@
       if (target.isNode()) {
         const n = dd.nodes.find((x) => x.id === target.id());
         if (!n) return;
-        const ns = nodeState(n), det = n.detail && byId(n.detail);
+        const ns = nodeState(n, dd.id), go = diveTarget(target), gn = go && dd.nodes.find((x) => x.id === go.id()), det = gn?.detail && byId(gn.detail);
         html = `<b>${escH(n.label)}</b><br>${escH(tldr(n, n.explain))}` +
           (ns.live ? "<br><span style='color:var(--hot)'>◉ the agent is changing it now</span>" : ns.unc ? "<br><span style='color:var(--warn)'>its code changed, not committed</span>" : "") +
-          (det ? `<br><span class=muted>⤢ double-click to open ${escH(nameOf(det))}</span>` : (n.anchors ?? []).length ? "<br><span class=muted>double-click for its code</span>" : "");
+          (ns.added ? "<br><span style='color:var(--add)'>new in this review</span>" : ns.rev ? "<br><span style='color:var(--rev)'>changed in this review</span>" : "") +
+          (det ? `<br><span class=muted>⤢ double-click to open ${escH(nameOf(det))}</span>` : go ? "<br><span class=muted>double-click for its code</span>" : "");
         cy.elements().not(target.closedNeighborhood()).not(target.ancestors()).not(target.descendants()).addClass("faded");
         target.connectedEdges().addClass("hl");
       } else {
@@ -123,7 +123,9 @@
       showRight("details");
     });
     cy.on("tap", (e) => { if (e.target === cy) ui.picked = null; });
-    cy.on("dbltap", "node", (e) => dive(e.target));
+    // Once per double-click (events also reach the zones around a box): go where that box leads.
+    // By position, so an arrow crossing a zone's empty space doesn't catch it.
+    cy.on("dbltap", (e) => { const n = nodeAt(e.renderedPosition.x, e.renderedPosition.y), x = n && diveTarget(n); if (x) dive(x); });
   }
   const escH = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
@@ -134,7 +136,7 @@
 
   // The rectangle of a box inside the diagram area, in pixels.
   function boxRect(n: NodeSingular) {
-    const b = n.renderedBoundingBox({ includeLabels: false }), W = area.clientWidth, H = area.clientHeight;
+    const b = n.renderedBoundingBox({}), W = area.clientWidth, H = area.clientHeight;
     return { x: b.x1, y: b.y1, w: Math.max(8, b.w), h: Math.max(8, b.h), W, H };
   }
   type R = ReturnType<typeof boxRect>;
@@ -157,12 +159,35 @@
   const settle = () => cy?.resize();
   const swap = (id: string) => { const nd = byId(id)!; t.id = id; t.code = null; if (cy) { cy.scratch("_hold", true); syncCy(cy, nd, S.layout?.[id]); cy.minZoom(Math.min(cy.zoom() * 0.85, 1)); cy.scratch("_hold", false); legendItems = legend(cy); } };
 
+  // Where going into a box leads: a diagram before code. The box's own detail diagram; else the
+  // detail diagram of a zone around it (a zone like "RT thread" stands for a whole diagram, its
+  // boxes for parts of it); else the box's code. Zones have no code view of their own.
+  // The innermost box at a point of the view (a zone's empty space counts as the zone).
+  function nodeAt(x: number, y: number): NodeSingular | null {
+    if (!cy) return null;
+    const under = cy.nodes().filter((n) => { const b = n.renderedBoundingBox({}); return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2; });
+    const leaf = under.filter((n) => !n.isParent());
+    const hit = leaf.nonempty() ? leaf.first() : under.sort((a, b) => b.ancestors().length - a.ancestors().length).first();
+    return hit.nonempty() ? (hit as NodeSingular) : null;
+  }
+
+  function diveTarget(node: NodeSingular): NodeSingular | null {
+    if (!d) return null;
+    const data = (x: NodeSingular) => d!.nodes.find((n) => n.id === x.id());
+    const has = (x: NodeSingular) => { const n = data(x); return !!(n?.detail && byId(n.detail)); };
+    if (has(node)) return node;
+    const zone = node.ancestors().filter((a) => has(a as NodeSingular)).first() as NodeSingular;
+    if (zone.nonempty()) return zone;
+    const n = data(node);
+    return n && !n.zone && (n.anchors ?? []).length ? node : null;
+  }
+
   async function dive(node: NodeSingular) {
     if (ui.zooming || !node || !d || !cy) return;
     const n = d.nodes.find((x) => x.id === node.id());
-    if (!n || n.zone) return;
+    if (!n) return;
     const target = n.detail && byId(n.detail) ? byId(n.detail)! : null;
-    if (!target && !(n.anchors ?? []).length) return;
+    if (!target && (n.zone || !(n.anchors ?? []).length)) return;
     ui.zooming = true; tip = null;
     const r = boxRect(node), img = still();
     ui.picked = null;
@@ -228,8 +253,8 @@
     const z = cy.zoom(), now = Date.now();
     if (ev.deltaY < 0 && z >= cy.maxZoom() * 0.97) {
       const rect = area.getBoundingClientRect(), x = ev.clientX - rect.left, y = ev.clientY - rect.top;
-      const hit = cy.nodes().filter((n) => { if (n.isParent()) return false; const b = n.renderedBoundingBox({}); return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2; });
-      if (hit.nonempty()) dive(hit[0] as NodeSingular);
+      const hit = nodeAt(x, y), go = hit && diveTarget(hit);
+      if (go) dive(go);
     } else if (ev.deltaY > 0 && z <= cy.minZoom() * 1.02) {
       if (now - armed < 600) { armed = 0; ascend(); } else armed = now;
     }
@@ -248,18 +273,18 @@
       {#if d && S.layout?.[d.id]}<span class="pbtns"><button title="Forget where you moved the boxes" onclick={resetLayout}>reset layout</button></span>{/if}
     </div>
     <div class="cyc" bind:this={area} onwheel={wheel}></div>
-    <div class="legend">{#each legendItems as l (l.cls)}<span><i class="sw {l.cls}"></i>{l.text}</span>{/each}</div>
+    <div class="legend">{#each legendItems.filter((l) => ui.help || !l.help) as l (l.cls)}<span><i class="sw {l.cls}"></i>{l.text}</span>{/each}</div>
   </div>
   {#if tip}<div id="tip" style="left:{tip.x}px;top:{tip.y}px">{@html tip.html}</div>{/if}
   {#if d}
     <div id="crumbs">
-      <button class="dtoggle" class:on={listOpen} title="All diagrams" aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰</button>
+      <button class="dtoggle" class:on={listOpen} title="All diagrams  (F1: hints)" aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰</button>
       {#each chain as x, i (x.id)}
         {#if i}<span class="muted"> › </span>{/if}
         {#if i === chain.length - 1 && !codeNode}<b>{nameOf(x)}</b>{:else}<button class="link" onclick={() => jumpTo(x.id)}>{nameOf(x)}</button>{/if}
       {/each}
       {#if codeNode}<span class="muted"> › </span><b>{codeNode.label}</b>{/if}
-      <span class="muted zhint"> · {chain.length > 1 || codeNode ? "Esc or scroll out to go up" : "double-click a box to go in"}</span>
+      {#if ui.help}<span class="muted zhint"> · {chain.length > 1 || codeNode ? "Esc or scroll out to go up" : "double-click a box to go in"} · F1 hides hints</span>{/if}
     </div>
   {/if}
   {#if listOpen && S.diagrams.length}

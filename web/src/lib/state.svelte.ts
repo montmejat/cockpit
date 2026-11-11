@@ -42,6 +42,9 @@ class Changes {
   files = $derived(new Set(S.changedFiles));
   touched = $derived(new Set(S.live?.touched ?? []));
   modules = $derived(new Map(S.modules.map((m) => [m.id, m])));
+  // Review mode: what the branch changes against its target, committed or not.
+  rItems = $derived(new Set(S.review?.changedItems ?? []));
+  rFiles = $derived(new Set(S.review?.changedFiles ?? []));
 }
 export const C = new Changes();
 
@@ -59,17 +62,29 @@ export function where(a: string) {
 }
 // A link changed if its own lines did: a whole module when the file changed, an item (or any
 // method of a type) when lines inside it changed.
-export function anchorChanged(a: string) {
+export function anchorChanged(a: string, files = C.files, items = C.items) {
   const w = where(a);
   if (!w) return false;
-  if (!a.includes("::")) return C.files.has(w.file);
-  if (C.items.has(a)) return true;
-  for (const k of C.items) if (k.startsWith(a + "::")) return true;
+  if (!a.includes("::")) return files.has(w.file);
+  if (items.has(a)) return true;
+  for (const k of items) if (k.startsWith(a + "::")) return true;
   return false;
 }
-export function nodeState(n: DiagramNode) {
-  const hit = (n.anchors ?? []).filter(anchorChanged);
-  return { unc: hit.length > 0, live: !!S.live && hit.some((a) => C.touched.has(where(a)?.file ?? "")) };
+// What's changing on a box: uncommitted (unc), being edited by the agent (live), and in review
+// mode changed by the branch (rev) or new in the branch's diagrams (added).
+export function nodeState(n: DiagramNode, diagram?: string) {
+  const hit = (n.anchors ?? []).filter((a) => anchorChanged(a));
+  const r = S.review, rd = r && diagram ? r.diagrams[diagram] : null;
+  return {
+    unc: hit.length > 0, live: !!S.live && hit.some((a) => C.touched.has(where(a)?.file ?? "")),
+    rev: !!r && (n.anchors ?? []).some((a) => anchorChanged(a, C.rFiles, C.rItems)),
+    added: !!rd && !rd.isNew && rd.added.includes(n.id),
+  };
+}
+// How many boxes of a diagram the review changes (for the diagram list).
+export function reviewCount(d: { id: string; nodes: DiagramNode[] }) {
+  if (!S.review) return 0;
+  return d.nodes.filter((n) => { const s = nodeState(n, d.id); return s.rev || s.added; }).length;
 }
 export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map(where).filter((w) => !!w).map((w) => w!.file))];
 
@@ -88,8 +103,11 @@ export const ui = $state({
   picked: null as string | null, // the box clicked on the map
   insp: null as Insp, // the right panel shows features, tests or problems instead
   rtab: (store.get("cockpit-right", "chat") === "details" ? "details" : "chat") as "chat" | "details",
+  right: store.get("cockpit-right-open", "1") === "1", // the right panel (chat, details) is shown: Ctrl+L
   zooming: false, // a zoom animation is running
+  help: store.get("cockpit-help", "0") === "1", // F1: show the how-to hints (legend, breadcrumb, details)
 });
+export function toggleHelp() { ui.help = !ui.help; store.set("cockpit-help", ui.help ? "1" : "0"); }
 ui.active = Math.min(ui.active, ui.tabs.length - 1);
 
 export const cur = () => ui.tabs[ui.active];
@@ -128,7 +146,18 @@ export function openDiagram(id: string, node?: string) {
   ui.picked = node ?? null;
   saveTabs();
 }
-export function showRight(which: "chat" | "details") { ui.rtab = which; store.set("cockpit-right", which); }
+export function showRight(which: "chat" | "details") { ui.rtab = which; store.set("cockpit-right", which); setRight(true); }
+export function setRight(open: boolean) { ui.right = open; store.set("cockpit-right-open", open ? "1" : "0"); }
+// Ctrl+L, like Cursor: open the chat with the cursor in the message box, or close the panel.
+export function toggleChat() {
+  if (ui.right && ui.rtab === "chat") {
+    if ((document.activeElement as HTMLElement | null)?.closest?.("#right")) (document.activeElement as HTMLElement).blur();
+    setRight(false);
+  } else {
+    showRight("chat");
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("#composer textarea")?.focus());
+  }
+}
 export function toggleInsp(which: Exclude<Insp, null>) { ui.insp = ui.insp === which ? null : which; if (ui.insp) showRight("details"); }
 
 // ---- the files tree: which folders are open -------------------------------------

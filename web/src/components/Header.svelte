@@ -1,7 +1,8 @@
 <script lang="ts">
   // The top bar: project, branch, size and health at a glance (each opens its explanation), the
-  // running agent, the terminal toggle. In the desktop app it is also the window's title bar.
-  import { S, plural, toggleInsp, ui } from "../lib/state.svelte";
+  // running agent, the terminal and chat toggles (with the hints on). In the desktop app it is also the window's title bar.
+  import { S, plural, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
+  import { api } from "../lib/code";
 
   let { ontoggleterm }: { ontoggleterm: () => void } = $props();
 
@@ -19,20 +20,53 @@
     addEventListener("resize", sync);
     sync();
   }
+  // The workspace (src/workspace.ts): the other projects, each opened in its own window.
+  let wsOpen = $state(false), wsNote = $state("");
+  async function openProject(path: string) {
+    wsNote = "";
+    const r = await api.post<{ error?: string }>("api/workspace/open", { path });
+    if (r.error) wsNote = r.error; else wsOpen = false;
+  }
+  function outside(e: MouseEvent) { if (wsOpen && !(e.target as HTMLElement).closest(".wsmenu,.wsbtn")) wsOpen = false; }
   function drag(e: MouseEvent) {
     if (!win || e.button !== 0 || (e.target as HTMLElement).closest("a,button,input,select,textarea")) return;
     if (e.detail === 2) win.toggleMaximize(); else win.startDragging();
   }
 </script>
 
+<svelte:window onmousedown={outside} onkeydown={(e) => e.key === "Escape" && (wsOpen = false)} />
 <header onmousedown={drag} role="presentation">
+  {#if S.workspace}
+    <button class="wsbtn" class:on={wsOpen} title="Workspace {S.workspace.name}: the projects that work with this one" aria-expanded={wsOpen} onclick={() => { wsOpen = !wsOpen; wsNote = ""; }}>{S.workspace.name} ▾</button><span class="muted wssep">/</span>
+  {/if}
   <h1>{S.project}</h1>
+  {#if wsOpen && S.workspace}
+    <div class="wsmenu">
+      <div class="muted wshead">workspace <b>{S.workspace.name}</b>: the agent reads these projects too</div>
+      {#each S.workspace.projects as p (p.path)}
+        <div class="wsrow" class:here={p.here}>
+          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · this window</span>{:else}<button onclick={() => openProject(p.path)}>open</button>{/if}</div>
+          {#if p.summary}<div class="muted wssum">{p.summary}</div>{/if}
+        </div>
+      {/each}
+      <div class="muted wsfoot" title={S.workspace.system ?? ""}>{S.workspace.system ? "how they fit together: SYSTEM.md, kept by the agents" : "no SYSTEM.md yet: the agent writes one when it first needs it"}</div>
+      {#if wsNote}<div class="bad wsfoot">{wsNote}</div>{/if}
+    </div>
+  {/if}
   <button class="pill" onclick={() => (ui.side = "git")} title="Git: branch, uncommitted files, history">
     ⎇ {S.git.branch ?? "detached " + S.git.head}
     {#if S.status.length}<span class="dirty"> · {S.status.length} changed</span>{/if}
     {#if S.git.ahead}<span class="ahead"> ↑{S.git.ahead}</span>{/if}
     {#if S.git.behind}<span class="ahead"> ↓{S.git.behind}</span>{/if}
   </button>
+  {#if S.review}
+    {@const r = S.review}
+    <span class="revpill" title={(r.mr ? r.mr.ref + " " + r.mr.title + "\n" : "") + r.branch + " → " + r.target + (r.base ? " (from " + r.base + ")" : "")}>
+      ◆ <button class="rt link" onclick={() => (ui.side = "git")}>{r.mr ? r.mr.ref + " " + r.mr.title : r.branch + " → " + r.target}</button>
+      <span class="muted">{r.files.length} files</span>
+      <button title="End the review" onclick={() => api.post("api/review/stop", { back: false })}>✕</button>
+    </span>
+  {/if}
   <span id="metrics" class="muted">
     <b>{(S.lines / 1000).toFixed(1)}k</b> lines ·
     <button class="mlink" class:on={ui.insp === "tests"} title="What is tested" onclick={() => toggleInsp("tests")}><b>{tests}</b> tests</button>
@@ -46,7 +80,9 @@
   {/if}
   <span class="grow"></span>
   {#if S.live}<span class="livepill" title={S.live.prompt}>◉ agent working · {plural(S.live.touched.length, "file")}</span>{/if}
-  <button onclick={ontoggleterm} title="Terminal  (Ctrl+`)">▭ terminal</button>
+  <!-- Ctrl+` opens the terminal; the button only shows with the hints on (F1) -->
+  {#if ui.help}<button onclick={ontoggleterm} title="Terminal  (Ctrl+`)">▭ terminal <span class="muted">Ctrl+`</span></button>
+    <button onclick={toggleChat} title="Chat  (Ctrl+L)">◧ chat <span class="muted">Ctrl+L</span></button>{/if}
   {#if win}
     <span id="winctl">
       <button title="minimize" onclick={() => win.minimize()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 8h8" /></svg></button>

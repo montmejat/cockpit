@@ -3,7 +3,7 @@
   // (the branch that reaches the main loop first), each followed by the diagrams its boxes zoom
   // into. Click one to go there; Esc, the ☰ button or a click elsewhere closes it.
   import type { Diagram } from "../lib/types";
-  import { byId, home, nameOf, S, tldr } from "../lib/state.svelte";
+  import { byId, home, nameOf, reviewCount, S, tldr } from "../lib/state.svelte";
 
   let { current, onpick, onclose }: { current: string | null; onpick: (id: string) => void; onclose: () => void } = $props();
 
@@ -35,6 +35,6 @@
 
 <div id="dlist" bind:this={el}>
   {#each rows as { d, depth } (d.id)}
-    <button class:on={d.id === current} style:padding-left="{10 + depth * 12}px" title={d.question + (tldr(d, d.answer) ? "\n" + tldr(d, d.answer) : "")} onclick={() => onpick(d.id)}>{nameOf(d)}</button>
+    <button class:on={d.id === current} style:padding-left="{10 + depth * 12}px" title={d.question + (tldr(d, d.answer) ? "\n" + tldr(d, d.answer) : "")} onclick={() => onpick(d.id)}>{nameOf(d)}{#if S.review?.diagrams[d.id]?.isNew}<span class="rn">new</span>{:else if reviewCount(d)}<span class="rc" title="boxes changed in this review">◆ {reviewCount(d)}</span>{/if}</button>
   {/each}
 </div>

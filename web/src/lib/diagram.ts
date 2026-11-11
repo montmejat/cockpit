@@ -16,16 +16,16 @@ const PAL = ["#2b7bd6", "#d9622b", "#2a9d6f", "#a35bd1", "#c79a1c", "#d1477a", "
 // agent edits it.
 const stateClasses = (d: Diagram, id: string) => {
   const n = d.nodes.find((x) => x.id === id);
-  if (!n) return { unc: false, live: false };
-  return nodeState(n);
+  if (!n) return { unc: false, live: false, rev: false, added: false };
+  return nodeState(n, d.id);
 };
 
 export function elements(d: Diagram): ElementDefinition[] {
   const els: ElementDefinition[] = [];
   for (const n of d.nodes) {
-    const ns = nodeState(n);
+    const ns = nodeState(n, d.id);
     const cls = [n.zone ? "zone" : n.outside ? "outside" : "part", n.focus && "focus", n.total && "total", n.carries && "carries",
-      (n.start || n.end) && "terminal", n.detail && byId(n.detail) && "zoomable", ns.live && "live", ns.unc && "unc"].filter(Boolean).join(" ");
+      (n.start || n.end) && "terminal", n.detail && byId(n.detail) && "zoomable", ns.rev && "rev", ns.added && "added", ns.live && "live", ns.unc && "unc"].filter(Boolean).join(" ");
     els.push({ data: { id: n.id, label: n.label + (n.detail && byId(n.detail) ? "  ⤢" : ""), parent: n.in }, classes: cls });
   }
   // Labels where they can't collide: by the source if it's the only edge leaving it, else by
@@ -56,7 +56,7 @@ export function elements(d: Diagram): ElementDefinition[] {
 }
 
 export function style(): any[] {
-  const ink = css("--fg"), soft = css("--muted"), panel = css("--card"), line = css("--line"), sig = css("--hot"), data = css("--accent"), warn = css("--warn");
+  const ink = css("--fg"), soft = css("--muted"), panel = css("--card"), line = css("--line"), sig = css("--hot"), data = css("--accent"), warn = css("--warn"), rev = css("--rev"), add = css("--add");
   const font = "JetBrains Mono, monospace";
   return [
     { selector: "node", style: { shape: "round-rectangle", label: "data(label)", "font-family": font, "font-size": 13, color: ink,
@@ -69,6 +69,8 @@ export function style(): any[] {
     { selector: "node.total", style: { shape: "barrel", "background-color": data, "background-opacity": 0.12, "border-color": data, "border-width": 2, "font-weight": 700 } },
     { selector: "node.zoomable", style: { "border-style": "double", "border-width": 5 } },
     { selector: "node.focus", style: { "border-color": sig, "border-width": 2.4, "background-color": sig, "background-opacity": 0.12, "font-weight": 700 } },
+    { selector: "node.rev", style: { "border-color": rev, "border-width": 2.6, "background-color": rev, "background-opacity": 0.12 } },
+    { selector: "node.added", style: { "border-color": add, "border-width": 2.6, "background-color": add, "background-opacity": 0.12 } },
     { selector: "node.unc", style: { "border-style": "dashed", "border-color": warn, "border-width": 2.4 } },
     { selector: "node.live", style: { "border-color": sig, "border-width": 3, "underlay-color": sig, "underlay-opacity": 0.3, "underlay-padding": 9 } },
     { selector: "node.picked", style: { "border-color": data, "border-width": 3 } },
@@ -92,14 +94,17 @@ export function style(): any[] {
 }
 
 export function legend(cy: Core) {
-  const has = (sel: string) => cy.$(sel).nonempty(), items: { cls: string; text: string }[] = [];
-  const sw = (cls: string, text: string) => items.push({ cls, text });
+  // Items marked help explain how to use the map, and show only with the hints on (F1).
+  const has = (sel: string) => cy.$(sel).nonempty(), items: { cls: string; text: string; help?: boolean }[] = [];
+  const sw = (cls: string, text: string, help = false) => items.push({ cls, text, help });
   if (has("node.terminal")) sw("terminal", "start / end");
-  if (has("node.focus")) sw("focus", "what this diagram is about");
+  if (has("node.focus")) sw("focus", "what this diagram is about", true);
   if (has("node.carries")) sw("carries", "kept for the next round");
   if (has("node.total")) sw("total", "shared total, many parts add in");
-  if (has("node.zoomable")) sw("zoomable", "⤢ double-click to go in");
+  if (has("node.zoomable")) sw("zoomable", "⤢ double-click to go in", true);
   if (has("edge.next")) sw("next", "↻ used in the next round");
+  if (has("node.rev")) sw("rev", "changed in this review");
+  if (has("node.added")) sw("added", "new in this review");
   if (has("node.unc")) sw("unc", "its code changed, not committed");
   if (has("node.live")) sw("live", "the agent is changing it now");
   return items;
@@ -122,13 +127,41 @@ function layout(cy: Core, d: Diagram, positions?: Record<string, { x: number; y:
   if (positions) cy.nodes().forEach((n) => { if (positions[n.id()] && !n.isParent()) n.position(positions[n.id()]); });
 }
 
+// The library draws each box and label once into a bitmap at a few zoom steps (powers of two) and
+// stretches the nearest one in between, refining it over the next frames: blurry at some zoom
+// levels, and slow, since every zoom starts that work again. Our diagrams are a few dozen boxes,
+// so draw everything directly, at the screen's own resolution, every frame: always sharp.
+function drawDirect(cy: Core) {
+  const r = (cy as any).renderer?.();
+  if (!r?.data) return;
+  for (const c of [r.data.eleTxrCache, r.data.lblTxrCache, r.data.slbTxrCache, r.data.tlbTxrCache]) if (c) c.getElement = () => null;
+  if (r.data.lyrTxrCache) r.data.lyrTxrCache.getLayers = () => null;
+}
+
+// Fit the canvas to its container and draw it right away, before the browser paints: resizing a
+// canvas clears it, and waiting for the library's next frame shows that blank (the flicker while
+// a panel is dragged wider or narrower).
+export function resizeNow(cy: Core, then?: () => void) {
+  if (cy.destroyed()) return;
+  cy.resize();
+  then?.();
+  const r = (cy as any).renderer?.();
+  if (r?.render) { r.requestedFrame = false; r.render(r.renderOptions ?? {}); }
+}
+
 // A diagram in a container. Refits when the container changes size, until you zoom or pan it.
 export function buildCy(container: HTMLElement, d: Diagram, positions?: Record<string, { x: number; y: number }>) {
-  // Draw at 2x or more: the library caches boxes and labels as bitmaps at a few zoom levels and
-  // scales them in between, which looks blurry at 1x (and on fractional desktop scaling, where
-  // the reported ratio is often rounded down). Diagrams are small, so the extra pixels are cheap.
-  const cy = cytoscape({ container, elements: elements(d), wheelSensitivity: 0.2, minZoom: 0.2, maxZoom: 2.5, style: style(),
-    pixelRatio: Math.max(2, window.devicePixelRatio || 1) });
+  const cy = cytoscape({ container, elements: elements(d), minZoom: 0.2, maxZoom: 2.5, style: style(), userZoomingEnabled: false });
+  drawDirect(cy);
+  // Scroll to zoom, at a steady rate: about 20% per mouse-wheel notch, smooth on a trackpad. The
+  // library's own wheel zoom guesses the device and gives a mouse wheel ~1.4% per notch.
+  container.addEventListener("wheel", (e) => {
+    if (cy.destroyed()) return;
+    e.preventDefault();
+    const px = Math.max(-300, Math.min(300, e.deltaMode === 1 ? e.deltaY * 33 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY));
+    const r = container.getBoundingClientRect();
+    cy.zoom({ level: cy.zoom() * Math.exp(-px * (e.ctrlKey ? 0.01 : 0.002)), renderedPosition: { x: e.clientX - r.left, y: e.clientY - r.top } });
+  }, { passive: false });
   cy.scratch("_shape", shapeKey(d)); cy.scratch("_id", d.id);
   layout(cy, d, positions);
   fitCapped(cy);
@@ -136,10 +169,11 @@ export function buildCy(container: HTMLElement, d: Diagram, positions?: Record<s
   const mark = () => cy.scratch("_manual", true);
   container.addEventListener("wheel", mark, { passive: true });
   cy.on("dragpan pinchzoom", mark);
-  let t: ReturnType<typeof setTimeout>;
+  // Every size change, in the same frame (a hidden container, 0 wide, is left alone).
   const ro = new ResizeObserver(() => {
-    clearTimeout(t);
-    t = setTimeout(() => { if (cy.destroyed()) return ro.disconnect(); cy.resize(); if (!cy.scratch("_manual") && !cy.scratch("_hold")) fitCapped(cy); }, 80);
+    if (cy.destroyed()) return ro.disconnect();
+    if (!container.clientWidth || !container.clientHeight) return;
+    resizeNow(cy, () => { if (!cy.scratch("_manual") && !cy.scratch("_hold")) fitCapped(cy); });
   });
   ro.observe(container);
   // The library remembers where its box is on screen: measure again whenever the mouse comes in.
@@ -187,7 +221,7 @@ export function restyle(cy: Core, d: Diagram) {
     for (const n of d.nodes) {
       const ns = stateClasses(d, n.id), x = cy.getElementById(n.id);
       if (x.empty()) continue;
-      x.toggleClass("live", ns.live).toggleClass("unc", ns.unc);
+      x.toggleClass("live", ns.live).toggleClass("unc", ns.unc).toggleClass("rev", ns.rev).toggleClass("added", ns.added);
     }
   });
 }

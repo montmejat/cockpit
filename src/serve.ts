@@ -4,7 +4,7 @@
 // --host 0.0.0.0 makes it reachable from other machines on the network (no login).
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
@@ -15,6 +15,8 @@ import { itemKey, type Skeleton } from "./skeleton.ts";
 import { COCKPIT, turnsDir, type Turn } from "./turns.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
+import { createReview } from "./review.ts";
+import { workspaceOf } from "./workspace.ts";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : undefined);
@@ -30,6 +32,7 @@ const index = createIndex(root, name); // the code index (rust-analyzer or scip-
 const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
 const ask = createAsk(root); // the terminal's ask line: words → a command
 const chat = createChat(root, name, terms, index); // the agent, run by cockpit itself
+const review = createReview(root, name); // reviewing a merge request against its target
 
 // No optional locks: `git status` must not rewrite .git/index, which the watcher below follows.
 const tryGit = (...a: string[]) => {
@@ -46,26 +49,31 @@ const isProjectFile = (path: string) => {
   return full.startsWith(root + sep) && listFiles().includes(path);
 };
 
-// What changed in a file since the last commit, as hunks over the current text: lines added or
-// changed, and the old lines removed at each place. The page draws them in the file itself.
+// What changed in a file since the last commit (or since `against`, in review mode), as hunks over
+// the current text: lines added or changed, and the old lines removed at each place. The page
+// draws them in the file itself.
 type Hunk = { at: number; added: number; removed: string[] };
-function hunksOf(path: string, untracked: boolean): Hunk[] {
+function hunksOf(path: string, untracked: boolean, against = "HEAD"): Hunk[] {
   if (untracked) return [{ at: 1, added: 1e9, removed: [] }]; // all new
   const out: Hunk[] = [];
-  for (const l of tryGit("diff", "HEAD", "-U0", "--no-color", "--no-ext-diff", "--", path).split("\n")) {
+  for (const l of tryGit("diff", against, "-U0", "--no-color", "--no-ext-diff", "--", path).split("\n")) {
     const m = l.match(/^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
     if (m) out.push({ at: +m[2] + (m[3] === "0" ? 1 : 0), added: m[3] === undefined ? 1 : +m[3], removed: [] });
     else if (out.length && l.startsWith("-") && !l.startsWith("---")) out.at(-1)!.removed.push(l.slice(1));
   }
   return out;
 }
-function readSource(path: string) {
+function readSource(path: string, inReview = false) {
+  const base = inReview ? reviewBase() : null;
+  if (base && !isProjectFile(path) && tryGit("cat-file", "-t", `${base}:${path}`) === "blob")
+    return { path, text: null, note: "deleted in this review", hunks: [] };
   if (!isProjectFile(path)) throw new Error("not a project file");
   const full = resolve(root, path);
   if (statSync(full).size > 1 << 20) return { path, text: null, note: "file larger than 1 MB", hunks: [] };
   const text = readFileSync(full, "utf8");
   if (text.includes("\u0000")) return { path, text: null, note: "binary file", hunks: [] };
   const st = gitStatus().find((s) => s.path === path);
+  if (base) return { path, text, hunks: hunksOf(path, st?.x === "?", base) };
   return { path, text, hunks: st ? hunksOf(path, st.x === "?") : [] };
 }
 
@@ -100,11 +108,12 @@ function commitPatch(sha: string) {
 
 // ---- what is changing ----------------------------------------------------
 
-// Lines changed but not committed, per file (new-file line numbers), from the working diff.
-function changedLines(status: ReturnType<typeof gitStatus>): Record<string, [number, number][]> {
+// Lines changed but not committed (or since `against`), per file (new-file line numbers), from
+// the working diff.
+function changedLines(status: ReturnType<typeof gitStatus>, against = "HEAD"): Record<string, [number, number][]> {
   const out: Record<string, [number, number][]> = {};
   let file = "";
-  for (const l of tryGit("diff", "HEAD", "-U0", "--no-color", "--no-ext-diff").split("\n")) {
+  for (const l of tryGit("diff", against, "-U0", "--no-color", "--no-ext-diff").split("\n")) {
     if (l.startsWith("+++ ")) file = l.startsWith("+++ b/") ? l.slice(6) : "";
     const m = l.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
     if (m && file) {
@@ -168,19 +177,73 @@ function testsOf(sk: Skeleton, files: string[]) {
   return { unit, integration };
 }
 
+// Items whose lines changed: lets a diagram box light up only when its own function changed.
+function itemsIn(sk: Skeleton, lines: Record<string, [number, number][]>) {
+  const out: string[] = [];
+  for (const m of sk.modules) {
+    const ranges = lines[m.file];
+    if (ranges) for (const i of m.items) if (!i.test && ranges.some(([a, b]) => a <= (i.end ?? i.line) && b >= i.line)) out.push(itemKey(m.id, i));
+  }
+  return out;
+}
+
+// ---- review mode ---------------------------------------------------------------
+
+// Where the reviewed branch left its target: the merge request's diff starts there.
+const reviewBase = () => { const r = review.current(); return r ? tryGit("merge-base", "HEAD", r.target) || null : null; };
+
+// The diagrams as the target had them, by commit (they never change for a given commit).
+// null when the target has no .cockpit/ (not committed, or kept out of git): nothing to compare.
+const baseDiagrams = new Map<string, Map<string, { question: string; nodes: Map<string, string> }> | null>();
+function diagramsAt(base: string) {
+  if (!baseDiagrams.has(base)) {
+    const arch = loadArch(root, base).arch;
+    baseDiagrams.set(base, arch ? new Map(arch.diagrams.map((d) => [d.id, { question: d.question, nodes: new Map(d.nodes.map((n) => [n.id, n.label])) }])) : null);
+  }
+  return baseDiagrams.get(base)!;
+}
+
+// What the review changes: files and items (committed on the branch or not), and the diagrams'
+// own boxes added and removed.
+function reviewState(sk: Skeleton, status: ReturnType<typeof gitStatus>, diagrams: { id: string; question: string; nodes: { id: string; label: string }[] }[]) {
+  const r = review.current();
+  if (!r) return null;
+  const base = reviewBase();
+  if (!base) return { ...r, base: null, error: `${r.target} and this branch share no history`, files: [], changedFiles: [], changedItems: [], commits: 0, diagrams: {}, removedDiagrams: [] };
+  const lines = changedLines(status, base);
+  const files: { path: string; st: string }[] = tryGit("diff", "--name-status", "--no-renames", base).split("\n").filter(Boolean)
+    .map((l) => { const [st, path] = l.split("\t"); return { path, st: st[0] }; });
+  for (const s of status) if (s.x === "?" && !files.some((f) => f.path === s.path)) files.push({ path: s.path, st: "A" });
+  files.sort((a, b) => a.path.localeCompare(b.path));
+  const before = diagramsAt(base), diff: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }> = {};
+  if (before) for (const d of diagrams) {
+    const b = before.get(d.id);
+    const added = b ? d.nodes.filter((n) => !b.nodes.has(n.id)).map((n) => n.id) : d.nodes.map((n) => n.id);
+    const removed = b ? [...b.nodes].filter(([id]) => !d.nodes.some((n) => n.id === id)).map(([id, label]) => ({ id, label })) : [];
+    if (!b || added.length || removed.length) diff[d.id] = { isNew: !b, added, removed };
+  }
+  return {
+    ...r, base: tryGit("rev-parse", "--short", base), error: null,
+    commits: Number(tryGit("rev-list", "--count", `${base}..HEAD`)) || 0,
+    files, changedFiles: Object.keys(lines), changedItems: itemsIn(sk, lines),
+    diagrams: diff, removedDiagrams: [...(before ?? [])].filter(([id]) => !diagrams.some((d) => d.id === id)).map(([id, b]) => ({ id, question: b.question })),
+  };
+}
+
 // Everything the page shows, as named parts: the page gets the whole thing once, then only the
 // parts that changed.
+// The workspace this project is in (workspace.ts), for the header.
+function workspaceState() {
+  const w = workspaceOf(root);
+  return w && { name: w.name, system: existsSync(w.system) ? w.system : null, projects: w.projects };
+}
+
 function state() {
   const sk = index.current();
   const loaded = loadArch(root), arch = loaded.arch;
   const status = gitStatus(), files = listFiles();
   const lines = changedLines(status);
-  // Items whose lines changed: lets a diagram box light up only when its own function changed.
-  const changedItems: string[] = [];
-  for (const m of sk.modules) {
-    const ranges = lines[m.file];
-    if (ranges) for (const i of m.items) if (!i.test && ranges.some(([a, b]) => a <= (i.end ?? i.line) && b >= i.line)) changedItems.push(itemKey(m.id, i));
-  }
+  const changedItems = itemsIn(sk, lines);
   // When each changed file was last written: the page reloads an open file when this moves.
   const fileRevs: Record<string, number> = {};
   for (const f of Object.keys(lines)) try { fileRevs[f] = Math.round(statSync(join(root, f)).mtimeMs); } catch { fileRevs[f] = 0; }
@@ -198,6 +261,8 @@ function state() {
     features: arch?.features ?? [],
     tests: testsOf(sk, files),
     summary: arch?.summary ?? "",
+    review: reviewState(sk, status, arch?.diagrams ?? []),
+    workspace: workspaceState(),
   };
 }
 type State = ReturnType<typeof state>;
@@ -299,9 +364,27 @@ const routes: Record<string, Handler> = {
   "GET /": (_req, res) => res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page()),
   "GET /api/events": (req, res) => events(req, res, { type: "full", state: current }, (send) => { pages.add(send); return () => pages.delete(send); }),
   "GET /api/state": (_req, res) => json(res, current),
-  "GET /api/file": (_req, res, url) => { try { json(res, readSource(q(url, "path"))); } catch (e) { json(res, { error: String(e) }, 400); } },
+  "GET /api/file": (_req, res, url) => { try { json(res, readSource(q(url, "path"), q(url, "review") === "1")); } catch (e) { json(res, { error: String(e) }, 400); } },
   "GET /api/git/graph": (_req, res) => json(res, gitGraph()),
   "GET /api/git/commit": (_req, res, url) => (/^[0-9a-f]{4,40}$/.test(q(url, "sha")) ? json(res, commitPatch(q(url, "sha"))) : json(res, { error: "bad sha" }, 400)),
+  // A web link (from the chat, say) in your browser: the desktop app's window can't open one itself.
+  // Another project of the workspace, in its own window of the desktop app.
+  "POST /api/workspace/open": post(({ path }) => {
+    const p = workspaceOf(root)?.projects.find((x) => x.path === path && !x.here);
+    if (!p) throw new Error("not a project of this workspace");
+    const local = join(process.env.HOME ?? "", ".local", "bin", "cockpit");
+    const app = existsSync(local) ? local : "cockpit";
+    return new Promise((done, fail) => {
+      const c = spawn(app, [p.path], { detached: true, stdio: "ignore" });
+      c.on("error", () => fail(new Error(`the desktop app isn't installed (desktop/install.sh); in a browser, run: npm run serve -- ${p.path}`)));
+      c.on("spawn", () => { c.unref(); done({ ok: true }); });
+    });
+  }),
+  "POST /api/open-url": post(({ url }) => {
+    if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("expected an http(s) link");
+    const [cmd, ...args] = process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];
+    spawn(cmd, [...args, url], { detached: true, stdio: "ignore" }).on("error", () => {}).unref();
+  }),
   "POST /api/diagram-layout": post(({ id, positions }) => {
     if (typeof id !== "string" || (positions !== null && typeof positions !== "object")) throw new Error("expected {id, positions}");
     const all = readDLayout();
@@ -309,6 +392,12 @@ const routes: Record<string, Handler> = {
     mkdirSync(join(root, ARCH_DIR), { recursive: true });
     writeFileSync(dlayoutPath, JSON.stringify(all, null, 1) + "\n");
   }),
+
+  // review mode
+  "GET /api/review/mrs": async (_req, res) => json(res, await review.mergeRequests()),
+  "GET /api/review/branches": async (_req, res) => json(res, await review.branches()),
+  "POST /api/review/start": post(async (body) => { const r = await review.start(body ?? {}); recompute(); return r; }),
+  "POST /api/review/stop": post(async ({ back }) => { await review.stop(!!back); recompute(); }),
 
   // the agent chat
   "GET /api/chat/events": (req, res) => events(req, res, { type: "init", ...chat.snapshot() }, chat.subscribe),

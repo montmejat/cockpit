@@ -4,7 +4,7 @@
   // to go there. Drag the title bar to move it, the corner to resize it; both are remembered.
   import { onMount } from "svelte";
   import type { Core } from "cytoscape";
-  import { buildCy, fitCapped, restyle, syncCy } from "../lib/diagram";
+  import { buildCy, fitCapped, resizeNow, restyle, syncCy } from "../lib/diagram";
   import { C, filesOfNode, nameOf, openFile, S, store, tldr, where } from "../lib/state.svelte";
   import type { Diagram, DiagramNode } from "../lib/types";
 
@@ -25,7 +25,7 @@
   onMount(() => {
     try { const g = JSON.parse(store.get("cockpit-mini", "null")); if (g) Object.assign(el.style, { left: g.left + "px", top: g.top + "px", width: g.width + "px", height: g.height + "px", right: "auto", bottom: "auto" }); } catch {}
     let t: ReturnType<typeof setTimeout>;
-    const ro = new ResizeObserver(() => { if (!cy) return; cy.resize(); clearTimeout(t); t = setTimeout(() => { if (cy) fitCapped(cy, 16); keep(); }, 120); });
+    const ro = new ResizeObserver(() => { if (!cy) return; resizeNow(cy); clearTimeout(t); t = setTimeout(() => { if (cy) fitCapped(cy, 16); keep(); }, 120); });
     ro.observe(el);
     return () => { ro.disconnect(); cy?.destroy(); cy = null; };
   });

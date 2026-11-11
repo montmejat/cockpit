@@ -67,13 +67,25 @@ export function parsePatch(patch: string): { path: string; rows: DiffRow[] }[] {
   return files;
 }
 
-// Just enough Markdown for agent replies: code blocks, inline code, bold, links, lists, headings.
+// A fenced block: a diff (```diff, or lines that all look like one) colors its added and removed
+// lines; a known language (```ts, ```cpp…) is highlighted; anything else stays plain.
+function codeBlock(code: string[], tag: string) {
+  const diffy = code.some((c) => c[0] === "+") && code.some((c) => c[0] === "-") && code.every((c) => /^([+\- @]|$|\\ No newline)/.test(c));
+  if (tag === "diff" || tag === "patch" || (!tag && diffy)) {
+    const cls = (c: string) => /^@@/.test(c) ? "dh" : /^(\+\+\+|---) /.test(c) ? "df" : c[0] === "+" ? "da" : c[0] === "-" ? "dd" : "";
+    return "<pre class=diff>" + code.map((c) => `<span class="${cls(c)}">${esc(c) || " "}</span>`).join("") + "</pre>";
+  }
+  const lang = tag && (hljs.getLanguage(tag) ? tag : LANGS[tag] ?? null);
+  return "<pre>" + (lang ? hlLines(code.join("\n"), lang).join("\n") : esc(code.join("\n"))) + "</pre>";
+}
+
+// Just enough Markdown for agent replies: code blocks, inline code, bold, links, lists, headings, tables.
 export function md(src: string) {
   const inline = (t: string) => esc(t)
     .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
     .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
-    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, "<a href='$2' target=_blank rel=noopener>$1</a>");
+    .replace(/\[((?:[^[\]]|\[[^[\]]*\])+)\]\((https?:[^)\s]+)\)/g, "<a href='$2' target=_blank rel=noopener>$1</a>");
   const out: string[] = [], lines = String(src ?? "").split("\n");
   let list: string | null = null, para: string[] = [];
   const flush = () => { if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = []; if (list) { out.push("</" + list + ">"); list = null; } };
@@ -81,9 +93,19 @@ export function md(src: string) {
     const l = lines[i];
     if (/^```/.test(l)) {
       flush();
-      const code: string[] = [];
+      const code: string[] = [], tag = l.slice(3).trim().toLowerCase();
       while (++i < lines.length && !/^```/.test(lines[i])) code.push(lines[i]);
-      out.push("<pre>" + esc(code.join("\n")) + "</pre>");
+      out.push(codeBlock(code, tag));
+    } else if (/^\s*\|.*\|\s*$/.test(l) && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1] ?? "")) {
+      // A table: a header row, the |---|:--:| line (which sets each column's alignment), then rows.
+      flush();
+      const cells = (r: string) => r.trim().replace(/^\|/, "").replace(/\|$/, "").split(/(?<!\\)\|/).map((c) => c.trim().replace(/\\\|/g, "|"));
+      const align = cells(lines[i + 1]).map((c) => (c.endsWith(":") ? (c.startsWith(":") ? "center" : "right") : ""));
+      const row = (r: string, tag: string) => "<tr>" + cells(r).map((c, k) => `<${tag}${align[k] ? ` style="text-align:${align[k]}"` : ""}>${inline(c)}</${tag}>`).join("") + "</tr>";
+      let html = "<div class=mdtable><table><thead>" + row(l, "th") + "</thead><tbody>";
+      for (i += 2; i < lines.length && /^\s*\|/.test(lines[i]); i++) html += row(lines[i], "td");
+      i--;
+      out.push(html + "</tbody></table></div>");
     } else if (/^#{1,4}\s/.test(l)) { flush(); out.push("<h4>" + inline(l.replace(/^#+\s*/, "")) + "</h4>"); }
     else if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
       if (para.length) { const keep = list; list = null; flush(); list = keep; }

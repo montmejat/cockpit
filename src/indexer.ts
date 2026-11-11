@@ -18,6 +18,7 @@ import { homedir } from "node:os";
 import { buildSkeleton, type Lang, type Skeleton } from "./skeleton.ts";
 import { buildCppSkeleton, CXX_SOURCE } from "./skeleton-cpp.ts";
 import { dataDir } from "./turns.ts";
+import { workspaceOf } from "./workspace.ts";
 
 export interface IndexConfig { image?: string; compdb?: string[] }
 
@@ -116,9 +117,12 @@ function indexCommand(lang: Lang, dir: string, scip: string, opts: { repo?: stri
   const bin = findScipClang();
   const args = [`--compdb-path=${merged}`, `--index-output-path=${scip}`];
   if (!cfg.image) return { cmd: bin, args, cwd: dir, tool: "scip-clang" };
-  // In the build image: the repo (and worktree) at their own paths, read-only; the output dir writable.
+  // In the build image: the repo (and worktree) at their own paths, read-only; the output dir
+  // writable. The other projects of its workspace (workspace.ts) too, read-only, since a build
+  // often includes their headers or sources straight from their checkouts.
   const uid = process.getuid?.() ?? 1000, gid = process.getgid?.() ?? 1000;
-  const mounts = [...new Set([repo, dir])].flatMap((p) => ["-v", `${p}:${p}:ro`]);
+  const siblings = (workspaceOf(repo)?.projects ?? []).filter((p) => !p.here && existsSync(p.path)).map((p) => p.path);
+  const mounts = [...new Set([repo, dir, ...siblings])].flatMap((p) => ["-v", `${p}:${p}:ro`]);
   return { cmd: "docker", cwd: dir, tool: "scip-clang", args: ["run", "--rm", "-u", `${uid}:${gid}`, ...mounts, "-v", `${dirname(scip)}:${dirname(scip)}`,
     "-v", `${bin}:/usr/local/bin/scip-clang:ro`, "-w", dir, "--entrypoint", "/usr/local/bin/scip-clang", cfg.image, ...args] };
 }

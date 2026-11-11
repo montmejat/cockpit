@@ -35,6 +35,7 @@ F5 in the desktop app).
 Nothing about the projects you open is kept in this checkout:
 
 - settings and your corrections: `~/.config/cockpit/projects/<project>/` (`index.json`);
+- workspaces: `~/.config/cockpit/workspaces/<name>/` (below);
 - what cockpit generates (code index, turns, chats) under
   `~/.local/share/cockpit/projects/<project>/` (`$COCKPIT_STATE` moves it), turn snapshots in
   `~/.local/share/cockpit/snapshots/` (a git store of cockpit's own: no objects, refs or
@@ -58,6 +59,14 @@ have them.
 - **Git**: branch, what isn't committed, and the history of all branches as a graph; a commit
   opens as its patch.
 - **Header**: lines, tests and features at a glance; each opens what's behind it on the right.
+- **Review mode** (git tab, "review a merge request…"): pick one of the project's open merge
+  requests (through `glab` or `gh`, whichever the remote needs, with your own login) or any two
+  branches. Cockpit fetches and checks out the branch (only when nothing is uncommitted) and
+  compares it with the point where it left its target, like the merge request's own diff:
+  diagram boxes whose code it changes turn violet, boxes it adds to the diagrams green, the
+  diagram list counts the changed boxes, files show their changes against the target, and the
+  git tab lists every file it touches. End the review from there, or go back to the branch you
+  were on. The review in progress is kept in `review.json` in the project's state dir.
 - **Terminals** (Ctrl+`): real shells in the project. The agent can read them. Ctrl+K asks for a
   command in words and puts it on the prompt, never runs it.
 - **Chat**: an agent cockpit runs itself (below).
@@ -81,6 +90,28 @@ Allow/Deny card shows in the chat. Model picker (haiku/sonnet/opus) and a stop b
   longer matches the code, the agent is sent back to fix it (up to 3 times), with the likely
   right link for each wrong one. On a project without `.cockpit/`, "Describe this project" starts
   it from `templates/cockpit-README.md`.
+
+### Workspaces
+
+Projects that work together (a service and its clients, a library and the apps built on it) can
+be put in a workspace, like an editor's multi-root workspace. Each project still opens in its own
+window, with its own index, chat and terminals; the workspace tells each one about the others.
+
+```
+~/.config/cockpit/workspaces/<name>/workspace.json   { "projects": ["~/src/engine", "~/src/tools"] }
+~/.config/cockpit/workspaces/<name>/SYSTEM.md        how they fit together, kept by the agents
+```
+
+- The chat's agent can **read** the other projects, and its brief lists them with a line on each
+  (from their `.cockpit/project.json`, else their README). An **edit** in another project needs
+  your yes, on an Allow/Deny card, even in auto mode.
+- `SYSTEM.md` says which project owns what, who calls whom and through what, and how they are built
+  together. The agents write it the first time it matters and keep it true; you can edit it too.
+- The header shows the workspace before the project's name; its menu lists the projects, with
+  "open" for each one in its own window of the desktop app.
+- When the C++ index runs in a build image, the other projects are mounted there too, read-only,
+  for builds that compile another project's headers or sources from its checkout.
+- A change to the workspace reaches the chat from its next conversation.
 
 A Claude Code session outside cockpit can be recorded too, with hooks in the project's
 `.claude/settings.local.json` that call `src/hook.ts start|tool|stop`.

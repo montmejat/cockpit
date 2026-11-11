@@ -15,8 +15,9 @@
   const tab = $derived(cur());
   const path = $derived(tab.kind === "file" ? tab.path : null);
   const sha = $derived(tab.kind === "commit" ? tab.sha : null);
-  // The file is loaded again when it changes on disk, or when HEAD moves.
-  const rev = $derived(path ? (S.fileRevs[path] ?? 0) + "@" + S.git.head + "@" + (statusOf(path) ?? "") : "");
+  // The file is loaded again when it changes on disk, when HEAD moves, or when a review starts or
+  // ends (in review mode its changes are against the review's target, not the last commit).
+  const rev = $derived(path ? (S.fileRevs[path] ?? 0) + "@" + S.git.head + "@" + (statusOf(path) ?? "") + "@" + (S.review?.base ?? "") : "");
 
   // Recent files, so switching tabs shows them at once; the last version stays on screen while
   // a new one loads.
@@ -31,7 +32,7 @@
     const p = path, r = rev, hit = files.get(p);
     if (hit) file = hit.data; else if (file?.path !== p) file = null;
     if (hit?.rev === r) return;
-    api.get<FileData>("api/file?path=" + encodeURIComponent(p)).then((data) => {
+    api.get<FileData>("api/file?path=" + encodeURIComponent(p) + (S.review?.base ? "&review=1" : "")).then((data) => {
       files.set(p, { rev: r, data });
       if (files.size > 12) files.delete(files.keys().next().value!);
       if (path === p) file = data;
@@ -133,7 +134,7 @@
       {#if statusOf(path)}<span class="mark {statusOf(path)}">{statusOf(path)}</span>{/if}
       {#if changes.length}
         <span class="grow"></span>
-        <span class="muted">{changes.length} change{changes.length > 1 ? "s" : ""}</span>
+        <span class="muted">{changes.length} change{changes.length > 1 ? "s" : ""}{S.review?.base && file?.path === path ? " vs " + S.review.target : ""}</span>
         <button title="Previous change" onclick={() => jump(-1)}>↑</button><button title="Next change" onclick={() => jump(1)}>↓</button>
         <label class="muted toggle"><input type="checkbox" bind:checked={showAll} onchange={() => store.set("cockpit-show-removed", showAll ? "1" : "0")}> show removed</label>
       {/if}

@@ -11,9 +11,12 @@
   import Terminal from "./components/Terminal.svelte";
   import Chat from "./components/Chat.svelte";
   import Inspector from "./components/Inspector.svelte";
-  import { byId, openCommit, openDiagram, openFile, showRight, ui, cur, mapTab, S, saveTabs } from "./lib/state.svelte";
+  import { byId, openCommit, openDiagram, openFile, showRight, ui, cur, mapTab, S, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
+  import Grip, { savedWidth } from "./components/Grip.svelte";
+  import { api } from "./lib/code";
 
   let unread = $state(false);
+  let rightWidth = $state(savedWidth("cockpit-right-width", 390, 280));
   let term: Terminal;
 
   // Links can open a tab directly: ?tab=git, ?panel=features|tests, ?file=path[&line=n],
@@ -37,16 +40,29 @@
   // A diagram that disappeared from .cockpit/: the map goes back home.
   $effect(() => { const t = mapTab(); if (S.diagrams.length && !byId(t.id)) { t.id = S.diagrams.find((d) => d.kind === "loop")?.id ?? S.diagrams[0].id; t.code = null; saveTabs(); } });
 
-  // Ctrl+` toggles the terminal drawer, Ctrl+K opens the ask line, anywhere.
+  // Ctrl+` toggles the terminal drawer, Ctrl+K opens the ask line, Ctrl+L the chat (not inside a
+  // terminal, where it clears the screen), F1 shows or hides the hints, anywhere.
   function keys(e: KeyboardEvent) {
     if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
+    else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l" && !(e.target as HTMLElement).closest?.(".xterm")) { e.preventDefault(); toggleChat(); unread = false; }
+    else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
     else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r"))) { e.preventDefault(); location.reload(); }
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { e.preventDefault(); term?.openAsk(); }
   }
+
+  // Web links (in the chat, the details) open in your browser. A plain browser tab does that by
+  // itself; the desktop app's window can't, so the server opens them.
+  function outLink(e: MouseEvent) {
+    if (!window.__TAURI__ || (e.type === "auxclick" && e.button !== 1)) return;
+    const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+    if (!a || !/^https?:$/.test(a.protocol) || a.origin === location.origin) return;
+    e.preventDefault();
+    api.post("api/open-url", { url: a.href }).catch(() => {});
+  }
 </script>
 
-<svelte:window onkeydowncapture={keys} />
+<svelte:window onkeydowncapture={keys} onclickcapture={outLink} onauxclickcapture={outLink} />
 
 <Header ontoggleterm={() => term?.toggle()} />
 <main>
@@ -59,12 +75,14 @@
     </div>
     <Terminal bind:this={term} />
   </section>
-  <aside id="right">
+  <!-- kept mounted when closed, so the chat keeps following the agent -->
+  <aside id="right" class:hide={!ui.right} style:width="{rightWidth}px">
+    <Grip bind:width={rightWidth} def={390} key="cockpit-right-width" edge="left" min={280} />
     <div class="rtabs">
       <button class:on={ui.rtab === "chat"} onclick={() => { showRight("chat"); unread = false; }}>chat{#if unread}<span class="unread"></span>{/if}</button>
       <button class:on={ui.rtab === "details"} onclick={() => showRight("details")}>details</button>
     </div>
-    <Chat hidden={ui.rtab !== "chat"} onactivity={(ask) => { if (ask) showRight("chat"); else if (ui.rtab !== "chat") unread = true; }} />
+    <Chat hidden={ui.rtab !== "chat"} onactivity={(ask) => { if (ask) showRight("chat"); else if (ui.rtab !== "chat" || !ui.right) unread = true; }} />
     {#if ui.rtab === "details"}<Inspector />{/if}
   </aside>
 </main>

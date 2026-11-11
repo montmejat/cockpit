@@ -25,7 +25,7 @@
   // Folders holding a changed file or one the agent is editing.
   const dirty = $derived.by(() => {
     const out = new Set<string>();
-    for (const p of [...S.status.map((s) => s.path), ...C.touched]) { const parts = p.split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
+    for (const p of [...S.status.map((s) => s.path), ...C.touched, ...(S.review?.files.map((f) => f.path) ?? [])]) { const parts = p.split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
     return out;
   });
   const openPath = $derived(cur().kind === "file" ? (cur() as { path: string }).path : null);
@@ -42,10 +42,11 @@
   {/each}
   {#each d.files as f (f.path)}
     {@const st = statusOf(f.path)}
+    {@const rv = S.review?.files.find((x) => x.path === f.path)}
     <button class="file" class:sel={openPath === f.path} onclick={() => openFile(f.path)} title={f.path}>
       {#if C.touched.has(f.path)}<span class="agentdot" title="the agent is editing it">◉</span>{/if}
       <span class="fname">{f.name}</span>
-      {#if st}<span class="mark {st}">{st}</span>{/if}
+      {#if st}<span class="mark {st}">{st}</span>{:else if rv}<span class="mark rev" title="changed in this review">◆</span>{/if}
     </button>
   {/each}
 {/snippet}
