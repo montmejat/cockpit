@@ -5,7 +5,8 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { createHash } from "node:crypto";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
@@ -73,8 +74,25 @@ function readSource(path: string, inReview = false) {
   const text = readFileSync(full, "utf8");
   if (text.includes("\u0000")) return { path, text: null, note: "binary file", hunks: [] };
   const st = gitStatus().find((s) => s.path === path);
-  if (base) return { path, text, hunks: hunksOf(path, st?.x === "?", base) };
-  return { path, text, hunks: st ? hunksOf(path, st.x === "?") : [] };
+  const hash = hashOf(text); // what the editor saves against
+  if (base) return { path, text, hash, hunks: hunksOf(path, st?.x === "?", base) };
+  return { path, text, hash, hunks: st ? hunksOf(path, st.x === "?") : [] };
+}
+const hashOf = (text: string) => createHash("sha1").update(text).digest("hex");
+
+// Saving from the editor. Only a project file, only inside the project (a symlink pointing out is
+// refused), and only if the file is still what the editor loaded (`hash`): when an agent changed it
+// meanwhile, the save is refused with the file as it is now, and the page asks you what to keep.
+// `force` overwrites anyway.
+function saveSource(path: string, text: string, hash: string, force = false) {
+  if (typeof path !== "string" || typeof text !== "string") throw new Error("expected path and text");
+  if (!isProjectFile(path)) throw new Error("not a project file");
+  const full = resolve(root, path);
+  if (!realpathSync(full).startsWith(realpathSync(root) + sep)) throw new Error("outside the project");
+  const now = readFileSync(full, "utf8");
+  if (!force && hashOf(now) !== hash) return { conflict: true, text: now, hash: hashOf(now) };
+  writeFileSync(full, text);
+  return { ok: true, hash: hashOf(text) };
 }
 
 // ---- git -----------------------------------------------------------------
@@ -380,6 +398,7 @@ const routes: Record<string, Handler> = {
       c.on("spawn", () => { c.unref(); done({ ok: true }); });
     });
   }),
+  "POST /api/file/save": post(({ path, text, hash, force }) => saveSource(path, text, hash, !!force)),
   "POST /api/open-url": post(({ url }) => {
     if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("expected an http(s) link");
     const [cmd, ...args] = process.platform === "darwin" ? ["open"] : process.platform === "win32" ? ["cmd", "/c", "start", ""] : ["xdg-open"];

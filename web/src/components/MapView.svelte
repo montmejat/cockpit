@@ -260,7 +260,7 @@
     }
   }
   function keys(e: KeyboardEvent) {
-    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { if (listOpen) listOpen = false; else ascend(); }
+    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (listOpen) listOpen = false; else ascend(); }
   }
 </script>
 

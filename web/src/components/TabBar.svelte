@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { closeTab, saveTabs, statusOf, ui } from "../lib/state.svelte";
+  import { closeTab, dirtyFiles, saveTabs, statusOf, ui } from "../lib/state.svelte";
 
   let bar: HTMLElement;
   const pick = (i: number) => { ui.active = i; ui.picked = null; saveTabs(); };
@@ -17,6 +17,7 @@
         onclick={() => pick(i)} onauxclick={(e) => e.button === 1 && closeTab(i)} onkeydown={(e) => e.key === "Enter" && pick(i)}>
         {#if t.kind === "file"}{t.path.split("/").pop()}{:else}<span class="ti">●</span>{t.sha}{/if}
         {#if st}<span class="mark {st}">{st}</span>{/if}
+        {#if t.kind === "file" && dirtyFiles.has(t.path)}<span class="unsaved" title="Unsaved changes">●</span>{/if}
         <button class="tx" title="Close" onclick={(e) => { e.stopPropagation(); closeTab(i); }}>×</button>
       </div>
     {/if}

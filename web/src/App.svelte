@@ -43,12 +43,16 @@
   // Ctrl+` toggles the terminal drawer, Ctrl+K opens the ask line, Ctrl+L the chat (not inside a
   // terminal, where it clears the screen), F1 shows or hides the hints, anywhere.
   function keys(e: KeyboardEvent) {
+    const inEditor = !!(e.target as HTMLElement).closest?.(".cm-editor");
+    // Ctrl+S saves the open file (and never opens the browser's "save page").
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); e.stopPropagation(); (window as any).__cockpitEditor?.save(); return; }
     if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l" && !(e.target as HTMLElement).closest?.(".xterm")) { e.preventDefault(); toggleChat(); unread = false; }
     else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
-    else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r"))) { e.preventDefault(); location.reload(); }
-    else if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { e.preventDefault(); term?.openAsk(); }
+    // (Not in the editor, where Ctrl+R is vim's redo.)
+    else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor))) { e.preventDefault(); location.reload(); }
+    else if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !inEditor && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { e.preventDefault(); term?.openAsk(); }
   }
 
   // Web links (in the chat, the details) open in your browser. A plain browser tab does that by

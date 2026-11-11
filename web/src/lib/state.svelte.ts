@@ -1,6 +1,7 @@
 // The page's state: what the server pushes (S), what you have open (ui), and the questions every
 // part asks of them (what changed, where a diagram link points).
 
+import { SvelteSet } from "svelte/reactivity";
 import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 
 declare global { interface Window { INIT: Live & { terminals: TermMeta[] }; __TAURI__?: any } }
@@ -134,8 +135,16 @@ export function openTab(spec: Tab) {
 // `at` makes a repeat request for the same line scroll there again.
 export const openFile = (path: string, line?: number, end?: number) => openTab({ kind: "file", path, line, end, at: line ? Date.now() : undefined });
 export const openCommit = (sha: string) => openTab({ kind: "commit", sha });
+// Files with unsaved changes in the editor (FileEditor.svelte keeps the buffers).
+export const dirtyFiles = new SvelteSet<string>();
+
 export function closeTab(i: number) {
   if (i === 0) return; // the map stays
+  const t = ui.tabs[i];
+  if (t?.kind === "file" && dirtyFiles.has(t.path)) {
+    if (!confirm(`${t.path} has unsaved changes. Close it and lose them?`)) return;
+    dirtyFiles.delete(t.path); // the editor drops the buffer when it sees it's no longer dirty
+  }
   ui.tabs.splice(i, 1);
   if (i < ui.active || ui.active >= ui.tabs.length) ui.active = Math.max(0, ui.active - 1);
   saveTabs();
