@@ -4,7 +4,7 @@
   // as Allow/Deny cards. Past conversations are a click away; the bar under the box shows how full
   // this conversation is, and how much of your plan's limits you've used.
   import { onMount, tick } from "svelte";
-  import { api, md } from "../lib/code";
+  import { api, fileRefAt, fileResolver, md } from "../lib/code";
   import { openFile, S } from "../lib/state.svelte";
   import type { ChatItem, ChatSession, Usage } from "../lib/types";
 
@@ -19,6 +19,14 @@
   let near = true;
   let list: ChatSession[] | null = $state(null); // the conversations list, when open
   let usage: Usage | null = $state(null);
+  const resolve = $derived(fileResolver(S.files ?? []));
+  // A click on a file reference in a reply opens that file at that line.
+  function clickRef(e: MouseEvent) {
+    const r = fileRefAt(e.target);
+    if (!r) return;
+    e.preventDefault();
+    openFile(r.path, r.line, r.end);
+  }
 
   const stick = async (force = false) => { await tick(); if (msgs && (force || near)) msgs.scrollTop = msgs.scrollHeight; };
 
@@ -97,7 +105,7 @@
   <div id="msgs" bind:this={msgs} onscroll={() => (near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60)}>
     {#each items as it (it.id)}
       {#if it.kind === "user"}<div class="cuser">{it.text}</div>
-      {:else if it.kind === "text"}{#if it.text}<div class="ctext">{@html md(it.text)}</div>{/if}
+      {:else if it.kind === "text"}{#if it.text}<div class="ctext" onclick={clickRef} role="presentation">{@html md(it.text, resolve)}</div>{/if}
       {:else if it.kind === "tool"}
         <div class="ctool" class:sub={it.sub}>
           {@html toolIcon[it.status] ?? ""}

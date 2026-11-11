@@ -272,6 +272,7 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 .cuser{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-top:14px;white-space:normal}
 .ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:12.5px}
 .ctext code{background:var(--bg);border-radius:3px;padding:0 3px;font-size:11.5px}
+.ctext a.fref{color:var(--accent,#6aa9ff);cursor:pointer;text-decoration:none}.ctext a.fref:hover{text-decoration:underline}
 #msgs pre{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;overflow:auto;font-size:11px;max-height:260px;white-space:pre-wrap;word-break:break-word}
 #msgs pre.diff{padding:6px 0}#msgs pre.diff>span{display:block;padding:0 8px}#msgs pre.diff .da{background:var(--add-bg);color:var(--add)}#msgs pre.diff .dd{background:var(--del-bg);color:var(--del)}#msgs pre.diff .dh{color:var(--accent)}#msgs pre.diff .df{color:var(--muted);font-weight:700}
 #msgs .mdtable{overflow-x:auto;margin:6px 0}#msgs .mdtable table{border-collapse:collapse;font-size:11.5px}#msgs .mdtable th,#msgs .mdtable td{overflow-wrap:break-word;min-width:6ch;border:1px solid var(--line);padding:3px 7px;text-align:left;vertical-align:top}#msgs .mdtable th{background:var(--bg);font-weight:700}

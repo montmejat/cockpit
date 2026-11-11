@@ -53,7 +53,7 @@ export interface TermMeta { id: string; n: number; cwd: string; running: string 
 // Center tabs. The map is always the first one; files and commits open next to the active tab.
 export type Tab =
   | { kind: "map"; id: string | null; code: string | null }
-  | { kind: "file"; path: string; line?: number; end?: number; mini?: string }
+  | { kind: "file"; path: string; line?: number; end?: number; mini?: string; at?: number }
   | { kind: "commit"; sha: string };
 
 export interface Hunk { at: number; added: number; removed: string[] }

@@ -79,8 +79,44 @@ function codeBlock(code: string[], tag: string) {
   return "<pre>" + (lang ? hlLines(code.join("\n"), lang).join("\n") : esc(code.join("\n"))) + "</pre>";
 }
 
+// File references in agent replies ("src/a.zig:30", "a.zig:30-42", "src/a.zig") become links
+// that open the file at that line. Only names that resolve to one of the project's files are linked:
+// the exact path, or the one file whose path ends with that name.
+export type FileRef = { path: string; line?: number; end?: number };
+export function fileResolver(files: string[]) {
+  const set = new Set(files), cache = new Map<string, string | null>();
+  return (name: string): string | null => {
+    name = name.replace(/^\.\//, "");
+    if (set.has(name)) return name;
+    if (cache.has(name)) return cache.get(name)!;
+    const hits = files.filter((f) => f.endsWith("/" + name));
+    const r = hits.length === 1 ? hits[0] : null;
+    cache.set(name, r);
+    return r;
+  };
+}
+const REF = /(^|[\s(`'"[])((?:\.?\.?\/)?[\w@+-][\w@+.\/-]*\.[A-Za-z][\w]{0,9})(?::(\d+)(?:[-:](\d+))?)?(?=$|[\s),.;:!?`'"\]])/g;
+function linkFiles(html: string, resolve: (n: string) => string | null) {
+  // Only touch text, never inside tags or existing links.
+  return html.replace(/(<a\b[\s\S]*?<\/a>)|(<[^>]+>)|([^<]+)/g, (m, a, tag, text) => text == null ? m :
+    text.replace(REF, (all: string, pre: string, name: string, l?: string, e?: string) => {
+      const path = resolve(name);
+      if (!path) return all;
+      const ref = name + (l ? ":" + l + (e ? "-" + e : "") : "");
+      return `${pre}<a class=fref data-path="${esc(path)}"${l ? ` data-line=${l}` : ""}${e ? ` data-end=${e}` : ""} title="Open ${esc(path)}${l ? " at line " + l : ""}">${ref}</a>`;
+    }));
+}
+/** The file reference a click landed on, if any (for links made by md with a resolver). */
+export function fileRefAt(target: EventTarget | null): FileRef | null {
+  const a = (target as HTMLElement | null)?.closest?.("a.fref") as HTMLElement | null;
+  if (!a) return null;
+  const n = (k: string) => (a.dataset[k] ? Number(a.dataset[k]) : undefined);
+  return { path: a.dataset.path!, line: n("line"), end: n("end") };
+}
+
 // Just enough Markdown for agent replies: code blocks, inline code, bold, links, lists, headings, tables.
-export function md(src: string) {
+// With a resolver, file references in the text become links (see linkFiles).
+export function md(src: string, resolve?: (name: string) => string | null) {
   const inline = (t: string) => esc(t)
     .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
@@ -116,7 +152,10 @@ export function md(src: string) {
     else { if (list) { out.push("</" + list + ">"); list = null; } para.push(l); }
   }
   flush();
-  return out.join("");
+  const html = out.join("");
+  if (!resolve) return html;
+  // Code blocks stay as they are; everything else gets its file references linked.
+  return html.split(/(<pre[\s\S]*?<\/pre>)/).map((part) => part.startsWith("<pre") ? part : linkFiles(part, resolve)).join("");
 }
 
 export const api = {

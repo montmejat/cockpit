@@ -84,7 +84,7 @@
   let placed = "";
   $effect(() => {
     if (!path || !rows.length || !body) return;
-    const key = path + ":" + (tab.kind === "file" ? tab.line ?? "" : "");
+    const key = path + ":" + (tab.kind === "file" ? (tab.line ?? "") + ":" + (tab.at ?? "") : "");
     if (placed === key) return;
     placed = key;
     queueMicrotask(() => {

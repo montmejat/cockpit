@@ -158,6 +158,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
   const textSeen = new Map<string, number>(), textDone = new Map<string, number>();
   let streamMsg = "";
   let checks = 0; // times the .cockpit/ check sent the agent back this turn
+  let lastProblems = ""; // what that check found last time (this turn or an earlier one): the same list again means a round fixed nothing
 
   let saveTimer: NodeJS.Timeout | null = null;
   const save = () => {
@@ -262,10 +263,18 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { try { turnTool(i as HookInput); } catch {} return {}; }] }],
           Stop: [{ hooks: [async (i) => {
             // .cockpit/ must match the code: up to 3 rounds of "fix what the check found" per
-            // turn, against the live index once it has caught up with the agent's edits.
+            // turn, against the live index once it has caught up with the agent's edits. A round
+            // that leaves exactly the same problems means the agent can't fix them (say, links into
+            // code cockpit doesn't index): stop there instead of sending it back again.
             if (existsSync(join(root, ARCH_DIR)) && checks < 3) {
               const problems = checkArch(loadArch(root), await index.fresh());
-              if (problems.length) {
+              const sig = problems.map((x) => x.where + "\t" + x.problem).sort().join("\n");
+              if (problems.length && sig === lastProblems) {
+                put({ id: "note-" + Date.now(), kind: "note", at: now(), error: true,
+                  text: `${ARCH_DIR}/ still doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}), and the agent's last round changed nothing, so it wasn't sent back again.`,
+                  detail: problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n") });
+              } else if (problems.length) {
+                lastProblems = sig;
                 checks++;
                 const reason = `${ARCH_DIR}/ doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
                   `Fix it before finishing, as described in ${ARCH_DIR}/README.md:\n` + problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");

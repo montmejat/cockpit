@@ -131,7 +131,8 @@ export function openTab(spec: Tab) {
   if (spec.kind === "file") revealFile(spec.path);
   saveTabs();
 }
-export const openFile = (path: string, line?: number, end?: number) => openTab({ kind: "file", path, line, end });
+// `at` makes a repeat request for the same line scroll there again.
+export const openFile = (path: string, line?: number, end?: number) => openTab({ kind: "file", path, line, end, at: line ? Date.now() : undefined });
 export const openCommit = (sha: string) => openTab({ kind: "commit", sha });
 export function closeTab(i: number) {
   if (i === 0) return; // the map stays
