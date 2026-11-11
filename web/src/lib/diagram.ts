@@ -77,7 +77,7 @@ export function style(): any[] {
     { selector: "node.infile", style: { "border-color": data, "border-width": 2, "background-color": data, "background-opacity": 0.07 } },
     { selector: "node.inview", style: { "border-color": data, "border-width": 3.5, "background-opacity": 0.18, "underlay-color": data, "underlay-opacity": 0.22, "underlay-padding": 8 } },
     // The box holding the line you're on in the code.
-    { selector: "node.here", style: { "border-color": data, "border-width": 5, "background-color": data, "background-opacity": 0.35, "underlay-color": data, "underlay-opacity": 0.45, "underlay-padding": 12 } },
+    { selector: "node.here", style: { "border-color": data, "border-width": 3.5, "background-color": data, "background-opacity": 0.24, "underlay-color": data, "underlay-opacity": 0.3, "underlay-padding": 9 } },
     { selector: "edge", style: { width: 1.4, "line-color": soft, "target-arrow-color": soft, "target-arrow-shape": "triangle", "arrow-scale": 0.9,
       "curve-style": "bezier", label: "data(label)", "font-family": font, "font-size": 11.5, color: data,
       "text-background-color": panel, "text-background-opacity": 1, "text-background-padding": 2, "text-wrap": "wrap", "text-max-width": 130 } },
