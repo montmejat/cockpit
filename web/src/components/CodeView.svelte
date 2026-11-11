@@ -51,7 +51,7 @@
   let editor: ReturnType<typeof FileEditor> | undefined = $state();
   let showAll = $state(store.get("cockpit-show-removed", "0") === "1");
   let vimOn = $state(store.get("cockpit-vim", "1") === "1");
-  let changes = $state(0);
+  let changes = $state(0), changeAt = $state(0);
   // Requested lines (from a diagram link or a test) are highlighted and scrolled to.
   const want = $derived(tab.kind === "file" ? { line: tab.line, end: tab.end, at: tab.at } : {});
 
@@ -76,8 +76,8 @@
       <button class="vimtoggle" class:on={vimOn} title={vimOn ? "Vim keys on: :w saves, :q closes, :wq both. Click to turn off." : "Vim keys off. Click to turn on."}
         onclick={() => { vimOn = !vimOn; store.set("cockpit-vim", vimOn ? "1" : "0"); }}>vim</button>
       {#if changes}
-        <span class="muted">{changes} change{changes > 1 ? "s" : ""}{S.review?.base && file?.path === path ? " vs " + S.review.target : ""}</span>
-        <button title="Previous change" onclick={() => editor?.jump(-1)}>↑</button><button title="Next change" onclick={() => editor?.jump(1)}>↓</button>
+        <span class="muted">{changeAt ? changeAt + "/" : ""}{changes} change{changes > 1 ? "s" : ""}{S.review?.base && file?.path === path ? " vs " + S.review.target : ""}</span>
+        <button title="Previous change ([c in vim)" onclick={() => editor?.jump(-1)}>↑</button><button title="Next change (]c in vim)" onclick={() => editor?.jump(1)}>↓</button>
         <label class="muted toggle"><input type="checkbox" bind:checked={showAll} onchange={() => store.set("cockpit-show-removed", showAll ? "1" : "0")}> show removed</label>
       {/if}
     </div>
@@ -86,7 +86,7 @@
     {/if}
     <div class="ewrap" hidden={!file || (file.path === path && file.text == null)}>
       <FileEditor bind:this={editor} {path} data={file} {want} {boxLines} {showAll} {vimOn}
-        onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n) => (changes = n)} />
+        onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n, at) => { changes = n; changeAt = at; }} />
     </div>
     <MiniMap {path} {view} {cursor} onlines={(ls) => (boxLines = ls)} onjump={(n) => editor?.scrollToLine(n)} />
   {:else if sha}

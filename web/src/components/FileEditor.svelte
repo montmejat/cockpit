@@ -22,7 +22,7 @@
   let { path, data, want, boxLines, showAll, vimOn, onview, oncursor, onhover, onchanges }: {
     path: string; data: FileData | null; want: { line?: number; end?: number; at?: number };
     boxLines: [number, number][]; showAll: boolean; vimOn: boolean;
-    onview: (v: [number, number]) => void; oncursor: (line: number) => void; onhover: (line: number) => void; onchanges: (n: number) => void;
+    onview: (v: [number, number]) => void; oncursor: (line: number) => void; onhover: (line: number) => void; onchanges: (n: number, at: number) => void;
   } = $props();
 
   // ---- buffers --------------------------------------------------------------------------
@@ -59,6 +59,7 @@
         languageFor(p), look, changeBars(), wantMarks.field, boxMarks.field,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) markDirty();
+          if (u.selectionSet || u.docChanged) reportChanges();
           if (u.selectionSet && (u.transactions.some((t) => t.isUserEvent("select") || t.isUserEvent("input") || t.isUserEvent("delete")) || u.view.hasFocus))
             oncursor(u.state.doc.lineAt(u.state.selection.main.head).number);
           if (u.docChanged || u.viewportChanged || u.geometryChanged) reportView();
@@ -152,7 +153,7 @@
 
   // vim's :w, :q, :wq, :x act on whichever editor is showing (there's one).
   const closeShown = () => { const i = ui.tabs.findIndex((t) => t.kind === "file" && t.path === shown); if (i > 0) closeTab(i); };
-  const api_ = { save, closeShown };
+  const api_ = { save, closeShown, jump: (d: 1 | -1) => jump(d) };
   if (!(window as any).__cockpitVim) {
     (window as any).__cockpitVim = true;
     const me = () => (window as any).__cockpitEditor as typeof api_;
@@ -160,6 +161,11 @@
     Vim.defineEx("quit", "q", () => { me()?.closeShown(); });
     Vim.defineEx("wq", "wq", async () => { if (await me()?.save()) me()?.closeShown(); });
     Vim.defineEx("xit", "x", async () => { if (await me()?.save()) me()?.closeShown(); });
+    // ]c and [c: next and previous change, as in vim's diff mode.
+    Vim.defineAction("nextChange", () => { me()?.jump(1); });
+    Vim.defineAction("prevChange", () => { me()?.jump(-1); });
+    Vim.mapCommand("]c", "action", "nextChange", {}, { context: "normal" });
+    Vim.mapCommand("[c", "action", "prevChange", {}, { context: "normal" });
   }
 
   // Vim keys on or off (the header's "vim" button): every buffer follows.
@@ -176,6 +182,16 @@
   export const isSaving = () => saving;
   export function saveNow() { return save(); }
 
+  // How many changes, and which one the cursor is on (the last one starting at or above it; 0 above all).
+  function reportChanges() {
+    if (!view) return;
+    const doc = view.state.doc, cur = doc.lineAt(view.state.selection.main.head).number;
+    const starts = changeStarts(view).map((s) => doc.lineAt(s).number);
+    let at = 0;
+    starts.forEach((n, i) => { if (n <= cur) at = i + 1; });
+    onchanges(starts.length, at);
+  }
+
   // ---- what the rest of the page sees: lines on screen, the line you're on, the changes ---------
   let raf = 0;
   function reportView() {
@@ -185,15 +201,19 @@
       const top = view.scrollDOM.scrollTop, h = view.scrollDOM.clientHeight, doc = view.state.doc;
       const lo = doc.lineAt(view.lineBlockAtHeight(top).from).number, hi = doc.lineAt(view.lineBlockAtHeight(top + h - 1).from).number;
       onview([lo, hi]);
-      onchanges(changeStarts(view).length);
+      reportChanges();
     });
   }
+  // The next or previous change from the cursor, wrapping around at the ends; the cursor goes there.
   export function jump(dir: 1 | -1) {
     if (!view) return;
-    const here = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 40).from;
-    const starts = changeStarts(view);
-    const to = dir > 0 ? starts.find((s) => s > here + 1) ?? starts[0] : [...starts].reverse().find((s) => s < here - 1) ?? starts.at(-1);
-    if (to != null) view.dispatch({ selection: { anchor: to }, effects: EditorView.scrollIntoView(to, { y: "center" }) });
+    const doc = view.state.doc, line = doc.lineAt(view.state.selection.main.head);
+    const starts = changeStarts(view).map((s) => doc.lineAt(s).number);
+    if (!starts.length) return;
+    const to = dir > 0 ? starts.find((n) => n > line.number) ?? starts[0] : [...starts].reverse().find((n) => n < line.number) ?? starts.at(-1)!;
+    const pos = doc.line(to).from;
+    view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "center" }), userEvent: "select" });
+    view.focus();
   }
   export function scrollToLine(n: number) {
     if (!view) return;
