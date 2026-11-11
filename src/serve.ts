@@ -42,6 +42,13 @@ const tryGit = (...a: string[]) => {
   } catch (e: any) { return String(e.stdout ?? "").trimEnd(); }
 };
 
+// Git that must work: throws with git's own message (for staging and committing from the page).
+const runGit = (args: string[], input?: string) => {
+  try {
+    return execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, input, stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"] }).trimEnd();
+  } catch (e: any) { throw new Error(String(e.stderr || e.stdout || e.message).trim().split("\n").slice(-6).join("\n")); }
+};
+
 // ---- files ---------------------------------------------------------------
 
 const listFiles = () => tryGit("ls-files", "--cached", "--others", "--exclude-standard").split("\n").filter(Boolean).sort();
@@ -110,6 +117,34 @@ function gitHead() {
   const [behind, ahead] = upstream ? tryGit("rev-list", "--left-right", "--count", "@{u}...HEAD").split(/\s+/).map(Number) : [0, 0];
   return { branch, head: tryGit("rev-parse", "--short", "HEAD"), upstream, ahead, behind };
 }
+// Staging and committing from the git tab. Only paths git reports as changed can be (un)staged.
+function stagePaths(paths: unknown, stage: boolean) {
+  if (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === "string")) throw new Error("expected paths");
+  const known = new Set(gitStatus().map((s) => s.path));
+  const bad = (paths as string[]).filter((p) => !known.has(p));
+  if (bad.length) throw new Error("not changed: " + bad.join(", "));
+  if (stage) runGit(["add", "-A", "--", ...(paths as string[])]);
+  else if (tryGit("rev-parse", "-q", "--verify", "HEAD")) runGit(["restore", "--staged", "--", ...(paths as string[])]);
+  else runGit(["rm", "-r", "-q", "--cached", "--", ...(paths as string[])]); // no commit yet
+}
+function commitStaged(message: unknown) {
+  if (typeof message !== "string" || !message.trim()) throw new Error("write a commit message");
+  if (!gitStatus().some((s) => s.x !== " " && s.x !== "?")) throw new Error("nothing staged");
+  runGit(["commit", "-q", "-F", "-"], message.trim() + "\n");
+  return { head: tryGit("rev-parse", "--short", "HEAD") };
+}
+// Lines added and removed per file, staged and not (binary files count as -1).
+function numstat() {
+  const parse = (out: string) => {
+    const r: Record<string, [number, number]> = {};
+    // A rename is "old => new" or "dir/{old => new}/rest": keep the new path.
+    const newPath = (p: string) => p.includes("{") ? p.replace(/\{[^{}]* => ([^{}]*)\}/, "$1").replace(/\/\//g, "/") : p.replace(/^.* => /, "");
+    for (const l of out.split("\n")) { const m = /^(-|\d+)\t(-|\d+)\t(.*)$/.exec(l); if (m) r[newPath(m[3])] = [m[1] === "-" ? -1 : +m[1], m[2] === "-" ? -1 : +m[2]]; }
+    return r;
+  };
+  return { staged: parse(tryGit("diff", "--cached", "--numstat")), unstaged: parse(tryGit("diff", "--numstat")) };
+}
+
 // Commits of all branches, newest first, with parents: the page draws the graph.
 function gitGraph() {
   return tryGit("log", "--branches", "--remotes", "--tags", "--topo-order", "-n", "200", "--format=%H%x1f%P%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%D")
@@ -384,6 +419,10 @@ const routes: Record<string, Handler> = {
   "GET /api/state": (_req, res) => json(res, current),
   "GET /api/file": (_req, res, url) => { try { json(res, readSource(q(url, "path"), q(url, "review") === "1")); } catch (e) { json(res, { error: String(e) }, 400); } },
   "GET /api/git/graph": (_req, res) => json(res, gitGraph()),
+  "GET /api/git/numstat": (_req, res) => json(res, numstat()),
+  "POST /api/git/stage": post(({ paths }) => { stagePaths(paths, true); recompute(); }),
+  "POST /api/git/unstage": post(({ paths }) => { stagePaths(paths, false); recompute(); }),
+  "POST /api/git/commit": post(({ message }) => { const r = commitStaged(message); recompute(); return r; }),
   "GET /api/git/commit": (_req, res, url) => (/^[0-9a-f]{4,40}$/.test(q(url, "sha")) ? json(res, commitPatch(q(url, "sha"))) : json(res, { error: "bad sha" }, 400)),
   // A web link (from the chat, say) in your browser: the desktop app's window can't open one itself.
   // Another project of the workspace, in its own window of the desktop app.

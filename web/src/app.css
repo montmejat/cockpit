@@ -421,3 +421,19 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 .econflict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px;background:color-mix(in oklab,var(--warn) 14%,var(--card));border-bottom:1px solid var(--line);font-size:12px}
 .econflict.bad{background:color-mix(in oklab,var(--bad) 14%,var(--card))}
 #tabbar .unsaved{color:var(--accent);font-size:10px;margin-left:4px}
+/* git tab: commit box, staged / changes */
+.commitbox{display:flex;flex-direction:column;gap:6px;margin:10px 0 4px}
+.commitbox textarea{font:inherit;font-size:12px;resize:vertical;min-height:38px;padding:5px 7px;border:1px solid var(--line);border-radius:5px;background:var(--card);color:var(--fg)}
+.commitbox textarea:focus{outline:none;border-color:var(--accent)}
+.commitbtn{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;padding:3px 8px}
+.commitbtn:disabled{background:var(--bg);color:var(--muted);border-color:var(--line);font-weight:400}
+.commitbox .err{margin:0;white-space:pre-wrap;font-size:11px;color:var(--bad)}
+.ghead{display:flex;align-items:center;gap:8px;margin-top:12px}.ghead h4{flex:1;margin:0}
+.gall{font-size:10.5px;padding:0 6px;color:var(--muted)}
+.gitrow{display:flex;align-items:center}.gitrow:hover,.gitrow.sel{background:var(--sel)}
+.gitrow .gitfile{flex:1;min-width:0;align-items:baseline}.gitrow .gitfile:hover{background:none}
+.gitrow .gname{flex:none}.gitrow .gdir{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.gitrow .gnum{margin-left:auto;flex:none;font-size:10.5px;display:flex;gap:4px;padding-left:6px}.gnum i{font-style:normal}.gnum .a{color:var(--add)}.gnum .d{color:var(--del)}
+.gact{visibility:hidden;flex:none;width:22px;padding:0;margin-right:8px;font-size:13px;line-height:16px;border-radius:4px}
+.gitrow:hover .gact{visibility:visible}
+.mark.C{color:var(--bad)}.mark.R{color:var(--rev)}

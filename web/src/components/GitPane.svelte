@@ -1,9 +1,10 @@
 <script lang="ts">
-  // Git, read only: the branch and how it stands against its upstream, what isn't committed, and
-  // the history of all branches as a graph.
+  // Git: the branch and how it stands against its upstream; what isn't committed, split like VS
+  // Code into staged and not (+ / − on a file stages or unstages it), with a commit box over the
+  // staged files (Ctrl+Enter commits); and the history of all branches as a graph.
   import { api } from "../lib/code";
   import { graphRows, graphSvg } from "../lib/graph";
-  import { cur, openCommit, openFile, S, statusOf } from "../lib/state.svelte";
+  import { cur, openCommit, openFile, S } from "../lib/state.svelte";
   import type { Commit, MergeRequest } from "../lib/types";
 
   let commits: Commit[] | null = $state(null);
@@ -37,7 +38,43 @@
   const stop = (back: boolean) => act(back ? "going back…" : "", "api/review/stop", { back });
   const R = $derived(S.review);
   const ST: Record<string, string> = { A: "A", M: "M", D: "D", T: "M" };
+
+  // ---- staged and not --------------------------------------------------------------
+  // git status: x = the index (staged), y = the working tree; "??" untracked; U/AA/DD conflicts.
+  const conflicted = (f: { x: string; y: string }) => f.x === "U" || f.y === "U" || (f.x === "A" && f.y === "A") || (f.x === "D" && f.y === "D");
+  const conflicts = $derived(S.status.filter(conflicted));
+  const staged = $derived(S.status.filter((f) => !conflicted(f) && f.x !== " " && f.x !== "?"));
+  const unstaged = $derived(S.status.filter((f) => !conflicted(f) && (f.y !== " " || f.x === "?")));
+  const letter = (c: string) => (c === "?" ? "A" : c === "T" ? "M" : c === "C" ? "A" : c);
+  let counts = $state<{ staged: Record<string, [number, number]>; unstaged: Record<string, [number, number]> }>({ staged: {}, unstaged: {} });
+  $effect(() => { void S.status; void S.fileRevs; api.get("api/git/numstat").then((r) => (counts = r)).catch(() => {}); });
+  let message = $state(""), gitBusy = $state(false), gitErr = $state("");
+  async function git(path: string, body: unknown) {
+    gitBusy = true; gitErr = "";
+    const r = await api.post(path, body).catch((e) => ({ error: String(e) }));
+    gitBusy = false;
+    if (r?.error) { gitErr = r.error; return false; }
+    return true;
+  }
+  const stage = (paths: string[]) => git("api/git/stage", { paths });
+  const unstage = (paths: string[]) => git("api/git/unstage", { paths });
+  async function commit() {
+    if (!message.trim() || !staged.length || gitBusy) return;
+    if (await git("api/git/commit", { message })) message = "";
+  }
+  const nameOf = (p: string) => p.split("/").pop()!;
+  const dirOf = (p: string) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
 </script>
+
+{#snippet row(f: { path: string }, mark: string, n: [number, number] | undefined, act: "+" | "−")}
+  <div class="gitrow" class:sel={cur().kind === "file" && (cur() as { path: string }).path === f.path}>
+    <button class="gitfile" onclick={() => openFile(f.path)} title={f.path}>
+      <span class="mark {mark}">{mark}</span><span class="gname">{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>
+      {#if n}<span class="gnum">{#if n[0] < 0}bin{:else}{#if n[0]}<i class="a">+{n[0]}</i>{/if}{#if n[1]}<i class="d">−{n[1]}</i>{/if}{/if}</span>{/if}
+    </button>
+    <button class="gact" disabled={gitBusy} title={act === "+" ? "Stage" : "Unstage"} onclick={() => (act === "+" ? stage([f.path]) : unstage([f.path]))}>{act}</button>
+  </div>
+{/snippet}
 
 <div class="gitpane">
   <div class="sec">
@@ -89,12 +126,21 @@
       <button class="gitfile" onclick={() => openFile(f.path)} title={f.path}><span class="mark rev {ST[f.st] ?? f.st}">{ST[f.st] ?? f.st}</span>{f.path}</button>
     {/each}
   {/if}
-  <div class="sec"><h4>not committed{S.status.length ? " · " + S.status.length : ""}</h4></div>
-  {#each S.status as f (f.path)}
-    <button class="gitfile" onclick={() => openFile(f.path)} title={f.path}><span class="mark {statusOf(f.path)}">{statusOf(f.path)}</span>{f.path}</button>
-  {:else}
-    <div class="sec muted">clean</div>
-  {/each}
+  <div class="sec commitbox">
+    <textarea rows="2" bind:value={message} disabled={gitBusy} placeholder={staged.length ? `Message (Ctrl+Enter commits ${staged.length} staged file${staged.length > 1 ? "s" : ""})` : "Message (stage files first)"}
+      onkeydown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); commit(); } }}></textarea>
+    <button class="commitbtn" disabled={gitBusy || !staged.length || !message.trim()} onclick={commit}
+      title={!staged.length ? "Nothing staged" : !message.trim() ? "Write a message first" : "Commit the staged files"}>{gitBusy ? "…" : "✓ commit"}{staged.length ? ` (${staged.length})` : ""}</button>
+    {#if gitErr}<pre class="err">{gitErr}</pre>{/if}
+  </div>
+  {#if conflicts.length}
+    <div class="sec ghead"><h4>conflicts · {conflicts.length}</h4></div>
+    {#each conflicts as f (f.path)}{@render row(f, "C", undefined, "+")}{/each}
+  {/if}
+  <div class="sec ghead"><h4>staged{staged.length ? " · " + staged.length : ""}</h4>{#if staged.length}<button class="gall" disabled={gitBusy} onclick={() => unstage(staged.map((f) => f.path))}>unstage all</button>{/if}</div>
+  {#each staged as f (f.path)}{@render row(f, letter(f.x), counts.staged[f.path], "−")}{:else}<div class="sec muted">nothing staged</div>{/each}
+  <div class="sec ghead"><h4>changes{unstaged.length ? " · " + unstaged.length : ""}</h4>{#if unstaged.length}<button class="gall" disabled={gitBusy} onclick={() => stage(unstaged.map((f) => f.path))}>stage all</button>{/if}</div>
+  {#each unstaged as f (f.path)}{@render row(f, letter(f.x === "?" ? "?" : f.y), counts.unstaged[f.path], "+")}{:else}<div class="sec muted">{S.status.length ? "everything is staged" : "clean"}</div>{/each}
   <div class="sec"><h4>history</h4></div>
   {#if !commits}<div class="sec muted">loading…</div>{/if}
   <div class="graph">
