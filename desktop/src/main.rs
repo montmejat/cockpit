@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_window_state::StateFlags;
 
 /// Process id of the running server, 0 when none.
 static SERVER: AtomicI32 = AtomicI32::new(0);
@@ -183,6 +184,12 @@ fn run(app: tauri::AppHandle, win: WebviewWindow) -> Result<(), String> {
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        // The window opens where you left it, at the size you left it (and maximized if it was).
+        // Saved on close, in the app's config dir. Wayland doesn't let an app place its own window,
+        // so there only the size and maximized state come back.
+        .plugin(tauri_plugin_window_state::Builder::new()
+            .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN)
+            .build())
         .setup(|app| {
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("cockpit")
