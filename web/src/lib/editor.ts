@@ -122,6 +122,11 @@ export const look: Extension = [
     ".cm-chg.mod": { background: "var(--accent)" },
     ".cm-chg.del": { background: "var(--del)", opacity: ".6", top: "-2px", bottom: "auto", height: "4px" },
     ".cm-chg.click": { cursor: "pointer" },
+    ".cm-hunk": { borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)", margin: "2px 0" },
+    ".cm-hunkbar": { display: "flex", alignItems: "center", gap: "8px", padding: "1px 8px", fontSize: "11px", color: "var(--muted)", backgroundColor: "var(--bg)", fontFamily: "inherit" },
+    ".cm-hunkbar button": { font: "inherit", fontSize: "11px", padding: "0 6px", cursor: "pointer", color: "var(--fg)", background: "var(--card)", border: "1px solid var(--line)", borderRadius: "4px" },
+    ".cm-hunkbar button:first-of-type:hover": { borderColor: "var(--del)", color: "var(--del)" },
+    ".cm-hunkbar button:last-of-type": { marginLeft: "auto", border: "0", background: "none", color: "var(--muted)" },
     ".cm-chg.click:hover": { width: "6px" },
     ".cm-removed": { backgroundColor: "var(--del-bg)", whiteSpace: "pre", padding: "0 6px 0 2px", color: "var(--fg)" },
   }),
@@ -132,9 +137,10 @@ export const look: Extension = [
 class Bar extends GutterMarker {
   constructor(readonly kind: "add" | "mod" | "del", readonly hunk: Hunk) { super(); }
   eq(o: Bar) { return o.kind === this.kind && o.hunk === this.hunk; }
-  toDOM() { const s = document.createElement("span"); s.className = "cm-chg " + this.kind + (this.hunk.removed.length ? " click" : ""); return s; }
+  toDOM() { const s = document.createElement("span"); s.className = "cm-chg click " + this.kind; s.title = "Show this change (old lines, revert)"; return s; }
 }
 export const setHunks = StateEffect.define<Hunk[]>();
+const dropHunk = StateEffect.define<Hunk>(); // a reverted change: its bars and strip go
 export const toggleRemoved = StateEffect.define<{ hunk?: Hunk; all?: boolean }>();
 const lineStart = (doc: Text, n: number) => (n <= doc.lines ? doc.line(n).from : doc.length);
 
@@ -150,26 +156,70 @@ const barsField = StateField.define<RangeSet<Bar>>({
       }
       return RangeSet.of(ranges, true);
     }
-    return set.map(tr.changes);
+    set = set.map(tr.changes);
+    for (const e of tr.effects) if (e.is(dropHunk)) set = set.update({ filter: (_f, _t, m) => m.hunk !== e.value });
+    return set;
   },
 });
 
-// Removed lines shown under a bar: per hunk, or all of them ("show removed").
+// Revert one change in the buffer: its lines back to what the last commit has. Undoable; it
+// reaches the file when you save.
+function revert(view: EditorView, h: Hunk) {
+  const doc = view.state.doc, lines: number[] = [];
+  view.state.field(barsField).between(0, doc.length, (from, _to, m) => { if (m.hunk === h) lines.push(doc.lineAt(from).number); });
+  const old = h.removed.join("\n");
+  let change: { from: number; to: number; insert: string };
+  if (!h.added) {
+    // Lines were removed here: put them back above the line the mark is on (or at the end).
+    const at = lines[0] ?? h.at;
+    change = at > doc.lines || (lines.length === 0 && h.at > doc.lines)
+      ? { from: doc.length, to: doc.length, insert: "\n" + old }
+      : { from: doc.line(at).from, to: doc.line(at).from, insert: old + "\n" };
+  } else {
+    if (!lines.length) return;
+    const first = doc.line(Math.min(...lines)), last = doc.line(Math.max(...lines));
+    if (h.removed.length) change = { from: first.from, to: last.to, insert: old };
+    // Added lines only: take them out, with their line breaks.
+    else if (last.number < doc.lines) change = { from: first.from, to: last.to + 1, insert: "" };
+    else change = { from: Math.max(0, first.from - 1), to: last.to, insert: "" };
+  }
+  view.dispatch({ changes: change, effects: dropHunk.of(h), userEvent: "input.revert" });
+  view.focus();
+}
+
+// The strip above a change: a revert button, then the removed lines. Opened by clicking the
+// change's bar; "show removed" opens it on every change that removed lines.
 class Removed extends WidgetType {
-  constructor(readonly lines: string[]) { super(); }
-  eq(o: Removed) { return o.lines.join("\n") === this.lines.join("\n"); }
-  toDOM() {
-    const d = document.createElement("div");
-    for (const l of this.lines) { const r = document.createElement("div"); r.className = "cm-removed"; r.textContent = l || " "; d.append(r); }
+  constructor(readonly hunk: Hunk) { super(); }
+  eq(o: Removed) { return o.hunk === this.hunk; }
+  toDOM(view: EditorView) {
+    const d = document.createElement("div"), h = this.hunk;
+    d.className = "cm-hunk";
+    const bar = document.createElement("div");
+    bar.className = "cm-hunkbar";
+    const what = document.createElement("span");
+    what.textContent = !h.added ? `${h.removed.length} line${h.removed.length > 1 ? "s" : ""} removed`
+      : !h.removed.length ? `${h.added} line${h.added > 1 ? "s" : ""} added` : `${h.removed.length} line${h.removed.length > 1 ? "s" : ""} changed` + (h.added !== h.removed.length ? ` to ${h.added}` : "");
+    const b = document.createElement("button");
+    b.textContent = "revert";
+    b.title = "Put back what the last commit has here (u undoes it; :w or Ctrl+S saves it)";
+    b.onmousedown = (e) => { e.preventDefault(); revert(view, h); };
+    const x = document.createElement("button");
+    x.textContent = "×"; x.title = "Close";
+    x.onmousedown = (e) => { e.preventDefault(); view.dispatch({ effects: toggleRemoved.of({ hunk: h }) }); };
+    bar.append(what, b, x);
+    d.append(bar);
+    for (const l of h.removed) { const r = document.createElement("div"); r.className = "cm-removed"; r.textContent = l || " "; d.append(r); }
     return d;
   }
-  ignoreEvent() { return false; }
+  ignoreEvent() { return true; }
 }
 const openField = StateField.define<{ open: Set<Hunk>; all: boolean; hunks: Hunk[] }>({
   create: () => ({ open: new Set(), all: false, hunks: [] }),
   update(v, tr) {
     for (const e of tr.effects) {
       if (e.is(setHunks)) v = { ...v, hunks: e.value, open: new Set([...v.open].filter((h) => e.value.includes(h))) };
+      if (e.is(dropHunk)) v = { ...v, hunks: v.hunks.filter((h) => h !== e.value), open: new Set([...v.open].filter((h) => h !== e.value)) };
       if (e.is(toggleRemoved)) {
         if (e.value.all != null) v = { ...v, all: e.value.all };
         else if (e.value.hunk) { const h = e.value.hunk, open = new Set(v.open); if (open.has(h)) open.delete(h); else open.add(h); v = { ...v, open }; }
@@ -181,16 +231,16 @@ const openField = StateField.define<{ open: Set<Hunk>; all: boolean; hunks: Hunk
 const removedField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
   update(set, tr) {
-    if (!tr.effects.some((e) => e.is(setHunks) || e.is(toggleRemoved))) return set.map(tr.changes);
+    if (!tr.effects.some((e) => e.is(setHunks) || e.is(toggleRemoved) || e.is(dropHunk))) return set.map(tr.changes);
     const { open, all, hunks } = tr.state.field(openField), doc = tr.state.doc;
     // Placed where the bars are now, so they follow your edits.
     const at = new Map<Hunk, number>();
     tr.state.field(barsField).between(0, doc.length, (from, _to, m) => { if (!at.has(m.hunk)) at.set(m.hunk, from); });
-    const ds = hunks.filter((h) => h.removed.length && (all || open.has(h)))
+    const ds = hunks.filter((h) => open.has(h) || (all && h.removed.length))
       // Lines removed at the very end go after the last line; the others above their line.
       .map((h) => (h.at > doc.lines
-        ? Decoration.widget({ widget: new Removed(h.removed), block: true, side: 1 }).range(doc.length)
-        : Decoration.widget({ widget: new Removed(h.removed), block: true, side: -1 }).range(at.get(h) ?? lineStart(doc, h.at))))
+        ? Decoration.widget({ widget: new Removed(h), block: true, side: 1 }).range(doc.length)
+        : Decoration.widget({ widget: new Removed(h), block: true, side: -1 }).range(at.get(h) ?? lineStart(doc, h.at))))
       .sort((a, b) => a.from - b.from);
     return Decoration.set(ds);
   },
@@ -206,7 +256,7 @@ export function changeBars(): Extension {
       domEventHandlers: {
         mousedown(view, line) {
           let hit: Hunk | null = null;
-          view.state.field(barsField).between(line.from, line.from, (_f, _t, m) => { if (m.hunk.removed.length) hit = m.hunk; });
+          view.state.field(barsField).between(line.from, line.from, (_f, _t, m) => { hit = m.hunk; });
           if (!hit) return false;
           view.dispatch({ effects: toggleRemoved.of({ hunk: hit }) });
           return true;

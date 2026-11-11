@@ -2,7 +2,7 @@
   // The open file or commit, in the center.
   //   A file opens in the editor (FileEditor.svelte, vim keys): its uncommitted changes show in place,
   //   a bar in the margin by lines added (green) or changed (blue), a red mark where lines were
-  //   removed. Click a mark to see the old lines; "show removed" shows them all. It follows the file
+  //   removed. Click a mark to see the old lines and revert that change; "show removed" shows them all. It follows the file
   //   live while an agent edits it, as long as you have no unsaved changes.
   //   A commit shows its patch.
   import MiniMap from "./MiniMap.svelte";
