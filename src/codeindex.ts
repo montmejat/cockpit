@@ -7,7 +7,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { detectLang, findCompileDbs, type IndexConfig, indexProject, indexProjectAsync, isIndexedSource, readIndexConfig, skeletonFrom } from "./indexer.ts";
-import type { Lang, Skeleton } from "./skeleton.ts";
+import { type Lang, type Skeleton, SKELETON_VERSION } from "./skeleton.ts";
 import { outDir, PROTO } from "./turns.ts";
 
 const EMPTY = (root: string, lang?: Lang): Skeleton => ({ root, lang, crates: [], modules: [], edges: [] });
@@ -39,24 +39,26 @@ function indexFiles(root: string, name: string) {
   const config = readIndexConfig(name);
   const stale = () => {
     if (!lang) return false;
-    const started = existsSync(scip) && existsSync(stamp) ? Number(readFileSync(stamp, "utf8")) || 0 : 0;
+    // The stamp is "<start time> v<skeleton version>": an index from an older reader or scanner is stale too.
+    const [t, v] = existsSync(scip) && existsSync(stamp) ? readFileSync(stamp, "utf8").trim().split(" ") : [];
+    const started = v === `v${SKELETON_VERSION}` ? Number(t) || 0 : 0;
     return started <= newestSource(root, lang, config);
   };
   const begin = () => ({ t: Date.now(), tmp: scip.replace(/\.scip$/, `.${process.pid}.scip`) });
-  const finish = (t: number, tmp: string) => { renameSync(tmp, scip); writeFileSync(stamp, String(t)); };
+  const finish = (t: number, tmp: string) => { renameSync(tmp, scip); writeFileSync(stamp, `${t} v${SKELETON_VERSION}`); };
   const cleanup = (tmp: string) => { rmSync(tmp, { force: true }); rmSync(tmp.replace(/\.scip$/, ".compile_commands.json"), { force: true }); };
   return { scip, lang, config, stale, begin, finish, cleanup };
 }
 
-const toolOf = (lang: Lang, config: IndexConfig) => (lang === "rust" ? "rust-analyzer" : `scip-clang${config.image ? ` in ${config.image}` : ""}`);
+const toolOf = (lang: Lang, config: IndexConfig) => (lang === "rust" ? "rust-analyzer" : lang === "zig" ? "the Zig scanner" : `scip-clang${config.image ? ` in ${config.image}` : ""}`);
 
 export function createIndex(root: string, name: string, log: (s: string) => void = console.log) {
   const f = indexFiles(root, name);
-  if (!f.lang) log(`index: ${root} has no Cargo.toml (Rust) or CMakeLists.txt (C/C++): no code index`);
+  if (!f.lang) log(`index: ${root} has no Cargo.toml (Rust), build.zig (Zig) or CMakeLists.txt (C/C++): no code index`);
   const read = () => {
     try {
       const sk = skeletonFrom(f.lang!, root, f.scip, PROTO);
-      log(`index: ${sk.crates.length} ${f.lang === "cpp" ? "projects" : "crates"}, ${sk.modules.length} modules`);
+      log(`index: ${sk.crates.length} ${f.lang === "cpp" ? "projects" : f.lang === "zig" ? "packages" : "crates"}, ${sk.modules.length} modules`);
       return sk;
     } catch (e) { log(`index: could not read (${e})`); return EMPTY(root, f.lang ?? undefined); }
   };
@@ -111,7 +113,7 @@ export function createIndex(root: string, name: string, log: (s: string) => void
 // For one-off tools: the index of the working copy, built now if needed.
 export function indexNow(root: string, name: string, log: (s: string) => void = () => {}): Skeleton {
   const f = indexFiles(root, name);
-  if (!f.lang) throw new Error(`${root}: no Cargo.toml (Rust) or CMakeLists.txt (C/C++) found`);
+  if (!f.lang) throw new Error(`${root}: no Cargo.toml (Rust), build.zig (Zig) or CMakeLists.txt (C/C++) found`);
   if (f.stale()) {
     log(`indexing with ${toolOf(f.lang, f.config)}…`);
     const { t, tmp } = f.begin();

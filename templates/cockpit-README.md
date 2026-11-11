@@ -36,6 +36,9 @@ prints them: `crate/module`, `crate/module::Item`
 or `crate/module::Type::method`. The crate root module is just the crate, e.g. `game::main`.
 In C/C++ a module is one file: `<CMake project>/<path inside it, without src/ or include/>`,
 e.g. `engine/World.hpp`, `engine/World.cpp::World::step`, `net/Socket.hpp::Socket`.
+In Zig a module is one file: `<package>/<path inside src/, without .zig>`, and a file is a struct, so
+its own functions hang off the module: `ghostty/terminal/Terminal::print`, `ghostty/Surface::init`,
+a nested type `ghostty/renderer/generic::Renderer::drawFrame`.
 
 ## Summary
 
@@ -50,7 +53,9 @@ the list, in cockpit. Each feature: `{"id", "name", "status", "description", "mo
   know where the project stands.
 - `modules`: the modules that make it. A module can serve several features (the UI usually
   does). Every module serves at least one feature, except test code (marked `[test]` in the
-  module list): cockpit shows tests on their own.
+  module list): cockpit shows tests on their own. A folder module covers the modules under it:
+  listing `ghostty/font` covers `ghostty/font/Atlas`, so in a big project list folders and
+  name single files only where a folder would claim too much.
 - `note`: one line on what's missing or wrong. Required for `partial` and `broken`.
 - Ids are short kebab-case and stable: edit features, don't rename them.
 

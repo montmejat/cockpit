@@ -147,14 +147,14 @@ const dlayoutPath = join(root, ARCH_DIR, "layout.json");
 const readDLayout = () => { try { return existsSync(dlayoutPath) ? JSON.parse(readFileSync(dlayoutPath, "utf8")) : {}; } catch { return {}; } };
 
 // What is tested, by name. Rust: #[test] functions inside each module and in the integration
-// test files (tests/*.rs). C/C++: test files (*_test.cpp, test_*.cpp, *Test.cpp, or anything
+// test files (tests/*.rs). Zig: the test "…" blocks in each file. C/C++: test files (*_test.cpp, test_*.cpp, *Test.cpp, or anything
 // under a test/ dir), with their GoogleTest / Catch2 / Boost.Test cases, else their test_*() functions
 // (plain main() tests), else the file as one test.
 const CXX_TEST_FILE = /(^|\/)(tests?\/.*|[^/]*[_-]test|test_[^/]*|[^/]*Tests?)\.(c|cc|cpp|cxx)$/;
 const CXX_TEST_FN = /^[ \t]*(?:static\s+)?(?:inline\s+)?void\s+(test_?\w*)\s*\(\s*(?:void)?\s*\)\s*\{/gm;
 const CXX_TEST_CASE = /^[ \t]*(?:TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE|SCENARIO|BOOST_AUTO_TEST_CASE|BOOST_FIXTURE_TEST_CASE)\s*\(\s*([^)]*)\)/gm;
 function testsOf(sk: Skeleton, files: string[]) {
-  const unit = sk.modules.map((m) => ({ module: m.id, file: m.file, crate: m.crate, tests: m.items.filter((i) => i.test && i.kind === "Function").map((i) => ({ name: i.name, line: i.line })) }));
+  const unit = sk.modules.map((m) => ({ module: m.id, file: m.file, crate: m.crate, tests: m.items.filter((i) => i.test && (i.kind === "Function" || i.kind === "Test")).map((i) => ({ name: i.name, line: i.line })) }));
   const integration = files.filter((f) => /(^|\/)tests\/.*\.rs$/.test(f)).flatMap((file) => {
     try {
       const text = readFileSync(join(root, file), "utf8"), tests: { name: string; line: number }[] = [];

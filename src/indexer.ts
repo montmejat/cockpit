@@ -1,6 +1,8 @@
 // Turns a project into a SCIP index and a skeleton, whatever its language.
 //   Rust: rust-analyzer scip
 //   C/C++: scip-clang over the project's compile_commands.json files, merged into one.
+//   Zig: no indexer; cockpit scans the sources itself (skeleton-zig.ts) and stores the skeleton
+//        as JSON where the SCIP file would be.
 //
 // C++ needs the compiler's view of the code (include paths, defines), so it reads the compile
 // databases the build already writes (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON). When those
@@ -17,6 +19,7 @@ import { basename, delimiter, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { buildSkeleton, type Lang, type Skeleton } from "./skeleton.ts";
 import { buildCppSkeleton, CXX_SOURCE } from "./skeleton-cpp.ts";
+import { buildZigSkeleton, ZIG_SOURCE } from "./skeleton-zig.ts";
 import { dataDir } from "./turns.ts";
 import { workspaceOf } from "./workspace.ts";
 
@@ -29,9 +32,11 @@ export function readIndexConfig(project: string): IndexConfig {
   return cfg;
 }
 
-// Rust when there's a Cargo.toml at the top; C/C++ when there's CMake or a compile database.
+// Rust when there's a Cargo.toml at the top; Zig with a build.zig (before CMake: a Zig project
+// may build some C with CMake too); C/C++ when there's CMake or a compile database.
 export function detectLang(root: string): Lang | null {
   if (existsSync(join(root, "Cargo.toml"))) return "rust";
+  if (existsSync(join(root, "build.zig"))) return "zig";
   if (existsSync(join(root, "CMakeLists.txt")) || existsSync(join(root, "compile_commands.json"))) return "cpp";
   for (const d of readdirSync(root, { withFileTypes: true }))
     if (d.isDirectory() && !d.name.startsWith(".") && existsSync(join(root, d.name, "CMakeLists.txt"))) return "cpp";
@@ -41,6 +46,7 @@ export function detectLang(root: string): Lang | null {
 // Files whose change makes the index stale.
 export function isIndexedSource(lang: Lang, path: string): boolean {
   if (lang === "rust") return !/(^|\/)target\//.test(path) && (path.endsWith(".rs") || path.endsWith("Cargo.toml"));
+  if (lang === "zig") return ZIG_SOURCE.test(path) && !/(^|\/)(zig-out|\.zig-cache|zig-cache)\//.test(path);
   return CXX_SOURCE.test(path) || /(^|\/)CMakeLists\.txt$|\.cmake$/.test(path);
 }
 
@@ -130,6 +136,7 @@ const failed = (r: Run, e: any) => new Error(`${r.tool} failed: ${String(e.stder
 
 // Index now, blocking: for one-off tools and turn snapshots.
 export function indexProject(lang: Lang, dir: string, scip: string, opts: { repo?: string; config?: IndexConfig } = {}) {
+  if (lang === "zig") return writeFileSync(scip, JSON.stringify(buildZigSkeleton(dir)));
   const r = indexCommand(lang, dir, scip, opts);
   try { execFileSync(r.cmd, r.args, { cwd: r.cwd, env: r.env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 << 20 }); }
   catch (e) { throw failed(r, e); }
@@ -137,6 +144,7 @@ export function indexProject(lang: Lang, dir: string, scip: string, opts: { repo
 
 // Index in the background, so a server keeps answering while the indexer runs (minutes for C++).
 export function indexProjectAsync(lang: Lang, dir: string, scip: string, opts: { repo?: string; config?: IndexConfig } = {}): Promise<void> {
+  if (lang === "zig") return new Promise((done, fail) => setImmediate(() => { try { indexProject(lang, dir, scip, opts); done(); } catch (e) { fail(e); } }));
   return new Promise((done, fail) => {
     let r: Run;
     try { r = indexCommand(lang, dir, scip, opts); } catch (e) { return fail(e); }
@@ -145,5 +153,6 @@ export function indexProjectAsync(lang: Lang, dir: string, scip: string, opts: {
 }
 
 export function skeletonFrom(lang: Lang, root: string, scip: string, proto: string): Skeleton {
+  if (lang === "zig") return { ...JSON.parse(readFileSync(scip, "utf8")), root };
   return lang === "rust" ? buildSkeleton(root, scip, proto) : buildCppSkeleton(root, scip, proto);
 }

@@ -48,10 +48,11 @@ export function isTestPath(path: string): boolean {
   return /^test_|[_-](test|spec)\.[^.]+$|[a-z0-9]Tests?\.[^.]+$/.test(name);
 }
 
-// Bump when the skeleton's shape or rules change, so cached skeletons are rebuilt.
-export const SKELETON_VERSION = 5;
+// Bump when the skeleton's shape or rules change (or the Zig scanner's), so cached skeletons and
+// indexes are rebuilt.
+export const SKELETON_VERSION = 7;
 
-export type Lang = "rust" | "cpp";
+export type Lang = "rust" | "cpp" | "zig";
 
 // How a diagram links to an item: "crate/module::Type::method" or "crate/module::item".
 export const itemKey = (mod: string, i: { owner?: string; name: string }) => `${mod}::${i.owner ? i.owner + "::" : ""}${i.name}`;

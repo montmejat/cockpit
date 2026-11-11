@@ -14,7 +14,7 @@ const sk = indexNow(root, basename(root));
 const f = filter?.toLowerCase();
 const mods = sk.modules.filter((m) => !f || m.id.toLowerCase().includes(f) || m.file.toLowerCase().includes(f));
 
-const group = sk.lang === "cpp" ? "project" : "crate";
+const group = sk.lang === "cpp" ? "project" : sk.lang === "zig" ? "package" : "crate";
 console.log(`${sk.modules.length} modules in ${sk.crates.length} ${group}s${f ? `, ${mods.length} matching "${filter}"` : ""}. Links are the ids below.`);
 console.log(`Test modules (marked [test]) need no feature.\n`);
 for (const c of sk.crates) {

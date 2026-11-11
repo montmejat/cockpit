@@ -103,12 +103,15 @@ export function checkArch(loaded: { arch: Architecture | null; problems: ArchPro
     if (f.status !== "planned" && !f.modules.length) p(w, `is ${f.status} but lists no modules`);
     if ((f.status === "partial" || f.status === "broken") && !f.note) p(w, `is ${f.status}: say what's missing or wrong in "note"`);
     for (const id of f.modules) {
-      if (!mods.has(id)) { const guess = closestLink(id, mods); p(w, `module "${id}" does not exist` + (guess ? `: did you mean "${guess}"?` : ` (module ids look like crate/module; for C++, project/path/File.hpp)`)); }
+      if (!mods.has(id)) { const guess = closestLink(id, mods); p(w, `module "${id}" does not exist` + (guess ? `: did you mean "${guess}"?` : ` (module ids look like crate/module; for C++, project/path/File.hpp; for Zig, package/path/File)`)); }
       served.add(id);
     }
   }
-  // Test code needs no feature: cockpit lists it in the tests view.
-  if (a.features.length) for (const m of sk.modules) if (!served.has(m.id) && !isTestPath(m.file)) p("features", `module "${m.id}" (${m.file}) serves no feature`);
+  // Test code needs no feature: cockpit lists it in the tests view. Nor do build scripts. A feature
+  // that lists a folder module (ghostty/font) covers the modules under it (ghostty/font/Atlas).
+  const covered = (id: string) => { for (let i = id.length; i > 0; i = id.lastIndexOf("/", i - 1)) if (served.has(id.slice(0, i))) return true; return false; };
+  const isBuild = (f: string) => /(^|\/)build\.zig$/.test(f);
+  if (a.features.length) for (const m of sk.modules) if (!covered(m.id) && !isTestPath(m.file) && !isBuild(m.file)) p("features", `module "${m.id}" (${m.file}) serves no feature`);
 
   // Diagrams: known kinds, real links, edges and zones that point at real nodes.
   if (a.diagrams.length && !a.diagrams.some((d) => d.kind === "loop")) p("diagrams", `no main loop: the first diagram is the program's main loop, kind "loop"`);
@@ -131,7 +134,7 @@ export function checkArch(loaded: { arch: Architecture | null; problems: ArchPro
       if (!n.zone && !n.outside && !n.start && !n.end && !n.anchors?.length) p(`${w} node ${n.id}`, `has no code links: add anchors, or mark it "outside" if it is not code`);
       for (const s of n.anchors ?? []) if (!symbols.has(s)) {
         const guess = closestLink(s, symbols);
-        p(`${w} node ${n.id}`, `link "${s}" matches no module or item` + (guess ? `: did you mean "${guess}"?` : ` (format: crate/module::Item or crate/module::Type::method; for C++, project/path/File.cpp::Type::method)`));
+        p(`${w} node ${n.id}`, `link "${s}" matches no module or item` + (guess ? `: did you mean "${guess}"?` : ` (format: crate/module::Item or crate/module::Type::method; for C++, project/path/File.cpp::Type::method; for Zig, package/path/File::Type::fn)`));
       }
     }
     for (const n of d.nodes) if (n.in && !d.nodes.some((z) => z.id === n.in && z.zone)) p(`${w} node ${n.id}`, `"in": "${n.in}" is not a zone of this diagram`);
@@ -157,11 +160,14 @@ export function closestLink(s: string, symbols: { has(k: string): boolean; keys(
     tries.add(parts.join("/"));
   }
   for (const t of tries) if (symbols.has(t)) return t;
-  // Same item name and parent anywhere: Type::method or Item.
-  const tail = s.split("::").slice(-2).join("::"), last = s.split("::").pop()!;
+  // Same item name and parent anywhere: Type::method or Item; first within the module the link
+  // names (generic::drawFrame -> generic::Renderer::drawFrame, not Metal's drawFrame).
+  const tail = s.split("::").slice(-2).join("::"), last = s.split("::").pop()!, mod = s.split("::")[0] + "::";
   for (const key of [tail, last]) {
     const hits = [...symbols.keys()].filter((x) => x.endsWith("::" + key) || x.endsWith("/" + key));
     if (hits.length === 1) return hits[0];
+    const inMod = hits.filter((x) => x.startsWith(mod));
+    if (inMod.length === 1) return inMod[0];
   }
   // A method cockpit doesn't index: link the type it belongs to.
   const parts = s.split("::");

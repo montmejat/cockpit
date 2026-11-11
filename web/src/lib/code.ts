@@ -15,13 +15,19 @@ import xml from "highlight.js/lib/languages/xml";
 import c from "highlight.js/lib/languages/c";
 import cpp from "highlight.js/lib/languages/cpp";
 import cmake from "highlight.js/lib/languages/cmake";
+import glsl from "highlight.js/lib/languages/glsl";
+import swift from "highlight.js/lib/languages/swift";
+import nix from "highlight.js/lib/languages/nix";
+import objectivec from "highlight.js/lib/languages/objectivec";
+import zig from "./lang/zig";
 
-for (const [n, l] of Object.entries({ rust, typescript, javascript, json, ini, markdown, yaml, bash, python, css, xml, c, cpp, cmake })) hljs.registerLanguage(n, l);
+for (const [n, l] of Object.entries({ rust, typescript, javascript, json, ini, markdown, yaml, bash, python, css, xml, c, cpp, cmake, glsl, swift, nix, objectivec, zig })) hljs.registerLanguage(n, l);
 
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const LANGS: Record<string, string> = { rs: "rust", ron: "rust", ts: "typescript", js: "javascript", svelte: "xml", json: "json", toml: "ini", md: "markdown", yml: "yaml", yaml: "yaml", sh: "bash", py: "python", css: "css", html: "xml",
-  c: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", h: "cpp", hh: "cpp", hpp: "cpp", hxx: "cpp", ipp: "cpp", inl: "cpp", tpp: "cpp", cmake: "cmake" };
+  c: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", h: "cpp", hh: "cpp", hpp: "cpp", hxx: "cpp", ipp: "cpp", inl: "cpp", tpp: "cpp", cmake: "cmake",
+  zig: "zig", zon: "zig", glsl: "glsl", vert: "glsl", frag: "glsl", comp: "glsl", geom: "glsl", metal: "cpp", swift: "swift", nix: "nix", m: "objectivec", mm: "objectivec" };
 // By whole name, for files without a telling extension.
 const NAMES: Record<string, string> = { "CMakeLists.txt": "cmake", Dockerfile: "bash", Makefile: "bash" };
 export const langOf = (p: string) => NAMES[p.split("/").pop() ?? ""] ?? LANGS[p.split(".").pop() ?? ""] ?? null;
