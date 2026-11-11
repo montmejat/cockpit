@@ -4,7 +4,7 @@
   // as Allow/Deny cards. Past conversations are a click away; the bar under the box shows how full
   // this conversation is, and how much of your plan's limits you've used.
   import { onMount, tick } from "svelte";
-  import { api, fileRefAt, fileResolver, md } from "../lib/code";
+  import { api, copyTargetAt, fileRefAt, fileResolver, md } from "../lib/code";
   import { openFile, S } from "../lib/state.svelte";
   import type { ChatItem, ChatSession, Usage } from "../lib/types";
 
@@ -20,8 +20,20 @@
   let list: ChatSession[] | null = $state(null); // the conversations list, when open
   let usage: Usage | null = $state(null);
   const resolve = $derived(fileResolver(S.files ?? []));
+  // Copy a code block; the button shows a tick for a moment.
+  async function copy(button: HTMLElement, text: string) {
+    try { await navigator.clipboard.writeText(text); }
+    catch { // no clipboard API (not a secure context): the old way
+      const t = document.createElement("textarea");
+      t.value = text; document.body.append(t); t.select(); document.execCommand("copy"); t.remove();
+    }
+    button.classList.add("done");
+    setTimeout(() => button.classList.remove("done"), 1200);
+  }
   // A click on a file reference in a reply opens that file at that line.
   function clickRef(e: MouseEvent) {
+    const c = copyTargetAt(e.target);
+    if (c) return copy(c.button, c.text);
     const r = fileRefAt(e.target);
     if (!r) return;
     e.preventDefault();
