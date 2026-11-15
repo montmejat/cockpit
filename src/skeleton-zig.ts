@@ -12,7 +12,7 @@
 //                        is used; @import("pkg") of another package's root counts too, else it's a library
 
 import { execFileSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import type { Crate, Edge, Item, Module, Skeleton } from "./skeleton.ts";
 
@@ -160,6 +160,41 @@ function zonName(file: string): string | null {
   try { return /\.name\s*=\s*(?:\.@?"?([\w-]+)"?|"([^"]+)")/.exec(readFileSync(file, "utf8"))?.slice(1).find(Boolean) ?? null; } catch { return null; }
 }
 
+// What one file says, kept while the file doesn't change (its modification time and size): the
+// skeleton is built again on every edit, and reading and scanning all of a large project's files
+// each time took ~400 ms (ghostty: 830 files); now only the changed ones are read.
+type Scanned = { lines: number; doc: string; items: Item[]; imports: { alias?: string; target: string; uses: number }[] };
+const scanned = new Map<string, { key: string; data: Scanned }>();
+const IMPORT = /(?:(?:pub\s+)?(?:const|var)\s+([A-Za-z_]\w*)\s*(?::[^=]*)?=\s*)?@import\(\s*"([^"]+)"\s*\)/g;
+function scan(full: string): Scanned | null {
+  let key: string;
+  try { const st = statSync(full); key = st.mtimeMs + ":" + st.size; } catch { return null; }
+  const hit = scanned.get(full);
+  if (hit?.key === key) return hit.data;
+  let src: string;
+  try { src = readFileSync(full, "utf8"); } catch { return null; }
+  const masked = mask(src);
+  const imports: Scanned["imports"] = [];
+  // Imports read from the original (the masked text has the strings blanked), skipping ones in comments.
+  for (const m of src.matchAll(IMPORT)) {
+    if (masked.slice(m.index!, m.index! + 7) !== src.slice(m.index!, m.index! + 7)) continue; // in a comment
+    const [, alias, target] = m;
+    // How much the file uses it: the alias's later mentions (at least the import itself).
+    let uses = 1;
+    if (alias) uses = Math.max(1, (masked.match(new RegExp(String.raw`(?<![\w.])` + alias + String.raw`\b`, "g"))?.length ?? 1) - 1);
+    imports.push({ alias, target, uses });
+  }
+  const head: string[] = [];
+  for (const l of src.split("\n")) { if (/^\s*\/\/!/.test(l)) head.push(l.replace(/^\s*\/\/!\s?/, "")); else if (head.length || l.trim()) break; }
+  const data: Scanned = {
+    lines: src.split("\n").length,
+    doc: head.join("\n").split("\n\n")[0].replace(/\s+/g, " ").trim().slice(0, 400),
+    items: zigItems(src, masked), imports,
+  };
+  scanned.set(full, { key, data });
+  return data;
+}
+
 export function buildZigSkeleton(root: string): Skeleton {
   const files = listZig(root);
   const zigFiles = files.filter((f) => f.endsWith(".zig"));
@@ -202,34 +237,21 @@ export function buildZigSkeleton(root: string): Skeleton {
 
   const modules: Module[] = [];
   const edgeCount = new Map<string, number>();
-  const IMPORT = /(?:(?:pub\s+)?(?:const|var)\s+([A-Za-z_]\w*)\s*(?::[^=]*)?=\s*)?@import\(\s*"([^"]+)"\s*\)/g;
   for (const f of zigFiles) {
-    let src: string;
-    try { src = readFileSync(join(root, f), "utf8"); } catch { continue; }
-    const masked = mask(src);
+    const sc = scan(join(root, f));
+    if (!sc) continue;
     const id = idOf.get(f)!;
     const libs: Record<string, number> = {};
-    // Imports read from the original (the masked text has the strings blanked), skipping ones in comments.
-    for (const m of src.matchAll(IMPORT)) {
-      if (masked.slice(m.index!, m.index! + 7) !== src.slice(m.index!, m.index! + 7)) continue; // in a comment
-      const [, alias, target] = m;
+    for (const { target, uses } of sc.imports) {
       let to: string | undefined;
       if (target.endsWith(".zig")) to = normalize(join(dirname(f), target));
       else to = rootOfPkg.get(target);
-      // How much the file uses it: the alias's later mentions (at least the import itself).
-      let uses = 1;
-      if (alias) uses = Math.max(1, (masked.match(new RegExp(String.raw`(?<![\w.])` + alias + String.raw`\b`, "g"))?.length ?? 1) - 1);
       const toId = to ? idOf.get(to) : undefined;
       if (toId && toId !== id) { const k = id + "\u0000" + toId; edgeCount.set(k, (edgeCount.get(k) ?? 0) + uses); }
       else if (!toId && !target.endsWith(".zig") && target !== "builtin" && target !== "root") libs[target] = (libs[target] ?? 0) + uses;
     }
-    const head: string[] = [];
-    for (const l of src.split("\n")) { if (/^\s*\/\/!/.test(l)) head.push(l.replace(/^\s*\/\/!\s?/, "")); else if (head.length || l.trim()) break; }
-    modules.push({
-      id, crate: pkgDirs.get(pkgOf(f))!, file: f, lines: src.split("\n").length,
-      doc: head.join("\n").split("\n\n")[0].replace(/\s+/g, " ").trim().slice(0, 400),
-      items: zigItems(src, masked), libs,
-    });
+    // Items are copied: whoever builds on the skeleton may change them.
+    modules.push({ id, crate: pkgDirs.get(pkgOf(f))!, file: f, lines: sc.lines, doc: sc.doc, items: structuredClone(sc.items), libs });
   }
 
   const edges: Edge[] = [...edgeCount].map(([k, refs]) => { const [from, to] = k.split("\u0000"); return { from, to, refs }; });
