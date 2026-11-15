@@ -9,6 +9,7 @@
   import MapView from "./components/MapView.svelte";
   import CodeView from "./components/CodeView.svelte";
   import Terminal from "./components/Terminal.svelte";
+  import Palette from "./components/Palette.svelte";
   import Chat from "./components/Chat.svelte";
   import Inspector from "./components/Inspector.svelte";
   import { byId, openCommit, openDiagram, openFile, showRight, ui, cur, mapTab, S, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
@@ -18,6 +19,7 @@
   let unread = $state(false);
   let rightWidth = $state(savedWidth("cockpit-right-width", 390, 280));
   let term: Terminal;
+  let palette: Palette;
 
   // Links can open a tab directly: ?tab=git, ?panel=features|tests, ?file=path[&line=n],
   // ?commit=sha, ?at=diagram[&box=node], or the hash the page keeps (#f=path, #c=sha, #diagram).
@@ -52,6 +54,9 @@
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
     // (Not in the editor, where Ctrl+R is vim's redo.)
     else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor))) { e.preventDefault(); location.reload(); }
+    // Ctrl+P opens a file by name, Ctrl+Shift+F searches the project.
+    else if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "p") { e.preventDefault(); e.stopPropagation(); palette?.open("files"); }
+    else if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "f") { e.preventDefault(); e.stopPropagation(); palette?.open("search"); }
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !inEditor && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { e.preventDefault(); term?.openAsk(); }
   }
 
@@ -68,6 +73,7 @@
 
 <svelte:window onkeydowncapture={keys} onclickcapture={outLink} onauxclickcapture={outLink} />
 
+<Palette bind:this={palette} />
 <Header ontoggleterm={() => term?.toggle()} />
 <main>
   <Sidebar />

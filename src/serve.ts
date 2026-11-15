@@ -413,6 +413,27 @@ const post = (fn: (body: any, res: ServerResponse) => unknown): Handler => async
   catch (e: any) { if (!res.headersSent) json(res, { error: String(e?.message ?? e) }, 400); }
 };
 
+// Project search, for the page's Ctrl+Shift+F: ripgrep, at most ~500 hits.
+function search(q: string, caseSensitive: boolean, regex: boolean) {
+  if (!q) return [];
+  const a = ["--json", "--max-count", "50", "--max-columns", "300", caseSensitive ? "--case-sensitive" : "--smart-case"];
+  if (!regex) a.push("--fixed-strings");
+  let out = "";
+  try { out = execFileSync("rg", [...a, "--", q, "."], { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"] }); }
+  catch (e: any) { out = String(e.stdout ?? ""); } // exit 1 = no match
+  const hits: { path: string; line: number; col: number; text: string }[] = [];
+  for (const l of out.split("\n")) {
+    if (hits.length >= 500) break;
+    if (!l.startsWith('{"type":"match"')) continue;
+    try {
+      const d = JSON.parse(l).data, text: string = d.lines.text ?? "";
+      const at = d.submatches?.[0]?.start ?? 0;
+      hits.push({ path: String(d.path.text).replace(/^\.\//, ""), line: d.line_number, col: Buffer.from(text).subarray(0, at).toString().length + 1, text: text.replace(/\n$/, "") });
+    } catch {}
+  }
+  return hits;
+}
+
 const routes: Record<string, Handler> = {
   "GET /": (_req, res) => res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page()),
   "GET /api/events": (req, res) => events(req, res, { type: "full", state: current }, (send) => { pages.add(send); return () => pages.delete(send); }),
@@ -437,6 +458,7 @@ const routes: Record<string, Handler> = {
       c.on("spawn", () => { c.unref(); done({ ok: true }); });
     });
   }),
+  "GET /api/search": (_req, res, url) => json(res, search(q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")),
   "POST /api/file/save": post(({ path, text, hash, force }) => saveSource(path, text, hash, !!force)),
   "POST /api/open-url": post(({ url }) => {
     if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("expected an http(s) link");

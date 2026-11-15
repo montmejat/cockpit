@@ -158,7 +158,9 @@
 
   // vim's :w, :q, :wq, :x act on whichever editor is showing (there's one).
   const closeShown = () => { const i = ui.tabs.findIndex((t) => t.kind === "file" && t.path === shown); if (i > 0) closeTab(i); };
-  const api_ = { save, closeShown, jump: (d: 1 | -1) => jump(d) };
+  // What's selected (one line, short), for the project search to start from.
+  const selected = () => { const r = view?.state.selection.main; return view && r && !r.empty && r.to - r.from < 200 ? view.state.sliceDoc(r.from, r.to).split("\n")[0] : ""; };
+  const api_ = { save, closeShown, jump: (d: 1 | -1) => jump(d), selected, focus: () => view?.focus() };
   if (!(window as any).__cockpitVim) {
     (window as any).__cockpitVim = true;
     const me = () => (window as any).__cockpitEditor as typeof api_;
