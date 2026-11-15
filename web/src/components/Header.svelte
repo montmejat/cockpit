@@ -1,7 +1,7 @@
 <script lang="ts">
   // The top bar: project, branch, size and health at a glance (each opens its explanation), the
   // running agent, the terminal and chat toggles (with the hints on). In the desktop app it is also the window's title bar.
-  import { S, plural, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
+  import { S, dirtyFiles, plural, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
 
@@ -33,14 +33,35 @@
     const r = await api.post<{ error?: string }>("api/workspace/open", { path });
     if (r.error) wsNote = r.error; else wsOpen = false;
   }
-  function outside(e: MouseEvent) { if (wsOpen && !(e.target as HTMLElement).closest(".wsmenu,.wsbtn")) wsOpen = false; }
+  function outside(e: MouseEvent) {
+    if (wsOpen && !(e.target as HTMLElement).closest(".wsmenu,.wsbtn")) wsOpen = false;
+    if (projOpen && !(e.target as HTMLElement).closest(".projmenu,.projbtn")) projOpen = false;
+  }
+
+  // Open Folder (desktop app): the project name opens a menu, another folder or a recent one;
+  // the window switches to it (desktop/src/main.rs, open_project). Ctrl+O picks a folder directly.
+  let projOpen = $state(false), projNote = $state(""), recent: { path: string; name: string }[] = $state([]);
+  async function toggleProj() {
+    projOpen = !projOpen; projNote = "";
+    if (projOpen) recent = await api.get("api/recent").catch(() => []);
+  }
+  async function openFolder(path?: string) {
+    if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Open another folder anyway?`)) return;
+    projNote = "";
+    try { if (await tauri.core.invoke("open_project", { path: path ?? null })) projOpen = false; }
+    catch (e) { projNote = String(e); projOpen = true; }
+  }
+  function keys(e: KeyboardEvent) {
+    if (e.key === "Escape") { wsOpen = false; projOpen = false; }
+    else if (win && e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !(e.target as HTMLElement).closest?.(".cm-editor,.xterm")) { e.preventDefault(); openFolder(); }
+  }
   function drag(e: MouseEvent) {
     if (!win || e.button !== 0 || (e.target as HTMLElement).closest("a,button,input,select,textarea")) return;
     if (e.detail === 2) win.toggleMaximize(); else win.startDragging();
   }
 </script>
 
-<svelte:window onmousedown={outside} onkeydown={(e) => e.key === "Escape" && (wsOpen = false)} />
+<svelte:window onmousedown={outside} onkeydown={keys} />
 {#snippet controls(list: WinButton[])}
   <span class="winctl">
     {#each list as b (b)}
@@ -56,7 +77,23 @@
   {#if S.workspace}
     <button class="wsbtn" class:on={wsOpen} title="Workspace {S.workspace.name}: the projects that work with this one" aria-expanded={wsOpen} onclick={() => { wsOpen = !wsOpen; wsNote = ""; }}>{S.workspace.name} ▾</button><span class="muted wssep">/</span>
   {/if}
-  <h1>{S.project}</h1>
+  {#if win}
+    <button class="projbtn" class:on={projOpen} title="Open another folder  (Ctrl+O)" aria-expanded={projOpen} aria-haspopup="menu" onclick={toggleProj}>
+      <h1>{S.project}</h1><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+    </button>
+  {:else}<h1>{S.project}</h1>{/if}
+  {#if projOpen}
+    <div class="wsmenu projmenu" role="menu">
+      <button class="prow" role="menuitem" onclick={() => openFolder()}><span>Open Folder…</span><span class="muted">Ctrl+O</span></button>
+      {#if recent.length}
+        <div class="muted wshead">recent</div>
+        {#each recent as r (r.path)}
+          <button class="prow" role="menuitem" title={r.path} onclick={() => openFolder(r.path)}><span>{r.name}</span><span class="muted ppath">{r.path.replace(/^\/home\/[^/]+/, "~")}</span></button>
+        {/each}
+      {/if}
+      {#if projNote}<div class="bad wsfoot">{projNote}</div>{/if}
+    </div>
+  {/if}
   {#if wsOpen && S.workspace}
     <div class="wsmenu">
       <div class="muted wshead">workspace <b>{S.workspace.name}</b>: the agent reads these projects too</div>

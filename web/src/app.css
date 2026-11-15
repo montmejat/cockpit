@@ -476,3 +476,13 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 /* the file's language server, in the editor's header */
 .dhead .lsp{font-size:11px;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--muted);cursor:default}
 .dhead .lsp.ready{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 40%,transparent)}
+
+/* the project name: a menu to open another folder (desktop app) */
+header button.projbtn{display:flex;align-items:center;gap:5px;background:none;padding:3px 8px;margin:0 -8px}
+header button.projbtn:hover,header button.projbtn.on{background:var(--btn-hover)}
+header .projbtn svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;color:var(--muted)}
+.projmenu{width:min(380px,calc(100vw - 24px));padding:6px}
+.projmenu button.prow{display:flex;align-items:baseline;gap:10px;width:100%;background:none;border:0;border-radius:6px;padding:6px 10px;text-align:left;font-weight:400}
+.projmenu button.prow:hover{background:var(--btn-hover)}
+.projmenu .prow .ppath{margin-left:auto;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.projmenu .wshead{padding:8px 10px 2px}

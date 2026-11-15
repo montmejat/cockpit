@@ -450,6 +450,13 @@ const routes: Record<string, Handler> = {
   "GET /": (_req, res) => res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page()),
   "GET /api/events": (req, res) => events(req, res, { type: "full", state: current }, (send) => { pages.add(send); return () => pages.delete(send); }),
   "GET /api/state": (_req, res) => json(res, current),
+  // The desktop app's recent projects (it writes them: desktop/src/main.rs), for "Open Folder".
+  "GET /api/recent": (_req, res) => {
+    const f = join(process.env.XDG_CONFIG_HOME || join(process.env.HOME ?? "", ".config"), "cockpit", "recent-projects");
+    let paths: string[] = [];
+    try { paths = readFileSync(f, "utf8").split("\n").filter((p) => p && p !== root && existsSync(p)); } catch {}
+    json(res, paths.slice(0, 10).map((path) => ({ path, name: path.split("/").pop() })));
+  },
   "GET /api/file": (_req, res, url) => { try { json(res, readSource(q(url, "path"), q(url, "review") === "1")); } catch (e) { json(res, { error: String(e) }, 400); } },
   "GET /api/git/graph": (_req, res) => json(res, gitGraph()),
   "GET /api/git/numstat": (_req, res) => json(res, numstat()),

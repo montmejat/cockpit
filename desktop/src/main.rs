@@ -11,7 +11,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
-use tauri::{RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_window_state::StateFlags;
 
@@ -82,8 +82,41 @@ fn pick_project(app: &tauri::AppHandle) -> Option<PathBuf> {
 fn remember(project: &Path) {
     if let Some(f) = last_project_file() {
         let _ = std::fs::create_dir_all(f.parent().unwrap());
-        let _ = std::fs::write(f, project.to_string_lossy().as_bytes());
+        let _ = std::fs::write(&f, project.to_string_lossy().as_bytes());
+        // The recent projects, newest first, for the page's "Open Folder" menu (src/serve.ts reads it).
+        let recent = f.with_file_name("recent-projects");
+        let me = project.to_string_lossy().into_owned();
+        let mut list: Vec<String> = std::fs::read_to_string(&recent).unwrap_or_default().lines()
+            .map(str::to_owned).filter(|l| !l.is_empty() && *l != me).collect();
+        list.insert(0, me);
+        list.truncate(12);
+        let _ = std::fs::write(recent, list.join("\n") + "\n");
     }
+}
+
+/// The page's "Open Folder…" (and its recent projects): a folder to open, or a dialog to pick one.
+/// The window switches to it: the current server stops, one for the new project starts.
+#[tauri::command]
+async fn open_project(app: tauri::AppHandle, path: Option<String>) -> Result<bool, String> {
+    let project = match path {
+        Some(p) => std::fs::canonicalize(&p).map_err(|e| format!("{p}: {e}"))?,
+        None => match app.dialog().file().set_title("Open a project in cockpit").blocking_pick_folder() {
+            Some(p) => p.into_path().map_err(|e| e.to_string())?,
+            None => return Ok(false), // cancelled
+        },
+    };
+    if !project.is_dir() { return Err(format!("{} is not a folder", project.display())); }
+    let win = app.get_webview_window("main").ok_or("no window")?;
+    stop_server();
+    let _ = win.navigate("tauri://localhost/".parse().unwrap());
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = run(handle, win.clone(), Some(project)) {
+            eprintln!("cockpit: {e}");
+            show_message(&win, &e);
+        }
+    });
+    Ok(true)
 }
 
 fn free_port() -> std::io::Result<u16> {
@@ -107,8 +140,8 @@ fn stop_server() {
 
 /// Runs on its own thread for the life of the server: the server is tied to this thread
 /// (it gets SIGTERM if the thread or the app dies), and the thread reports if the server stops.
-fn run(app: tauri::AppHandle, win: WebviewWindow) -> Result<(), String> {
-    let project = pick_project(&app).ok_or("no project chosen")?;
+fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Result<(), String> {
+    let project = chosen.or_else(|| pick_project(&app)).ok_or("no project chosen")?;
     remember(&project);
     let name = project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     let _ = win.set_title(&format!("{name} · cockpit"));
@@ -140,7 +173,8 @@ fn run(app: tauri::AppHandle, win: WebviewWindow) -> Result<(), String> {
             .spawn()
     }
     .map_err(|e| format!("could not start node in {}: {e}", home.display()))?;
-    SERVER.store(child.id() as i32, Ordering::SeqCst);
+    let pid = child.id() as i32;
+    SERVER.store(pid, Ordering::SeqCst);
 
     // Pass the server's output through, and keep the last lines in case it fails.
     let tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
@@ -172,7 +206,8 @@ fn run(app: tauri::AppHandle, win: WebviewWindow) -> Result<(), String> {
     win.navigate(url).map_err(|e| e.to_string())?;
 
     let status = child.wait().map_err(|e| e.to_string())?;
-    if SERVER.swap(0, Ordering::SeqCst) != 0 {
+    // Still the current server, so not stopped by us (stop_server, or a switch to another project).
+    if SERVER.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
         // Not stopped by us: go back to the loading page and say why.
         let _ = win.navigate("tauri://localhost/".parse().unwrap());
         std::thread::sleep(Duration::from_millis(500));
@@ -192,14 +227,16 @@ fn window_shadow(win: &WebviewWindow) {
         if w.display().backend().is_wayland() {
             w.set_decorated(true);
             // GTK 3's default shadow is heavier than the apps next to it (libadwaita, Firefox,
-            // VS Code): use libadwaita's, softer and tighter when the window isn't focused, around
+            // VS Code): use libadwaita's, lighter when the window isn't focused. Same size both
+            // ways: a smaller one resizes the window on every focus change (Alt+Tab), and the
+            // page flickers as it lays itself out again. Around
             // the same 12px corners the page draws. No ring: the page draws its own hairline.
             // Nothing behind the page, so its rounded corners show through.
             let css = gtk::CssProvider::new();
             let _ = css.load_from_data(
                 b"window, window.background { background: transparent; }
                   decoration { border-radius: 12px; box-shadow: 0 2px 8px 2px rgba(0,0,0,.13), 0 3px 20px 10px rgba(0,0,0,.09), 0 6px 32px 16px rgba(0,0,0,.03); }
-                  decoration:backdrop { box-shadow: 0 2px 4px 2px rgba(0,0,0,.13), 0 2px 4px 2px rgba(0,0,0,.05); }
+                  decoration:backdrop { box-shadow: 0 2px 8px 2px rgba(0,0,0,.08), 0 3px 20px 10px rgba(0,0,0,.05), 0 6px 32px 16px rgba(0,0,0,.02); }
                   .maximized decoration, .fullscreen decoration, .tiled decoration { border-radius: 0; }",
             );
             if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&w) {
@@ -214,6 +251,7 @@ fn window_shadow(_win: &WebviewWindow) {}
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![open_project])
         // The window opens where you left it, at the size you left it (and maximized if it was).
         // Saved on close, in the app's config dir. Wayland doesn't let an app place its own window,
         // so there only the size and maximized state come back.
@@ -231,7 +269,7 @@ fn main() {
             window_shadow(&win);
             let handle = app.handle().clone();
             std::thread::spawn(move || {
-                if let Err(e) = run(handle.clone(), win.clone()) {
+                if let Err(e) = run(handle.clone(), win.clone(), None) {
                     eprintln!("cockpit: {e}");
                     show_message(&win, &e);
                 }
