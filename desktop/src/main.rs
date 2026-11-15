@@ -248,6 +248,38 @@ fn window_shadow(win: &WebviewWindow) {
 #[cfg(not(target_os = "linux"))]
 fn window_shadow(_win: &WebviewWindow) {}
 
+/// WebKit holds page rendering near 60fps by default (PreferPageRenderingUpdatesNear60FPS), even
+/// on a 120Hz screen. Off, the page draws at the screen's rate when WebKit knows it: on NVIDIA that
+/// needs a WebKitGTK with the vblank-timer fix (~/Projects/Forks/webkit-120hz); with the stock one
+/// nothing changes (its fallback timer ticks at 60).
+#[cfg(target_os = "linux")]
+fn full_frame_rate(win: &WebviewWindow) {
+    use gtk::glib::object::ObjectType;
+    use std::ffi::{c_char, c_void, CStr};
+    unsafe extern "C" {
+        fn webkit_web_view_get_settings(view: *mut c_void) -> *mut c_void;
+        fn webkit_settings_get_all_features() -> *mut c_void;
+        fn webkit_feature_list_get_length(list: *mut c_void) -> usize;
+        fn webkit_feature_list_get(list: *mut c_void, i: usize) -> *mut c_void;
+        fn webkit_feature_list_unref(list: *mut c_void);
+        fn webkit_feature_get_identifier(f: *mut c_void) -> *const c_char;
+        fn webkit_settings_set_feature_enabled(settings: *mut c_void, f: *mut c_void, enabled: i32);
+    }
+    let _ = win.with_webview(|wv| unsafe {
+        let settings = webkit_web_view_get_settings(wv.inner().as_ptr() as *mut c_void);
+        let list = webkit_settings_get_all_features();
+        for i in 0..webkit_feature_list_get_length(list) {
+            let f = webkit_feature_list_get(list, i);
+            if CStr::from_ptr(webkit_feature_get_identifier(f)).to_bytes() == b"PreferPageRenderingUpdatesNear60FPS" {
+                webkit_settings_set_feature_enabled(settings, f, 0);
+            }
+        }
+        webkit_feature_list_unref(list);
+    });
+}
+#[cfg(not(target_os = "linux"))]
+fn full_frame_rate(_win: &WebviewWindow) {}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -267,6 +299,7 @@ fn main() {
                 .min_inner_size(800.0, 500.0)
                 .build()?;
             window_shadow(&win);
+            full_frame_rate(&win);
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 if let Err(e) = run(handle.clone(), win.clone(), None) {
