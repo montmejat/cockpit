@@ -36,7 +36,7 @@
   // The address follows what's open, so a reload comes back to it.
   $effect(() => {
     const t = cur();
-    const hash = t.kind === "map" ? (t.id ?? "") : t.kind === "file" ? "f=" + t.path : "c=" + t.sha;
+    const hash = t.kind === "map" ? (t.id ?? "") : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
     history.replaceState(null, "", location.pathname + (hash ? "#" + encodeURIComponent(hash) : ""));
   });
   // A diagram that disappeared from .cockpit/: the map goes back home.

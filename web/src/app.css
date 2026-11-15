@@ -486,3 +486,6 @@ header .projbtn svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-lineca
 .projmenu button.prow:hover{background:var(--btn-hover)}
 .projmenu .prow .ppath{margin-left:auto;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .projmenu .wshead{padding:8px 10px 2px}
+
+/* a staged file's diff tab */
+.ctab .tstaged{font-size:10.5px}

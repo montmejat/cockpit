@@ -153,6 +153,18 @@ function gitGraph() {
       return { hash, parents: parents ? parents.split(" ") : [], sha, subject, author, date, refs: refs ? refs.split(", ").filter((r) => !r.startsWith("refs/cockpit")) : [] };
     });
 }
+// A changed file's diff, for the Git tab: staged (the index against HEAD), or not staged (the
+// working tree against the index; an untracked file shows whole, as added). Only for files git
+// reports as changed.
+function fileDiff(path: string, staged: boolean) {
+  const st = gitStatus().find((s) => s.path === path);
+  if (!st) return { path, staged, patch: "", note: "no changes" };
+  const patch = staged ? tryGit("diff", "--cached", "--no-color", "--no-ext-diff", "--", path)
+    : st.x === "?" ? tryGit("diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", path)
+    : tryGit("diff", "--no-color", "--no-ext-diff", "--", path);
+  return { path, staged, patch, note: patch ? undefined : "no changes" + (staged ? " staged" : " outside the index") };
+}
+
 function commitPatch(sha: string) {
   const [meta, ...rest] = tryGit("show", "--format=%H%x1f%s%x1f%an%x1f%aI%x1f%b%x1e", "--patch", sha).split("\x1e");
   const [full, subject, author, date, body] = meta.split("\x1f");
@@ -481,6 +493,7 @@ const routes: Record<string, Handler> = {
   "POST /api/git/stage": post(({ paths }) => { stagePaths(paths, true); recompute(); }),
   "POST /api/git/unstage": post(({ paths }) => { stagePaths(paths, false); recompute(); }),
   "POST /api/git/commit": post(({ message }) => { const r = commitStaged(message); recompute(); return r; }),
+  "GET /api/git/diff": (_req, res, url) => json(res, fileDiff(q(url, "path"), q(url, "staged") === "1")),
   "GET /api/git/commit": (_req, res, url) => (/^[0-9a-f]{4,40}$/.test(q(url, "sha")) ? json(res, commitPatch(q(url, "sha"))) : json(res, { error: "bad sha" }, 400)),
   // A web link (from the chat, say) in your browser: the desktop app's window can't open one itself.
   // Another project of the workspace, in its own window of the desktop app.

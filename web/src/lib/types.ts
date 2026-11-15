@@ -56,7 +56,8 @@ export interface TermMeta { id: string; n: number; cwd: string; running: string 
 export type Tab =
   | { kind: "map"; id: string | null; code: string | null }
   | { kind: "file"; path: string; line?: number; end?: number; mini?: string; at?: number }
-  | { kind: "commit"; sha: string };
+  | { kind: "commit"; sha: string }
+  | { kind: "diff"; path: string; staged: boolean };
 
 export interface Hunk { at: number; added: number; removed: string[] }
 export interface Commit { hash: string; parents: string[]; sha: string; subject: string; author: string; date: string; refs: string[] }

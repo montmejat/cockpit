@@ -4,7 +4,7 @@
   // staged files (Ctrl+Enter commits); and the history of all branches as a graph.
   import { api } from "../lib/code";
   import { graphRows, graphSvg } from "../lib/graph";
-  import { cur, openCommit, openFile, S } from "../lib/state.svelte";
+  import { cur, openCommit, openDiff, openFile, S } from "../lib/state.svelte";
   import type { Commit, MergeRequest } from "../lib/types";
 
   let commits: Commit[] | null = $state(null);
@@ -67,8 +67,11 @@
 </script>
 
 {#snippet row(f: { path: string }, mark: string, n: [number, number] | undefined, act: "+" | "−")}
-  <div class="gitrow" class:sel={cur().kind === "file" && (cur() as { path: string }).path === f.path}>
-    <button class="gitfile" onclick={() => openFile(f.path)} title={f.path}>
+  {@const staged = act === "−"}
+  {@const conflict = mark === "C"}
+  <div class="gitrow" class:sel={cur().kind === "diff" && (cur() as { path: string; staged: boolean }).path === f.path && (cur() as { staged: boolean }).staged === staged}>
+    <!-- a click shows what changed (a conflict opens the file, to resolve it) -->
+    <button class="gitfile" onclick={() => (conflict ? openFile(f.path) : openDiff(f.path, staged))} title={(conflict ? "Open " : staged ? "Staged changes in " : "Changes in ") + f.path}>
       <span class="mark {mark}">{mark}</span><span class="gname">{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>
       {#if n}<span class="gnum">{#if n[0] < 0}bin{:else}{#if n[0]}<i class="a">+{n[0]}</i>{/if}{#if n[1]}<i class="d">−{n[1]}</i>{/if}{/if}</span>{/if}
     </button>

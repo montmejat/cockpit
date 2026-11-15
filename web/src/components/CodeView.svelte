@@ -18,6 +18,18 @@
   const tab = $derived(cur());
   const path = $derived(tab.kind === "file" ? tab.path : null);
   const sha = $derived(tab.kind === "commit" ? tab.sha : null);
+  // A changed file's diff (from the Git tab): reloaded when the file, the index or HEAD moves.
+  const dtab = $derived(tab.kind === "diff" ? tab : null);
+  type DiffData = { path: string; staged: boolean; patch: string; note?: string };
+  let diff: DiffData | null = $state(null);
+  const dkey = $derived(dtab ? dtab.path + "@" + dtab.staged + "@" + (S.fileRevs[dtab.path] ?? 0) + "@" + S.git.head + "@" + JSON.stringify(S.status.find((x) => x.path === dtab.path) ?? null) : "");
+  $effect(() => {
+    if (!dtab) return;
+    const k = dkey, d = dtab;
+    if (diff && (diff.path !== d.path || diff.staged !== d.staged)) diff = null;
+    api.get<DiffData>(`api/git/diff?path=${encodeURIComponent(d.path)}&staged=${d.staged ? 1 : 0}`).then((r) => { if (dkey === k) diff = r; }).catch(() => {});
+  });
+  const dfiles = $derived(diff?.patch ? parsePatch(diff.patch) : []);
   // The file is loaded again when it changes on disk, when HEAD moves, or when a review starts or
   // ends (in review mode its changes are against the review's target, not the last commit).
   const rev = $derived(path ? (S.fileRevs[path] ?? 0) + "@" + S.git.head + "@" + (statusOf(path) ?? "") + "@" + (S.review?.base ?? "") : "");
@@ -95,6 +107,27 @@
         onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n, at) => { changes = n; changeAt = at; }} />
     </div>
     <MiniMap {path} {view} {cursor} onlines={(ls) => (boxLines = ls)} onjump={(n) => editor?.scrollToLine(n)} />
+  {:else if dtab}
+    <div class="dhead">
+      <span class="path">{dtab.path}</span>
+      <span class="muted">{dtab.staged ? "staged" : "not staged"}</span>
+      <span class="grow"></span>
+      <button title="Open the file in the editor" onclick={() => openFile(dtab.path)}>open file</button>
+    </div>
+    <div class="dbody">
+      {#if !diff}<p class="dnote">loading…</p>
+      {:else if !dfiles.length}<p class="dnote">{diff.note ?? "no changes"}</p>
+      {:else}
+        {#each dfiles as f (f.path)}
+          <table class="code"><tbody>
+            {#each f.rows as r}
+              {#if r.kind === "hunk"}<tr class="hunk"><td colspan="4">{@html r.html}</td></tr>
+              {:else}<tr class={r.kind}><td class="ln">{r.o ?? ""}</td><td class="ln">{r.n ?? ""}</td><td class="sg">{r.kind === "add" ? "+" : r.kind === "del" ? "-" : ""}</td><td class="c">{@html r.html}</td></tr>{/if}
+            {/each}
+          </tbody></table>
+        {/each}
+      {/if}
+    </div>
   {:else if sha}
     <div class="dhead"><span class="path">commit {sha}</span></div>
     <div class="dbody">
