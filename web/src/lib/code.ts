@@ -180,6 +180,33 @@ export function md(src: string, resolve?: (name: string) => string | null) {
   return html.split(/(<pre[\s\S]*?<\/pre>)/).map((part) => part.startsWith("<pre") ? part : linkFiles(part, resolve)).join("");
 }
 
+// md for a message that keeps growing (a streamed reply): the part up to its last blank line
+// outside a code block is rendered once and kept, only the rest again. md starts afresh after a
+// blank line, so the result is the same as md of the whole text; rendering the whole of a long
+// reply on every token cost ~13 ms at 24k characters.
+const grown = new Map<string, { pre: string; html: string }>();
+// Returned as two parts, the kept one and the rest, so the page can leave the kept part's DOM alone.
+export function mdGrowing(key: string, src: string, resolve?: (name: string) => string | null): [string, string] {
+  let cut = -1, fences = 0, i = 0;
+  for (;;) {
+    const nl = src.indexOf("\n", i);
+    const line = src.slice(i, nl < 0 ? undefined : nl);
+    if (line.startsWith("```")) fences++;
+    if (nl < 0) break;
+    if (!line.trim() && i > 0 && fences % 2 === 0) cut = i - 1; // the "\n" before this blank line
+    i = nl + 1;
+  }
+  if (cut <= 0) return ["", md(src, resolve)];
+  const pre = src.slice(0, cut);
+  let hit = grown.get(key);
+  if (hit?.pre !== pre) {
+    hit = { pre, html: md(pre, resolve) };
+    grown.set(key, hit);
+    if (grown.size > 50) grown.delete(grown.keys().next().value!);
+  }
+  return [hit.html, md(src.slice(cut + 1), resolve)];
+}
+
 export const api = {
   get: <T = any>(path: string): Promise<T> => fetch(path).then((r) => r.json()),
   post: <T = any>(path: string, body: unknown = {}): Promise<T> => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()),

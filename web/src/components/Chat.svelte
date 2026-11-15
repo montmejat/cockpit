@@ -4,7 +4,7 @@
   // as Allow/Deny cards. Past conversations are a click away; the ring by "send" shows how full this
   // conversation is, and hovering it, how much of your plan's limits you've used.
   import { onMount, tick } from "svelte";
-  import { api, copyTargetAt, fileRefAt, fileResolver, md } from "../lib/code";
+  import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
   import { openFile, S } from "../lib/state.svelte";
   import type { ChatItem, ChatSession, Usage } from "../lib/types";
 
@@ -43,6 +43,14 @@
     openFile(r.path, r.line, r.end);
   }
 
+  const pending = new Map<string, string>();
+  let flushing = false;
+  function flushDeltas() {
+    flushing = false;
+    for (const [id, add] of pending) { const it = items.find((x) => x.id === id); if (it) it.text = String(it.text ?? "") + add; }
+    if (pending.size) { pending.clear(); stick(); onactivity(false); }
+  }
+
   const stick = async (force = false) => { await tick(); if (msgs && (force || near)) msgs.scrollTop = msgs.scrollHeight; };
 
   onMount(() => {
@@ -53,7 +61,13 @@
         items = e.items; busy = e.busy; model = e.model; models = e.models; context = e.context; session = e.session;
         stick(true);
       } else if (e.type === "state") { busy = e.busy; model = e.model; context = e.context; session = e.session; }
+      else if (e.type === "delta") {
+        // A streamed reply's new text: gathered, and shown once per frame.
+        pending.set(e.id, (pending.get(e.id) ?? "") + e.text);
+        if (!flushing) { flushing = true; requestAnimationFrame(flushDeltas); }
+      }
       else if (e.type === "item") {
+        if (pending.has(e.item.id)) pending.delete(e.item.id); // the whole item supersedes them
         const i = items.findIndex((x) => x.id === e.item.id);
         if (i >= 0) items[i] = e.item; else items.push(e.item);
         stick();
@@ -122,7 +136,7 @@
   <div id="msgs" bind:this={msgs} onscroll={() => (near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60)}>
     {#each items as it (it.id)}
       {#if it.kind === "user"}<div class="cuser">{it.text}</div>
-      {:else if it.kind === "text"}{#if it.text}<div class="ctext" onclick={clickRef} role="presentation">{@html md(it.text, resolve)}</div>{/if}
+      {:else if it.kind === "text"}{#if it.text}{@const [kept, rest] = mdGrowing(it.id, it.text, resolve)}<div class="ctext" onclick={clickRef} role="presentation">{@html kept}{@html rest}</div>{/if}
       {:else if it.kind === "tool"}
         <div class="ctool" class:sub={it.sub}>
           {@html toolIcon[it.status] ?? ""}

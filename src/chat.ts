@@ -28,6 +28,7 @@ export type Item = { id: string; kind: string; at: string; [k: string]: unknown 
 type Context = { used: number; max: number } | null;
 type Event =
   | { type: "item"; item: Item }
+  | { type: "delta"; id: string; text: string } // more text for a streamed reply
   | { type: "state"; busy: boolean; model: string; context: Context; session: string | null }
   | { type: "init"; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null };
 
@@ -314,7 +315,9 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           put({ id: `${streamMsg}:${n}`, kind: "text", at: now(), text: "" });
         } else if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
           const it = get(`${streamMsg}:${(textSeen.get(streamMsg) ?? 1) - 1}`);
-          if (it) { it.text = String(it.text) + ev.delta.text; emit({ type: "item", item: it }); }
+          // Only the new text goes to the page: sending the whole reply again on every token made
+          // the bytes grow with the square of its length.
+          if (it) { it.text = String(it.text) + ev.delta.text; emit({ type: "delta", id: it.id, text: ev.delta.text }); }
         }
       } else if (mm.type === "assistant") {
         const sub = !!mm.parent_tool_use_id, mid = mm.message.id;
