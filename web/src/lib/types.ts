@@ -15,6 +15,7 @@ export interface Feature { id: string; name: string; status: "working" | "partia
 export interface GitFile { x: string; y: string; path: string }
 export interface Live {
   root?: string; // the project folder (for the language servers)
+  desktop?: { accent: string | null; buttons: string | null }; // GNOME's accent and window buttons
   project: string;
   diagrams: Diagram[];
   problems: { where: string; problem: string }[];

@@ -3,6 +3,7 @@
   // running agent, the terminal and chat toggles (with the hints on). In the desktop app it is also the window's title bar.
   import { S, plural, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
+  import { windowButtons, type WinButton } from "../lib/desktop";
 
   let { ontoggleterm }: { ontoggleterm: () => void } = $props();
 
@@ -14,9 +15,14 @@
   const tauri = window.__TAURI__;
   const win = tauri?.window.getCurrentWindow();
   let maximized = $state(false);
+  const wb = windowButtons(); // GNOME's layout: which buttons, which side
   if (win) {
     document.body.classList.add("desktop");
-    const sync = async () => (maximized = await win.isMaximized());
+    // Rounded corners like the windows around it, square when maximized or fullscreen.
+    const sync = async () => {
+      maximized = await win.isMaximized();
+      document.body.classList.toggle("square", maximized || (await win.isFullscreen()));
+    };
     addEventListener("resize", sync);
     sync();
   }
@@ -35,7 +41,18 @@
 </script>
 
 <svelte:window onmousedown={outside} onkeydown={(e) => e.key === "Escape" && (wsOpen = false)} />
-<header onmousedown={drag} role="presentation">
+{#snippet controls(list: WinButton[])}
+  <span class="winctl">
+    {#each list as b (b)}
+      {#if b === "minimize"}<button title="Minimize" aria-label="Minimize" onclick={() => win.minimize()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4.5 8.5h7" /></svg></button>
+      {:else if b === "maximize"}<button title={maximized ? "Restore" : "Maximize"} aria-label={maximized ? "Restore" : "Maximize"} onclick={() => win.toggleMaximize()}>
+          <svg viewBox="0 0 16 16" width="16" height="16">{#if maximized}<rect x="4.5" y="6" width="5.5" height="5.5" rx="1" /><path d="M6.5 4.5h4a1 1 0 0 1 1 1v4" />{:else}<rect x="4.5" y="4.5" width="7" height="7" rx="1.2" />{/if}</svg></button>
+      {:else}<button title="Close" aria-label="Close" onclick={() => win.close()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M5 5l6 6M11 5l-6 6" /></svg></button>{/if}
+    {/each}
+  </span>
+{/snippet}
+<header onmousedown={drag} role="presentation" class:wleft={!!win && wb.left.length > 0}>
+  {#if win && wb.left.length}{@render controls(wb.left)}{/if}
   {#if S.workspace}
     <button class="wsbtn" class:on={wsOpen} title="Workspace {S.workspace.name}: the projects that work with this one" aria-expanded={wsOpen} onclick={() => { wsOpen = !wsOpen; wsNote = ""; }}>{S.workspace.name} ▾</button><span class="muted wssep">/</span>
   {/if}
@@ -83,15 +100,5 @@
   <!-- Ctrl+` opens the terminal; the button only shows with the hints on (F1) -->
   {#if ui.help}<button onclick={ontoggleterm} title="Terminal  (Ctrl+`)">▭ terminal <span class="muted">Ctrl+`</span></button>
     <button onclick={toggleChat} title="Chat  (Ctrl+L)">◧ chat <span class="muted">Ctrl+L</span></button>{/if}
-  {#if win}
-    <span id="winctl">
-      <button title="minimize" onclick={() => win.minimize()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 8h8" /></svg></button>
-      <button title={maximized ? "restore" : "maximize"} onclick={() => win.toggleMaximize()}>
-        <svg viewBox="0 0 16 16" width="16" height="16">
-          {#if maximized}<rect x="4.5" y="6" width="5.5" height="5.5" rx="1" /><path d="M6.5 4.5h4a1 1 0 0 1 1 1v4" />{:else}<rect x="4.5" y="4.5" width="7" height="7" rx="1" />{/if}
-        </svg>
-      </button>
-      <button class="close" title="close" onclick={() => win.close()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M5 5l6 6M11 5l-6 6" /></svg></button>
-    </span>
-  {/if}
+  {#if win && wb.right.length}{@render controls(wb.right)}{/if}
 </header>

@@ -1,16 +1,20 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><title>cockpit</title>
 <style>
-  :root { color-scheme: dark; }
-  body { margin: 0; height: 100vh; display: grid; place-items: center; background: #181c24; color: #8b93a3;
-         font: 14px ui-monospace, monospace; }
-  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #6ec8a0; margin-right: 10px;
+  /* GNOME's look (Adwaita), light or dark like the desktop; rounded like the window */
+  :root { color-scheme: light dark; --bg: #fafafb; --fg: #2e2e32; --muted: #6e6e73; --btn: rgba(46,46,50,.1); }
+  @media (prefers-color-scheme: dark) { :root { --bg: #222226; --fg: #eeeef0; --muted: #9a9a9f; --btn: rgba(238,238,240,.1); } }
+  html { background: transparent; }
+  body { margin: 0; height: 100vh; display: grid; place-items: center; background: var(--bg); color: var(--muted);
+         font: 14px "Adwaita Sans", Cantarell, system-ui, sans-serif; border-radius: 12px; overflow: hidden; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3584e4; margin-right: 10px;
          animation: pulse 1s ease-in-out infinite alternate; }
   @keyframes pulse { from { opacity: .25 } to { opacity: 1 } }
-  #bar { position: fixed; inset: 0 0 auto 0; height: 38px; display: flex; justify-content: flex-end; align-items: center; padding: 0 8px; }
-  #bar button { width: 24px; height: 24px; border: 0; border-radius: 50%; background: #262a31; color: #dde1e7; cursor: pointer; font: 14px sans-serif; }
-  #bar button:hover { background: #f06a5f; color: #fff; }
+  #bar { position: fixed; inset: 0 0 auto 0; height: 47px; display: flex; justify-content: flex-end; align-items: center; padding: 0 12px; }
+  #bar button { width: 24px; height: 24px; border: 0; border-radius: 50%; background: var(--btn); color: var(--fg); cursor: pointer; display: grid; place-items: center; padding: 0; }
+  #bar button:hover { filter: brightness(1.15); }
+  #bar svg { fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; }
   #msg { white-space: pre-wrap; max-width: 70ch; }
 </style></head>
 <body>
-<div id="bar" data-tauri-drag-region><button title="close" onclick="window.__TAURI__.window.getCurrentWindow().close()">✕</button></div><div><span class="dot"></span><span id="msg">starting cockpit…</span></div></body></html>
+<div id="bar" data-tauri-drag-region><button title="Close" aria-label="Close" onclick="window.__TAURI__.window.getCurrentWindow().close()"><svg viewBox="0 0 16 16" width="16" height="16"><path d="M5 5l6 6M11 5l-6 6"/></svg></button></div><div><span class="dot"></span><span id="msg">starting cockpit…</span></div></body></html>

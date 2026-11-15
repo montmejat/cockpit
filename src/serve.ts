@@ -377,7 +377,7 @@ setInterval(() => changed(), 20_000); // in case a watcher missed something
 function page() {
   const file = join(WEB, "index.html");
   if (!existsSync(file)) return `<!doctype html><meta charset=utf-8><body style="font:14px monospace;padding:30px">The page isn't built yet: run <b>npm run build</b> in ${COCKPIT}.`;
-  const boot = { ...current, root, terminals: terms.list() };
+  const boot = { ...current, root, terminals: terms.list(), desktop: desktopLook() };
   return readFileSync(file, "utf8")
     .replace("<title>cockpit</title>", `<title>${name.replace(/[<&]/g, "")} · cockpit</title>`)
     .replace("<!--boot-->", `<script>window.INIT = ${JSON.stringify(boot).replace(/</g, "\\u003c")};</script>`);
@@ -432,6 +432,18 @@ function search(q: string, caseSensitive: boolean, regex: boolean) {
     } catch {}
   }
   return hits;
+}
+
+// The desktop's look, so the page can match the apps around it (GNOME): the accent color and
+// which window buttons go where. Read once; null fields when it isn't GNOME.
+let look: { accent: string | null; buttons: string | null } | null = null;
+function desktopLook() {
+  if (look) return look;
+  const get = (schema: string, key: string) => {
+    try { return execFileSync("gsettings", ["get", schema, key], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim().replace(/^'|'$/g, ""); }
+    catch { return null; }
+  };
+  return (look = { accent: get("org.gnome.desktop.interface", "accent-color"), buttons: get("org.gnome.desktop.wm.preferences", "button-layout") });
 }
 
 const routes: Record<string, Handler> = {

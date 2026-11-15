@@ -191,6 +191,20 @@ fn window_shadow(win: &WebviewWindow) {
     if let Ok(w) = win.gtk_window() {
         if w.display().backend().is_wayland() {
             w.set_decorated(true);
+            // GTK 3's default shadow is heavier than the apps next to it (libadwaita, Firefox,
+            // VS Code): use libadwaita's, softer and tighter when the window isn't focused, around
+            // the same 12px corners the page draws. No ring: the page draws its own hairline.
+            // Nothing behind the page, so its rounded corners show through.
+            let css = gtk::CssProvider::new();
+            let _ = css.load_from_data(
+                b"window, window.background { background: transparent; }
+                  decoration { border-radius: 12px; box-shadow: 0 2px 8px 2px rgba(0,0,0,.13), 0 3px 20px 10px rgba(0,0,0,.09), 0 6px 32px 16px rgba(0,0,0,.03); }
+                  decoration:backdrop { box-shadow: 0 2px 4px 2px rgba(0,0,0,.13), 0 2px 4px 2px rgba(0,0,0,.05); }
+                  .maximized decoration, .fullscreen decoration, .tiled decoration { border-radius: 0; }",
+            );
+            if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&w) {
+                gtk::StyleContext::add_provider_for_screen(&screen, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            }
         }
     }
 }
@@ -210,6 +224,7 @@ fn main() {
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("cockpit")
                 .decorations(false) // the page's header is the title bar (web/src/components/Header.svelte)
+                .transparent(true) // the page rounds its corners (body.desktop in web/src/app.css)
                 .inner_size(1600.0, 1000.0)
                 .min_inner_size(800.0, 500.0)
                 .build()?;

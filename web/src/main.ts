@@ -5,6 +5,8 @@ import "./app.css";
 import { mount } from "svelte";
 import App from "./App.svelte";
 import { connectLive } from "./lib/state.svelte";
+import { applyAccent } from "./lib/desktop";
 
+applyAccent();
 connectLive();
 mount(App, { target: document.getElementById("app")! });
