@@ -391,7 +391,14 @@ button.csess .muted{font-size:11px}
 .ctool .chip{flex:none}
 .meters{display:flex;flex-direction:column;gap:2px;margin-top:7px;font-size:10.5px;color:var(--muted)}
 .meter{display:flex;align-items:center;gap:7px;cursor:default}
-.crow .meter.ctx{flex:1;min-width:0;font-size:10.5px;color:var(--muted);margin-right:4px}
+.ctx{position:relative;display:inline-flex}
+button.ring{padding:2px;border:0;background:none;border-radius:50%;display:inline-flex;cursor:pointer;color:var(--accent)}
+button.ring:hover,button.ring[aria-expanded=true]{background:var(--sel)}
+button.ring.warn{color:var(--warn)}button.ring.bad{color:var(--bad)}
+.ring circle{fill:none;stroke-width:3}.ring .track{stroke:var(--line)}.ring .fill{stroke:currentColor;stroke-linecap:round;transition:stroke-dasharray .4s}
+.ctxpop{position:absolute;right:-4px;bottom:calc(100% + 6px);z-index:30;width:250px;padding:8px 10px;background:var(--card);border:1px solid var(--line);border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.18);font-size:11px;color:var(--muted);cursor:default}
+.ctxpop::after{content:"";position:absolute;left:0;right:0;top:100%;height:8px}
+.ctxline b{color:var(--fg)}.ctxnote{margin-top:4px;font-size:10px}
 .mlabel{width:9ch;flex:none}
 .meter .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .meter .bar i{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .4s}

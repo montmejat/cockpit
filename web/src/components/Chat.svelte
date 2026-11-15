@@ -1,8 +1,8 @@
 <script lang="ts">
   // The agent chat. Cockpit runs the agent itself (src/chat.ts); the panel follows it live:
   // replies stream in, tool calls show as one line each (click for more), auto mode's questions
-  // as Allow/Deny cards. Past conversations are a click away; the bar under the box shows how full
-  // this conversation is, and how much of your plan's limits you've used.
+  // as Allow/Deny cards. Past conversations are a click away; the ring by "send" shows how full this
+  // conversation is, and hovering it, how much of your plan's limits you've used.
   import { onMount, tick } from "svelte";
   import { api, copyTargetAt, fileRefAt, fileResolver, md } from "../lib/code";
   import { openFile, S } from "../lib/state.svelte";
@@ -19,6 +19,9 @@
   let near = true;
   let list: ChatSession[] | null = $state(null); // the conversations list, when open
   let usage: Usage | null = $state(null);
+  let hover = $state(false), pinned = $state(false), ctxEl: HTMLElement;
+  const ctxPct = $derived(context ? Math.min(100, (100 * context.used) / context.max) : null);
+  const unpin = (e: PointerEvent) => { if (pinned && !ctxEl?.contains(e.target as Node)) pinned = false; };
   const resolve = $derived(fileResolver(S.files ?? []));
   // Copy a code block; the button shows a tick for a moment.
   async function copy(button: HTMLElement, text: string) {
@@ -95,6 +98,8 @@
   const title = $derived(items.find((x) => x.kind === "user")?.text?.split("\n")[0] ?? "new conversation");
 </script>
 
+<svelte:window onpointerdown={unpin} onkeydown={(e) => e.key === "Escape" && (pinned = false)} />
+
 <section id="chat" class:hide={hidden}>
   <div class="ctools">
     <button class="ctitle" onclick={showList} title="Your conversations in this project">
@@ -152,23 +157,39 @@
       onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
     <div class="crow">
       {#if busy}<span class="muted"><span class="spin"></span> working…</span>{/if}
-      <!-- how full the context is, on the send button's line -->
-      <div class="meter ctx" title={context ? `This conversation uses ${context.used.toLocaleString()} of ${context.max.toLocaleString()} tokens of context. Near the end, Claude Code compacts it.` : "Context size shows after the agent's next reply"}>
-        <span class="mlabel">context</span>
-        <span class="bar"><i style="width:{context ? Math.min(100, (100 * context.used) / context.max) : 0}%" class={context ? level((100 * context.used) / context.max) : ""}></i></span>
-        <span class="mval">{context ? k(context.used) + " / " + k(context.max) : "–"}</span>
-      </div>
+      <span class="grow"></span>
+      <!-- how full the context is: a ring by "send"; hovering shows the numbers and plan usage, a click keeps them open -->
+      <span class="ctx" bind:this={ctxEl} role="group" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+        <button type="button" class="ring {ctxPct == null ? '' : level(ctxPct)}" onclick={() => (pinned = !pinned)}
+          aria-label={context ? `Context ${Math.round(ctxPct ?? 0)}% used; plan usage` : "Context and plan usage"} aria-expanded={hover || pinned}>
+          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+            <circle class="track" cx="10" cy="10" r="7.5" />
+            {#if ctxPct != null}<circle class="fill" cx="10" cy="10" r="7.5" pathLength="100" stroke-dasharray="{Math.max(1, ctxPct)} 100" transform="rotate(-90 10 10)" />{/if}
+          </svg>
+        </button>
+        {#if hover || pinned}
+          <div class="ctxpop">
+            <div class="ctxline">
+              {#if context}<b>{Math.round(ctxPct ?? 0)}%</b> of context: {k(context.used)} / {k(context.max)} tokens. Near the end, Claude Code compacts it.
+              {:else}Context size shows after the agent's next reply.{/if}
+            </div>
+            {#if usage?.windows?.length}
+              <div class="meters">
+                {#each usage.windows as w (w.name)}
+                  <div class="meter" title="{w.pct}% of the {w.name} limit used, {resets(w.resets)}">
+                    <span class="mlabel">{w.name}</span>
+                    <span class="bar"><i style="width:{Math.min(100, w.pct)}%" class={level(w.pct)}></i></span>
+                    <span class="mval">{Math.round(w.pct)}%</span>
+                  </div>
+                {/each}
+              </div>
+              <div class="ctxnote">Your {usage.plan ?? "Claude"} plan</div>
+            {/if}
+          </div>
+        {/if}
+      </span>
       {#if busy}<button type="button" onclick={() => post("stop")}>stop</button>{/if}
       <button type="submit">send</button>
     </div>
-    {#if usage?.windows?.length}<div class="meters">
-      {#each usage?.windows ?? [] as w (w.name)}
-        <div class="meter" title="Your {usage?.plan ?? 'Claude'} plan: {w.pct}% of the {w.name} limit used, {resets(w.resets)}">
-          <span class="mlabel">{w.name}</span>
-          <span class="bar"><i style="width:{Math.min(100, w.pct)}%" class={level(w.pct)}></i></span>
-          <span class="mval">{Math.round(w.pct)}%</span>
-        </div>
-      {/each}
-    </div>{/if}
   </form>
 </section>
