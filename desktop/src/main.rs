@@ -181,6 +181,22 @@ fn run(app: tauri::AppHandle, win: WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+/// Without decorations, GTK draws no frame, so GNOME (Wayland) gives the window no shadow and
+/// no resize area around it, unlike the apps next to it. On Wayland, tao already puts an empty
+/// title bar in the frame; turning the frame back on brings GTK's shadow (and its resize edges)
+/// without a title bar. The page's header stays the title bar.
+#[cfg(target_os = "linux")]
+fn window_shadow(win: &WebviewWindow) {
+    use gtk::prelude::*;
+    if let Ok(w) = win.gtk_window() {
+        if w.display().backend().is_wayland() {
+            w.set_decorated(true);
+        }
+    }
+}
+#[cfg(not(target_os = "linux"))]
+fn window_shadow(_win: &WebviewWindow) {}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -197,6 +213,7 @@ fn main() {
                 .inner_size(1600.0, 1000.0)
                 .min_inner_size(800.0, 500.0)
                 .build()?;
+            window_shadow(&win);
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 if let Err(e) = run(handle.clone(), win.clone()) {

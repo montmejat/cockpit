@@ -326,6 +326,7 @@ dependencies = [
 name = "cockpit-desktop"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "libc",
  "serde_json",
  "tauri",

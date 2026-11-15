@@ -1,13 +1,13 @@
 /* cockpit, one view: sidebar (files, git) | center tabs (map, files, commits) over the terminal drawer | right panel (chat, details). */
 :root{--bg:#f4f5f7;--fg:#1f2329;--muted:#6e7781;--line:#e1e4e8;--card:#ffffff;--accent:#2f6fde;
 --ok:#1f9e7a;--warn:#c98a0b;--bad:#d1453b;--hot:#ef6a2d;--add-bg:#e6f6ec;--del-bg:#fdecea;--add:#1a7f45;--del:#b8332a;
---k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#e7eefc;--edge:#cdd2d8;--rev:#8250df}
+--k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#e7eefc;--edge:#d9dde2;--rev:#8250df}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111317;--fg:#dde1e7;--muted:#7d8590;--line:#262a31;--card:#181b20;--accent:#6ea8ff;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
---k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#454b54;--rev:#b392f0;color-scheme:dark}}
+--k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#383d45;--rev:#b392f0;color-scheme:dark}}
 :root[data-theme="dark"]{--bg:#111317;--fg:#dde1e7;--muted:#7d8590;--line:#262a31;--card:#181b20;--accent:#6ea8ff;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
---k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#454b54;--rev:#b392f0;color-scheme:dark}
+--k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#383d45;--rev:#b392f0;color-scheme:dark}
 *{box-sizing:border-box}
 html,body,#app{margin:0;height:100%}
 #app{display:flex;flex-direction:column}
