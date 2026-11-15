@@ -377,7 +377,7 @@ setInterval(() => changed(), 20_000); // in case a watcher missed something
 function page() {
   const file = join(WEB, "index.html");
   if (!existsSync(file)) return `<!doctype html><meta charset=utf-8><body style="font:14px monospace;padding:30px">The page isn't built yet: run <b>npm run build</b> in ${COCKPIT}.`;
-  const boot = { ...current, terminals: terms.list() };
+  const boot = { ...current, root, terminals: terms.list() };
   return readFileSync(file, "utf8")
     .replace("<title>cockpit</title>", `<title>${name.replace(/[<&]/g, "")} · cockpit</title>`)
     .replace("<!--boot-->", `<script>window.INIT = ${JSON.stringify(boot).replace(/</g, "\\u003c")};</script>`);
@@ -519,12 +519,53 @@ const server = createServer(async (req, res) => {
   }
 });
 const wss = new WebSocketServer({ noServer: true });
+// Language servers for the editor (web/src/lib/lsp.svelte.ts): one process per page connection,
+// in the project folder, killed when the page goes. LSP frames (Content-Length headers) on the
+// process side, one JSON message per WebSocket message on the page side. A missing server closes
+// with 4404 and the editor carries on without it.
+const LSP: Record<string, string[]> = {
+  rust: ["rust-analyzer"],
+  typescript: ["typescript-language-server", "--stdio"],
+  python: ["pyright-langserver", "--stdio"],
+  zig: ["zls"],
+  c: ["clangd"],
+};
+const lspProcs = new Set<ReturnType<typeof spawn>>();
+function lsp(ws: import("ws").WebSocket, lang: string) {
+  const cmd = LSP[lang];
+  if (!cmd) { ws.close(4404, "no language server for " + lang); return; }
+  const p = spawn(cmd[0], cmd.slice(1), { cwd: root, stdio: ["pipe", "pipe", "ignore"] });
+  lspProcs.add(p);
+  let buf = Buffer.alloc(0);
+  p.stdout!.on("data", (chunk: Buffer) => {
+    buf = Buffer.concat([buf, chunk]);
+    for (;;) {
+      const end = buf.indexOf("\r\n\r\n");
+      if (end < 0) return;
+      const m = /content-length:\s*(\d+)/i.exec(buf.subarray(0, end).toString());
+      if (!m) { buf = buf.subarray(end + 4); continue; }
+      const len = +m[1];
+      if (buf.length < end + 4 + len) return;
+      const body = buf.subarray(end + 4, end + 4 + len).toString("utf8");
+      buf = buf.subarray(end + 4 + len);
+      if (ws.readyState === ws.OPEN) ws.send(body);
+    }
+  });
+  p.on("error", () => { lspProcs.delete(p); ws.close(4404, cmd[0] + " not found"); });
+  p.on("exit", () => { lspProcs.delete(p); if (ws.readyState === ws.OPEN) ws.close(4000, cmd[0] + " exited"); });
+  p.stdin!.on("error", () => {});
+  ws.on("message", (raw) => {
+    const body = Buffer.from(String(raw), "utf8");
+    if (p.stdin!.writable) p.stdin!.write(`Content-Length: ${body.length}\r\n\r\n`), p.stdin!.write(body);
+  });
+  ws.on("close", () => { p.kill(); });
+}
 server.on("upgrade", (req, sock, head) => {
   const url = new URL(req.url ?? "/", "http://x");
-  if (url.pathname !== "/api/term/ws" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
-  wss.handleUpgrade(req, sock, head, (ws) => terms.attach(ws, url.searchParams.get("id") ?? ""));
+  if (!["/api/term/ws", "/api/lsp"].includes(url.pathname) || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
+  wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? lsp(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
 });
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); process.exit(0); });
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); for (const p of lspProcs) p.kill(); process.exit(0); });
 server.listen(Number(opt("port") ?? 4173), opt("host") ?? "127.0.0.1", () =>
   console.log(`serving ${name} on http://${opt("host") ?? "127.0.0.1"}:${opt("port") ?? 4173}`),
 );

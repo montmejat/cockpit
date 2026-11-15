@@ -9,6 +9,7 @@
   import FileEditor from "./FileEditor.svelte";
   import { api, parsePatch } from "../lib/code";
   import { cur, openFile, S, statusOf, store, dirtyFiles } from "../lib/state.svelte";
+  import { lspStatus, serverOf } from "../lib/lsp.svelte";
   import type { Hunk } from "../lib/types";
 
   type FileData = { path: string; text: string | null; hash?: string; note?: string; error?: string; hunks: Hunk[] };
@@ -50,6 +51,10 @@
 
   let editor: ReturnType<typeof FileEditor> | undefined = $state();
   let showAll = $state(store.get("cockpit-show-removed", "0") === "1");
+  // The file's language server, in the header: ready, starting, or not installed.
+  const LSPCMD: Record<string, string> = { rust: "rust-analyzer", typescript: "typescript-language-server", python: "pyright", zig: "zls", c: "clangd" };
+  const srv = $derived(path ? serverOf(path)?.server ?? null : null);
+  const lsp = $derived(srv ? lspStatus[srv] ?? "starting" : null);
   let vimOn = $state(store.get("cockpit-vim", "1") === "1");
   let changes = $state(0), changeAt = $state(0);
   // Requested lines (from a diagram link or a test) are highlighted and scrolled to.
@@ -73,6 +78,7 @@
       {#if statusOf(path)}<span class="mark {statusOf(path)}">{statusOf(path)}</span>{/if}
       {#if dirtyFiles.has(path)}<button class="esave" title="Save (Ctrl+S, or :w in vim)" onclick={() => editor?.saveNow()}>● save</button>{/if}
       <span class="grow"></span>
+      {#if srv && lsp}<span class="lsp {lsp}" title={lsp === "ready" ? `${srv} language server: hover, completion, diagnostics; F12 / gd definition, Shift+F12 / gr references, F2 / Space rn rename, Shift+Alt+F / Space f format` : lsp === "missing" ? `No ${srv} language server installed (${LSPCMD[srv] ?? srv})` : `${srv} language server ${lsp}`}>{srv}{lsp === "ready" ? "" : lsp === "missing" ? " ×" : " …"}</span>{/if}
       <button class="vimtoggle" class:on={vimOn} title={vimOn ? "Vim keys on: :w saves, :q closes, :wq both. Click to turn off." : "Vim keys off. Click to turn on."}
         onclick={() => { vimOn = !vimOn; store.set("cockpit-vim", vimOn ? "1" : "0"); }}>vim</button>
       {#if changes}

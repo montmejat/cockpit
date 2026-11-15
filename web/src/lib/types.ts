@@ -14,6 +14,7 @@ export interface Diagram {
 export interface Feature { id: string; name: string; status: "working" | "partial" | "broken" | "planned"; description: string; modules: string[]; note?: string }
 export interface GitFile { x: string; y: string; path: string }
 export interface Live {
+  root?: string; // the project folder (for the language servers)
   project: string;
   diagrams: Diagram[];
   problems: { where: string; problem: string }[];

@@ -13,9 +13,11 @@
   import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
   import { highlightSelectionMatches, searchKeymap } from "@codemirror/search";
   import { vim, Vim } from "@replit/codemirror-vim";
+  import { findReferences, formatDocument, jumpToDefinition, renameSymbol } from "@codemirror/lsp-client";
+  import { lspFor, onLsp, pathOfUri, setDisplayFile } from "../lib/lsp.svelte";
   import { changeBars, changeStarts, languageFor, lineMarks, look, setHunks, toggleRemoved } from "../lib/editor";
   import { api } from "../lib/code";
-  import { closeTab, dirtyFiles, ui } from "../lib/state.svelte";
+  import { closeTab, dirtyFiles, openFile, S, ui } from "../lib/state.svelte";
   import type { Hunk } from "../lib/types";
 
   type FileData = { path: string; text: string | null; hash?: string; hunks: Hunk[] };
@@ -33,7 +35,7 @@
   let shown: string | null = null; // the path the view shows
   let conflict: { text: string; hash: string } | null = $state(null);
   let saving = $state(false), error = $state("");
-  const vimSlot = new Compartment();
+  const vimSlot = new Compartment(), lspSlot = new Compartment();
   const wantMarks = lineMarks("cm-want"), boxMarks = lineMarks("cm-boxhl");
 
   // Indentation the file already uses: tabs, else its smallest common step of spaces.
@@ -56,7 +58,7 @@
         indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
         indentUnit.of(indentOf(text)), EditorState.tabSize.of(4),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
-        languageFor(p), look, changeBars(), wantMarks.field, boxMarks.field,
+        languageFor(p), lspSlot.of(lspFor(S.root, p)), look, changeBars(), wantMarks.field, boxMarks.field,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) markDirty();
           if (u.selectionSet || u.docChanged) reportChanges();
@@ -103,6 +105,7 @@
     if (!b) { b = { state: newState(p, d.text ?? ""), saved: d.text ?? "", hash: d.hash ?? "", scroll: 0 }; bufs.set(p, b); }
     shown = p;
     view.setState(b.state);
+    connectLsp();
     conflict = b.disk ?? null;
     error = "";
     // A new buffer gets its change bars; a kept one has them already, moved along with your edits.
@@ -112,6 +115,24 @@
     requestAnimationFrame(() => { if (view && shown === p) { view.scrollDOM.scrollTop = b!.scroll; reportView(); } });
     if (bufs.size > 24) for (const [k] of bufs) { if (k !== p && !dirtyFiles.has(k)) { bufs.delete(k); break; } }
   }
+
+  // The shown file's language server, once it's up (lsp.svelte.ts); a jump to another file waits
+  // for that file to show.
+  function connectLsp() {
+    if (!view || !shown) return;
+    const l = lspFor(S.root, shown);
+    if (lspSlot.get(view.state) !== l) view.dispatch({ effects: lspSlot.reconfigure(l) });
+    for (const ok of waiting.get(shown) ?? []) ok(view);
+    waiting.delete(shown);
+  }
+  const waiting = new Map<string, ((v: EditorView) => void)[]>();
+  onLsp(() => connectLsp());
+  setDisplayFile((uri) => {
+    const p = S.root ? pathOfUri(S.root, uri) : null;
+    if (!p || !S.files.includes(p)) return Promise.resolve(null);
+    if (p === shown && view) return Promise.resolve(view);
+    return new Promise((ok) => { (waiting.get(p) ?? waiting.set(p, []).get(p)!).push(ok); openFile(p); });
+  });
 
   // A newer version of the shown file arrived (from disk).
   function arrived(d: FileData) {
@@ -173,6 +194,15 @@
     Vim.defineAction("prevChange", () => { me()?.jump(-1); });
     Vim.mapCommand("]c", "action", "nextChange", {}, { context: "normal" });
     Vim.mapCommand("[c", "action", "prevChange", {}, { context: "normal" });
+    // The language server, from vim: gd definition, gr references, <Space>rn rename, <Space>f format.
+    Vim.defineAction("lspDefinition", (cm: any) => { jumpToDefinition(cm.cm6); });
+    Vim.defineAction("lspReferences", (cm: any) => { findReferences(cm.cm6); });
+    Vim.defineAction("lspRename", (cm: any) => { renameSymbol(cm.cm6); });
+    Vim.defineAction("lspFormat", (cm: any) => { formatDocument(cm.cm6); });
+    Vim.mapCommand("gd", "action", "lspDefinition", {}, { context: "normal" });
+    Vim.mapCommand("gr", "action", "lspReferences", {}, { context: "normal" });
+    Vim.mapCommand("<Space>rn", "action", "lspRename", {}, { context: "normal" });
+    Vim.mapCommand("<Space>f", "action", "lspFormat", {}, { context: "normal" });
   }
 
   // Vim keys on or off (the header's "vim" button): every buffer follows.

@@ -459,3 +459,7 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 #palette .prow .pt{color:var(--muted);overflow:hidden;text-overflow:ellipsis;min-width:0}
 #palette .prow b{color:var(--accent);font-weight:700}
 #palette .pnote{padding:8px 12px;color:var(--muted);font-size:12px}
+
+/* the file's language server, in the editor's header */
+.dhead .lsp{font-size:11px;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--muted);cursor:default}
+.dhead .lsp.ready{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 40%,transparent)}
