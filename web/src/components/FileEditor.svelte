@@ -276,9 +276,13 @@
   $effect(() => { const all = showAll; view?.dispatch({ effects: toggleRemoved.of({ all }) }); });
 
   // The line under the mouse, for the floating diagram.
-  let hoverLine = 0;
+  // Scrolling moves the lines under a still mouse, and WebKit sends a mousemove for that: those
+  // are skipped (same pointer position), and a scroll drops the hovered line, so the diagram shows
+  // the cursor's box instead of hopping between boxes (and fading their highlights) every frame.
+  let hoverLine = 0, lastX = -1, lastY = -1;
   function hover(e: MouseEvent) {
-    if (!view) return;
+    if (!view || (e.clientX === lastX && e.clientY === lastY)) return;
+    lastX = e.clientX; lastY = e.clientY;
     const pos = view.posAtCoords({ x: e.clientX, y: e.clientY });
     const n = pos == null ? 0 : view.state.doc.lineAt(pos).number;
     if (n !== hoverLine) { hoverLine = n; dispatchHover(n); }
@@ -288,7 +292,7 @@
   onMount(() => {
     view = new EditorView({ parent: el, state: EditorState.create({ doc: "" }) });
     (window as any).__cockpitEditor = api_;
-    view.scrollDOM.addEventListener("scroll", reportView, { passive: true });
+    view.scrollDOM.addEventListener("scroll", () => { if (hoverLine) { hoverLine = 0; dispatchHover(0); } reportView(); }, { passive: true });
     if (data && data.path === path && data.text != null) show(path, data);
     return () => { view?.destroy(); view = null; if ((window as any).__cockpitEditor === api_) (window as any).__cockpitEditor = null; };
   });
