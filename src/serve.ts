@@ -326,14 +326,32 @@ let current: State = state();
 let currentJson: Record<string, string> = Object.fromEntries(Object.entries(current).map(([k, v]) => [k, JSON.stringify(v)]));
 const pages = new Set<(e: unknown) => void>();
 
+// Big lists go out as the entries that changed, by key: a large project's modules and tests are
+// ~1 MB and an edit shifts the lines of one file only. Sending them whole on every save stalled
+// the page (WebKit reads the event stream on its main thread) for 100-180 ms.
+type ListPatch = { set: unknown[]; del: string[]; keys?: string[] };
+function listPatch<T>(before: T[], after: T[], key: (x: T) => string): ListPatch {
+  const old = new Map(before.map((x) => [key(x), JSON.stringify(x)]));
+  const set = after.filter((x) => old.get(key(x)) !== JSON.stringify(x));
+  const now = new Set(after.map(key)), del = [...old.keys()].filter((k) => !now.has(k));
+  const same = !del.length && !set.some((x) => !old.has(key(x)));
+  return same ? { set, del } : { set, del, keys: after.map(key) };
+}
+const unitKey = (u: State["tests"]["unit"][number]) => u.module + "\0" + u.file;
 function recompute() {
-  const next = state(), patch: Record<string, unknown> = {};
+  const next = state(), patch: Record<string, unknown> = {}, lists: Record<string, ListPatch> = {};
   for (const [k, v] of Object.entries(next)) {
     const j = JSON.stringify(v);
-    if (currentJson[k] !== j) { patch[k] = v; currentJson[k] = j; }
+    if (currentJson[k] === j) continue;
+    currentJson[k] = j;
+    if (k === "modules") lists.modules = listPatch(current.modules, next.modules, (m) => m.id);
+    else if (k === "tests") {
+      lists["tests.unit"] = listPatch(current.tests.unit, next.tests.unit, unitKey);
+      lists["tests.integration"] = listPatch(current.tests.integration, next.tests.integration, (t) => t.file);
+    } else patch[k] = v;
   }
   current = next;
-  if (Object.keys(patch).length) for (const send of pages) send({ type: "patch", patch });
+  if (Object.keys(patch).length || Object.keys(lists).length) for (const send of pages) send({ type: "patch", patch, lists });
 }
 
 // One watcher per folder that holds project files (not ignored ones, so never target/), plus

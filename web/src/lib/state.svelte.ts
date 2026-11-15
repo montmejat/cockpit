@@ -10,7 +10,30 @@ const boot = window.INIT;
 export const initialTerminals: TermMeta[] = boot.terminals ?? [];
 
 // Live data. The server sends it whole once, then only the parts that changed (src/serve.ts).
-export const S: Live = $state(boot);
+// Each part is reactive as a whole and never deeply: parts are only ever replaced, and some are
+// big (a large project's modules and tests are ~1 MB, sent again on every save as lines shift),
+// so deep proxies made every push stall the page for ~170 ms.
+function cell<T>(v: T) {
+  let x = $state.raw(v);
+  return { get: () => x, set: (n: T) => { x = n; } };
+}
+export const S: Live = (() => {
+  const o = {} as Live;
+  for (const k of Object.keys(boot) as (keyof Live)[]) {
+    const c = cell(boot[k]);
+    Object.defineProperty(o, k, { get: c.get, set: c.set as (v: unknown) => void, enumerable: true });
+  }
+  return o;
+})();
+
+// A list patched by key: changed and new entries replace or join, removed ones go; when the
+// membership changed the server sends the new order of keys.
+function merge<T>(list: T[], p: { set: T[]; del: string[]; keys?: string[] }, key: (x: T) => string): T[] {
+  const by = new Map(list.map((x) => [key(x), x]));
+  for (const k of p.del) by.delete(k);
+  for (const x of p.set) by.set(key(x), x);
+  return p.keys ? p.keys.map((k) => by.get(k)!).filter(Boolean) : list.filter((x) => by.has(key(x))).map((x) => by.get(key(x))!);
+}
 
 export function connectLive() {
   const es = new EventSource("api/events");
@@ -18,6 +41,13 @@ export function connectLive() {
     const e = JSON.parse(m.data);
     const parts = e.type === "full" ? e.state : e.patch;
     for (const k of Object.keys(parts)) (S as any)[k] = parts[k];
+    // Big lists come as their changed entries (src/serve.ts, listPatch).
+    const l = e.lists ?? {};
+    if (l.modules) S.modules = merge(S.modules, l.modules, (m) => m.id);
+    if (l["tests.unit"] || l["tests.integration"]) S.tests = {
+      unit: l["tests.unit"] ? merge(S.tests.unit, l["tests.unit"], (u) => u.module + "\0" + u.file) : S.tests.unit,
+      integration: l["tests.integration"] ? merge(S.tests.integration, l["tests.integration"], (t) => t.file) : S.tests.integration,
+    };
   };
   // EventSource reconnects by itself; the server starts again with the whole state.
 }
