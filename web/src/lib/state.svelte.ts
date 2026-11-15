@@ -40,7 +40,9 @@ export function connectLive() {
   es.onmessage = (m) => {
     const e = JSON.parse(m.data);
     const parts = e.type === "full" ? e.state : e.patch;
-    for (const k of Object.keys(parts)) (S as any)[k] = parts[k];
+    // The whole state comes on (re)connecting, usually the same as the page's (it just loaded
+    // with it): unchanged parts are left alone, so nothing is redrawn or fetched again for them.
+    for (const k of Object.keys(parts)) if (e.type !== "full" || JSON.stringify((S as any)[k]) !== JSON.stringify(parts[k])) (S as any)[k] = parts[k];
     // Big lists come as their changed entries (src/serve.ts, listPatch).
     const l = e.lists ?? {};
     if (l.modules) S.modules = merge(S.modules, l.modules, (m) => m.id);
