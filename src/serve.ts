@@ -525,6 +525,7 @@ const routes: Record<string, Handler> = {
 
   // review mode
   "GET /api/review/mrs": async (_req, res) => json(res, await review.mergeRequests()),
+  "GET /api/git/mr": async (_req, res, url) => { const h = gitHead(); json(res, h.branch ? await review.branchMr(h.branch + "@" + h.head, q(url, "fresh") === "1") : { mr: null }); },
   "GET /api/review/branches": async (_req, res) => json(res, await review.branches()),
   "POST /api/review/start": post(async (body) => { const r = await review.start(body ?? {}); recompute(); return r; }),
   "POST /api/review/stop": post(async ({ back }) => { await review.stop(!!back); recompute(); }),

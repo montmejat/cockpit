@@ -16,6 +16,12 @@ export interface MergeRequest {
   id: number; ref: string; title: string; source: string; target: string;
   author: string; url: string; draft: boolean; fork: boolean;
 }
+// The merge request of the checked-out branch, with where it stands (like Claude Code's footer).
+export interface BranchMr extends MergeRequest {
+  state: "open" | "merged" | "closed";
+  review: "approved" | "changes" | "required" | null; // GitHub's review decision
+  checks: { pass: number; fail: number; pending: number }; // CI on its head
+}
 export interface Review {
   mr: MergeRequest | null; // null: two branches picked by hand
   branch: string; // the branch checked out for the review
@@ -61,6 +67,55 @@ export function createReview(root: string, project: string) {
     } catch (e: any) {
       const cli = f === "gitlab" ? "glab" : "gh";
       return { forge: f, list: [], error: /ENOENT/.test(e.message) ? `${cli} is not installed` : `${cli}: ${e.message}` };
+    }
+  }
+
+  // The merge request whose source is the checked-out branch, or null. The forge CLI resolves
+  // the branch itself (its push target, forks included). Kept for a minute per branch and head;
+  // `fresh` asks again.
+  const mrCache = new Map<string, { at: number; v: Promise<{ mr: BranchMr | null; error?: string }> }>();
+  function branchMr(key: string, fresh = false) {
+    const hit = mrCache.get(key);
+    if (hit && !fresh && Date.now() - hit.at < 60_000) return hit.v;
+    const v = lookupBranchMr();
+    mrCache.clear(); mrCache.set(key, { at: Date.now(), v });
+    return v;
+  }
+  async function lookupBranchMr(): Promise<{ mr: BranchMr | null; error?: string }> {
+    const f = await forge();
+    if (!f) return { mr: null };
+    const none = /no (pull|merge) requests? found|no open merge request|not found/i;
+    try {
+      if (f === "gitlab") {
+        const m = JSON.parse(await run("glab", ["mr", "view", "-F", "json"], root, 20_000));
+        const p = m.head_pipeline?.status as string | undefined;
+        return { mr: {
+          id: m.iid, ref: "!" + m.iid, title: m.title, source: m.source_branch, target: m.target_branch,
+          author: m.author?.username ?? "", url: m.web_url, draft: !!m.draft, fork: m.source_project_id !== m.target_project_id,
+          state: m.state === "merged" ? "merged" : m.state === "closed" ? "closed" : "open", review: null,
+          checks: { pass: p === "success" ? 1 : 0, fail: p === "failed" ? 1 : 0, pending: p && !["success", "failed", "canceled", "skipped"].includes(p) ? 1 : 0 },
+        } };
+      }
+      const p = JSON.parse(await run("gh", ["pr", "view", "--json", "number,title,url,state,isDraft,baseRefName,headRefName,author,isCrossRepository,reviewDecision,statusCheckRollup"], root, 20_000));
+      const checks = { pass: 0, fail: 0, pending: 0 };
+      for (const c of p.statusCheckRollup ?? []) {
+        const r = String(c.conclusion || c.state || "").toUpperCase(), done = c.__typename !== "CheckRun" || c.status === "COMPLETED";
+        if (!done || r === "PENDING" || r === "EXPECTED" || !r) checks.pending++;
+        else if (["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"].includes(r)) checks.fail++;
+        else if (r !== "SKIPPED" && r !== "NEUTRAL") checks.pass++;
+      }
+      const rd = p.reviewDecision;
+      return { mr: {
+        id: p.number, ref: "#" + p.number, title: p.title, source: p.headRefName, target: p.baseRefName,
+        author: p.author?.login ?? "", url: p.url, draft: !!p.isDraft, fork: !!p.isCrossRepository,
+        state: p.state === "MERGED" ? "merged" : p.state === "CLOSED" ? "closed" : "open",
+        review: rd === "APPROVED" ? "approved" : rd === "CHANGES_REQUESTED" ? "changes" : rd === "REVIEW_REQUIRED" ? "required" : null,
+        checks,
+      } };
+    } catch (e: any) {
+      if (none.test(e.message)) return { mr: null };
+      const cli = f === "gitlab" ? "glab" : "gh";
+      return { mr: null, error: /ENOENT/.test(e.message) ? `${cli} is not installed` : `${cli}: ${e.message}` };
     }
   }
 
@@ -124,5 +179,5 @@ export function createReview(root: string, project: string) {
     save(null);
   }
 
-  return { current: () => current, mergeRequests, branches, start, stop };
+  return { current: () => current, mergeRequests, branchMr, branches, start, stop };
 }

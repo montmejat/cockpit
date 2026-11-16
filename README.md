@@ -56,8 +56,9 @@ have them.
   by added lines, blue by changed ones, a red mark where lines were removed (click it to see
   them, or tick "show removed"). ↑ ↓ jump between changes. A small diagram floats over the code
   and lights up the boxes whose code is on screen.
-- **Git**: branch, what isn't committed, and the history of all branches as a graph; a commit
-  opens as its patch.
+- **Git**: branch and its upstream, the PR / MR the branch has open (via `gh` or `glab`: state,
+  review, checks; one click reviews it), what isn't committed, and the history of all branches
+  as a graph (hash and all refs in the tooltip); a commit opens as its patch. Sections fold.
 - **Header**: lines, tests and features at a glance; each opens what's behind it on the right.
 - **Review mode** (git tab, "review a merge request…"): pick one of the project's open merge
   requests (through `glab` or `gh`, whichever the remote needs, with your own login) or any two

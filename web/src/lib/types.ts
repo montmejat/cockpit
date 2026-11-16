@@ -41,6 +41,7 @@ export interface Live {
 // The workspace this project is in (src/workspace.ts): projects that work together.
 export interface Workspace { name: string; system: string | null; projects: { name: string; path: string; summary: string | null; here: boolean }[] }
 export interface MergeRequest { id: number; ref: string; title: string; source: string; target: string; author: string; url: string; draft: boolean; fork: boolean }
+export interface BranchMr extends MergeRequest { state: "open" | "merged" | "closed"; review: "approved" | "changes" | "required" | null; checks: { pass: number; fail: number; pending: number } }
 // Review mode (src/review.ts): what the checked-out branch changes against its target.
 export interface Review {
   mr: MergeRequest | null; branch: string; target: string; returnTo: string | null;
