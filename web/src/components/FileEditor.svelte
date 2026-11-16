@@ -28,7 +28,9 @@
   } = $props();
 
   // ---- buffers --------------------------------------------------------------------------
-  type Buf = { state: EditorState; saved: string; hash: string; scroll: number; disk?: { text: string; hash: string } };
+  // `before`: the version this editor last saved over, and when: a copy of it arriving in the next
+  // few seconds is a late answer, not the file going back (a git checkout later still shows).
+  type Buf = { state: EditorState; saved: string; hash: string; scroll: number; disk?: { text: string; hash: string }; before?: { hash: string; at: number } };
   const bufs = new Map<string, Buf>();
   let el: HTMLElement;
   let view: EditorView | null = null;
@@ -138,6 +140,7 @@
   function arrived(d: FileData) {
     const b = bufs.get(d.path);
     if (!view || !b || d.text == null) return;
+    if (d.hash && b.before?.hash === d.hash && Date.now() - b.before.at < 5000) return; // older than your last save, arriving late
     const dirty = dirtyFiles.has(d.path);
     if (d.text === view.state.doc.toString()) { b.saved = d.text; b.hash = d.hash ?? b.hash; b.disk = undefined; conflict = null; markDirty(); }
     else if (d.text === b.saved) { b.hash = d.hash ?? b.hash; return; } // your edits stand; their bars already follow them
@@ -162,6 +165,7 @@
       const r = await api.post<{ ok?: boolean; hash?: string; conflict?: boolean; text?: string; error?: string }>("api/file/save", { path: p, text, hash: b.hash, force });
       if (r.error) { error = r.error; return false; }
       if (r.conflict) { b.disk = { text: r.text!, hash: r.hash! }; if (shown === p) conflict = b.disk; return false; }
+      if (b.hash && b.hash !== r.hash) b.before = { hash: b.hash, at: Date.now() };
       b.saved = text; b.hash = r.hash!; b.disk = undefined;
       if (shown === p) { conflict = null; markDirty(); }
       return true;

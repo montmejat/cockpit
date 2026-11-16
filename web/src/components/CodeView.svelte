@@ -43,7 +43,9 @@
   $effect(() => {
     if (!path) return;
     const p = path, r = rev, hit = files.get(p);
-    if (hit) file = hit.data; else if (file?.path !== p) file = null;
+    // The cached copy only when switching files: for the same file it is older than what the
+    // editor has (just saved, say), and showing it would bring the old text back until the new one loads.
+    if (file?.path !== p) file = hit?.data ?? null;
     if (hit?.rev === r) return;
     api.get<FileData>("api/file?path=" + encodeURIComponent(p) + (S.review?.base ? "&review=1" : "")).then((data) => {
       files.set(p, { rev: r, data });
