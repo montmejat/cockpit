@@ -171,7 +171,8 @@ button.mrrow .mm{font-size:11px;color:var(--muted);white-space:nowrap;overflow:h
 .ctab .ti{color:var(--accent);font-size:10px}.ctab .mark{margin-left:0}
 .ctab .tx{border:0;background:none;padding:0 4px;color:var(--muted);visibility:hidden}.ctab:hover .tx,.ctab.on .tx{visibility:visible}.ctab .tx:hover{color:var(--fg)}
 #canvas[hidden],#codeview[hidden]{display:none}
-#codeview{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--card)}
+/* min-width:0: a long line scrolls inside the view instead of widening the page (and the view follows the panels' widths) */
+#codeview{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--card)}
 .dhead{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line);flex-wrap:wrap}
 .dhead .path{font-weight:700;word-break:break-all}
 .dhead .seg{display:flex}.dhead .seg button{border-radius:0;margin-left:-1px;color:var(--muted)}
@@ -404,7 +405,7 @@ button.csess .muted{font-size:11px}
 .ctool .chip{flex:none}
 .meters{display:flex;flex-direction:column;gap:2px;margin-top:7px;font-size:10.5px;color:var(--muted)}
 .meter{display:flex;align-items:center;gap:7px;cursor:default}
-.ctx{position:relative;display:inline-flex}
+#chat .ctx{position:relative;display:inline-flex} /* scoped: diffs use tr.ctx for context lines */
 button.ring{padding:2px;border:0;background:none;border-radius:50%;display:inline-flex;cursor:pointer;color:var(--accent)}
 button.ring:hover,button.ring[aria-expanded=true]{background:var(--sel)}
 button.ring.warn{color:var(--warn)}button.ring.bad{color:var(--bad)}
@@ -492,18 +493,17 @@ button.gghost{margin-left:auto;background:none;color:var(--muted);font-size:11.5
 button.gghost:hover{color:var(--rev);border-color:color-mix(in oklab,var(--rev) 50%,var(--line));background:none}
 button.gicon{background:none;border:0;padding:0 4px;color:var(--muted);font-size:12px;line-height:16px}button.gicon:hover{color:var(--fg);background:none}
 .gmuted{color:var(--muted);font-size:11.5px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-/* the branch's PR / MR */
-.gpr{--st:var(--ok);margin-top:8px;padding:6px 8px;border-radius:6px;border-left:3px solid var(--st);background:color-mix(in oklab,var(--st) 7%,transparent)}
+/* the branch's PR / MR: one line; details in the tooltip, actions on hover */
+.gpr{--st:var(--ok);display:flex;align-items:center;gap:6px;margin-top:6px;padding-top:6px;border-top:1px solid var(--line);min-width:0;font-size:12px}
 .gpr.draft,.gpr.closed{--st:var(--muted)}.gpr.merged{--st:var(--rev)}
-.gprtop{display:flex;align-items:center;gap:6px}
-.gprref{font-weight:700;font-family:var(--mono);font-size:11.5px}
-.gprstate{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--st);font-weight:700}
-.gprtitle{display:block;color:var(--fg);margin-top:1px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.gprtitle:hover{color:var(--accent)}
-.gprmeta{display:flex;flex-wrap:wrap;gap:2px 10px;margin-top:3px;font-size:11px;color:var(--muted)}
-.gprmeta .ok{color:var(--ok)}.gprmeta .bad{color:var(--bad)}.gprmeta .warn{color:var(--warn)}
-.gprmeta .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--warn);vertical-align:1px}
-button.gprrev{margin:6px 0 0;display:block}
+.gpr .gdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--st)}
+.gpr.draft .gdot{background:none;border:1.5px solid var(--st);width:8px;height:8px}
+.gpr a{display:flex;gap:5px;min-width:0;flex:1;color:var(--fg)}
+.gpr a:hover .gprtitle{color:var(--accent)}
+.gpr .gprref{flex:none;color:var(--muted);font-family:var(--mono);font-size:11px;line-height:18px}
+.gpr .gprtitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.gpr .gsig{flex:none;font-size:11px;font-weight:700}.gsig.ok{color:var(--ok)}.gsig.bad{color:var(--bad)}.gsig.warn{color:var(--warn)}
+.gpr button.gicon{display:none;flex:none}.gpr:hover button.gicon,.gpr button.gicon.busy{display:block}
 /* review */
 .gcard.review{border-color:color-mix(in oklab,var(--rev) 40%,var(--line))}
 .review .rhead{display:flex;align-items:center;gap:6px}.review .rhead b{color:var(--rev)}
@@ -535,8 +535,7 @@ button.gall{font-size:11px;padding:0 6px;color:var(--muted);background:none}butt
 .gitrow .mark{margin-left:0;width:10px;flex:none}
 .gact{visibility:hidden;flex:none;width:22px;padding:0;margin-right:8px;font-size:13px;line-height:16px;border-radius:4px}
 .gitrow:hover .gact{visibility:visible}
-/* history: graph, refs, subject, age (the hash is in the tooltip) */
+/* history: graph, refs, subject (hash, date and all refs in the tooltip) */
 .grow-row{gap:2px}
 .grow-row .ref{display:inline-block;max-width:11ch;overflow:hidden;text-overflow:ellipsis;vertical-align:-3px;white-space:nowrap}
 .ref.synced::after{content:" ⇅";opacity:.7}.ref.more{border-color:var(--line);color:var(--muted)}
-.grow-row .gage{flex:none;color:var(--muted);font-size:10.5px;padding-left:6px;font-variant-numeric:tabular-nums}

@@ -100,11 +100,6 @@
     out.sort((a, b) => +b.head - +a.head || +a.remote - +b.remote);
     return { shown: out.slice(0, 1), more: Math.max(0, out.length - 1) };
   }
-  // A commit's age in a few characters: the panel is narrow, the hash is in the tooltip.
-  function ago(d: string) {
-    const m = (Date.now() - new Date(d).getTime()) / 60_000;
-    return m < 60 ? Math.max(1, Math.round(m)) + "m" : m < 1440 ? Math.round(m / 60) + "h" : m < 43_200 ? Math.round(m / 1440) + "d" : m < 525_600 ? Math.round(m / 43_200) + "mo" : Math.round(m / 525_600) + "y";
-  }
   const nameOf = (p: string) => p.split("/").pop()!;
   const dirOf = (p: string) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
 </script>
@@ -147,24 +142,18 @@
       {#if !R}<button class="gghost" onclick={openPicker} disabled={!!busy} title="Review a merge request, or compare two branches">◆ review</button>{/if}
     </div>
     {#if mr}
-      <div class="gpr {mr.state}" class:draft={mr.draft}>
-        <div class="gprtop">
-          <a class="gprref" href={mr.url} target="_blank" rel="noreferrer" title="Open {mr.ref} on the forge">{mr.ref}</a>
-          <span class="gprstate">{mr.state === "open" ? (mr.draft ? "draft" : "open") : mr.state}</span>
-          <span class="grow"></span>
-          <button class="gicon" onclick={() => loadMr(true)} disabled={mrLoading} title="Refresh">{#if mrLoading}<span class="spin"></span>{:else}↻{/if}</button>
-        </div>
-        <a class="gprtitle" href={mr.url} target="_blank" rel="noreferrer" title={mr.title}>{mr.title}</a>
-        <div class="gprmeta">
-          <span title="merges into">→ {mr.target}</span>
-          {#if mr.review === "approved"}<span class="ok">✓ approved</span>
-          {:else if mr.review === "changes"}<span class="bad">✗ changes requested</span>
-          {:else if mr.review === "required" && mr.state === "open"}<span class="warn">review required</span>{/if}
-          {#if mr.checks.fail}<span class="bad" title="checks failing">✗ {mr.checks.fail} failing</span>
-          {:else if mr.checks.pending}<span class="warn" title="checks running"><span class="dot"></span> {mr.checks.pending} running</span>
-          {:else if mr.checks.pass}<span class="ok" title="checks passed">✓ checks</span>{/if}
-        </div>
-        {#if !R && mr.state === "open"}<button class="gghost gprrev" disabled={!!busy} onclick={() => startMr(mr!)} title="Show what {mr.ref} changes against {mr.target} on the map and in the files">◆ review this {mr.ref.startsWith("!") ? "MR" : "PR"}</button>{/if}
+      {@const kind = mr.ref.startsWith("!") ? "MR" : "PR"}
+      {@const checks = mr.checks.fail ? `${mr.checks.fail} check${mr.checks.fail > 1 ? "s" : ""} failing` : mr.checks.pending ? `${mr.checks.pending} check${mr.checks.pending > 1 ? "s" : ""} running` : mr.checks.pass ? "checks passed" : ""}
+      {@const review = mr.review === "approved" ? "approved" : mr.review === "changes" ? "changes requested" : mr.review === "required" ? "review required" : ""}
+      <div class="gpr {mr.state}" class:draft={mr.draft && mr.state === "open"}>
+        <span class="gdot"></span>
+        <a href={mr.url} target="_blank" rel="noreferrer" title={[`${kind} ${mr.ref} · ${mr.draft && mr.state === "open" ? "draft" : mr.state} → ${mr.target}`, mr.title, review, checks].filter(Boolean).join("\n")}>
+          <span class="gprref">{mr.ref}</span><span class="gprtitle">{mr.title}</span>
+        </a>
+        {#if mr.checks.fail}<span class="gsig bad" title={checks}>✗</span>{:else if mr.checks.pending}<span class="gsig warn" title={checks}>●</span>{:else if mr.checks.pass}<span class="gsig ok" title={checks}>✓</span>{/if}
+        {#if mr.review === "approved"}<span class="gsig ok" title="approved">👍︎</span>{:else if mr.review === "changes"}<span class="gsig bad" title="changes requested">✎</span>{/if}
+        {#if !R && mr.state === "open"}<button class="gicon" disabled={!!busy} onclick={() => startMr(mr!)} title="Review this {kind}: what it changes against {mr.target}, on the map and in the files">◆</button>{/if}
+        <button class="gicon" class:busy={mrLoading} onclick={() => loadMr(true)} disabled={mrLoading} title="Refresh">{#if mrLoading}<span class="spin"></span>{:else}↻{/if}</button>
       </div>
     {:else if mrErr}<div class="gmuted" title={mrErr}>PR lookup: {mrErr}</div>{/if}
   </div>
@@ -253,7 +242,6 @@
         <button class="grow-row" class:sel={selSha === r.c.sha} onclick={() => openCommit(r.c.sha)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
           {@html graphSvg(r, width)}
           <span class="msg">{#each rf.shown as x}<span class="ref" class:head={x.head} class:remote={x.remote} class:synced={x.synced} title={x.synced ? `${x.name} (same as origin/${x.name})` : x.name}>{x.name}</span>{/each}{#if rf.more}<span class="ref more" title={r.c.refs.join(", ")}>+{rf.more}</span>{/if}{r.c.subject}</span>
-          <span class="gage">{ago(r.c.date)}</span>
         </button>
       {/each}
     </div>
