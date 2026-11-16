@@ -1,6 +1,6 @@
 // Workspaces: projects that work together, like an editor's multi-root workspace. Each project
-// still opens in its own window, with its own server, index, chat and terminals; the workspace
-// only tells each one about the others. The chat's agent can read them all, knows what each one
+// still has its own server, index, chat and terminals (the desktop app switches its window between
+// them); the workspace only tells each one about the others. The chat's agent can read them all, knows what each one
 // is, and keeps one shared note on how they fit together.
 //
 // A workspace is a folder in your settings, outside every repo (and outside this one):
@@ -56,7 +56,7 @@ export function workspaceBrief(w: Workspace, cockpit: string): string {
   const others = w.projects.filter((p) => !p.here);
   const note = existsSync(w.system) ? readFileSync(w.system, "utf8").trim() : "";
   return [
-    `This project is part of the workspace "${w.name}": projects that work together as one system. Each one is open in its own cockpit window.`,
+    `This project is part of the workspace "${w.name}": projects that work together as one system. Each one has its own cockpit, with its own chat.`,
     w.projects.map((p) => `- ${p.name}${p.here ? " (this project)" : ""}: ${p.path}${p.summary ? " — " + p.summary : ""}`).join("\n"),
     `You can read the other projects directly: follow calls, types and messages across them instead of guessing, and say which project a file is in. Change files only in this project; an edit in another one needs the owner's yes. Their own ${ARCH_DIR}/ folders describe them; their module lists come from: cd ${cockpit} && npm run -s modules -- <project path> [filter]`,
     `How the projects fit together is kept in ${w.system}, shared by every project of the workspace: which project owns what, who calls whom and through which interface (library, protocol, topic, file), what they share, and how they are built together. Keep it short and true as you learn things; it is yours to edit, no need to ask.` +

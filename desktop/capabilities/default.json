@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "The cockpit page (served from 127.0.0.1) draws its own title bar, so it may move, resize, minimize, maximize and close the window.",
+  "description": "The cockpit page (served from 127.0.0.1) draws its own title bar, so it may move, resize, minimize, maximize and close the window, and switch the window to another project of its workspace.",
   "windows": [
     "main"
   ],
@@ -16,6 +16,7 @@
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
-    "core:window:allow-is-maximized"
+    "core:window:allow-is-maximized",
+    "allow-switch-project"
   ]
 }

@@ -94,8 +94,8 @@ Allow/Deny card shows in the chat. Model picker (haiku/sonnet/opus) and a stop b
 ### Workspaces
 
 Projects that work together (a service and its clients, a library and the apps built on it) can
-be put in a workspace, like an editor's multi-root workspace. Each project still opens in its own
-window, with its own index, chat and terminals; the workspace tells each one about the others.
+be put in a workspace, like an editor's multi-root workspace. Each project keeps its own server,
+index, chat and terminals; the workspace tells each one about the others.
 
 ```
 ~/.config/cockpit/workspaces/<name>/workspace.json   { "projects": ["~/src/engine", "~/src/tools"] }
@@ -107,8 +107,11 @@ window, with its own index, chat and terminals; the workspace tells each one abo
   your yes, on an Allow/Deny card, even in auto mode.
 - `SYSTEM.md` says which project owns what, who calls whom and through what, and how they are built
   together. The agents write it the first time it matters and keep it true; you can edit it too.
-- The header shows the workspace before the project's name; its menu lists the projects, with
-  "open" for each one in its own window of the desktop app.
+- The header shows the workspace before the project's name; its menu lists the projects. In the
+  desktop app "open" switches the window to that project and ↗ opens it in a window of its own.
+  A project you switch away from keeps its server running, with its terminals and agent, so
+  switching back is instant; they all stop when the window closes. In a browser, "open" starts
+  the desktop app on it.
 - When the C++ index runs in a build image, the other projects are mounted there too, read-only,
   for builds that compile another project's headers or sources from its checkout.
 - A change to the workspace reaches the chat from its next conversation.

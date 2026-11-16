@@ -20,10 +20,16 @@
     addEventListener("resize", sync);
     sync();
   }
-  // The workspace (src/workspace.ts): the other projects, each opened in its own window.
+  // The workspace (src/workspace.ts): the other projects. In the desktop app "open" switches this
+  // window to one (each project keeps its own server, so its terminals and agents go on meanwhile);
+  // ↗ opens it in a window of its own.
   let wsOpen = $state(false), wsNote = $state("");
-  async function openProject(path: string) {
+  async function openProject(path: string, newWindow = false) {
     wsNote = "";
+    if (tauri && !newWindow) {
+      try { await tauri.core.invoke("switch_project", { path }); wsOpen = false; } catch (e) { wsNote = String(e); }
+      return;
+    }
     const r = await api.post<{ error?: string }>("api/workspace/open", { path });
     if (r.error) wsNote = r.error; else wsOpen = false;
   }
@@ -45,7 +51,7 @@
       <div class="muted wshead">workspace <b>{S.workspace.name}</b>: the agent reads these projects too</div>
       {#each S.workspace.projects as p (p.path)}
         <div class="wsrow" class:here={p.here}>
-          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · this window</span>{:else}<button onclick={() => openProject(p.path)}>open</button>{/if}</div>
+          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · this window</span>{:else}<button title={tauri ? "Show it in this window" : "Open it in the desktop app"} onclick={() => openProject(p.path)}>open</button>{#if tauri}<button title="Open it in a window of its own" onclick={() => openProject(p.path, true)}>↗</button>{/if}{/if}</div>
           {#if p.summary}<div class="muted wssum">{p.summary}</div>{/if}
         </div>
       {/each}

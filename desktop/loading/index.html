@@ -13,4 +13,9 @@
   #msg { white-space: pre-wrap; max-width: 70ch; }
 </style></head>
 <body>
-<div id="bar" data-tauri-drag-region><button title="close" onclick="window.__TAURI__.window.getCurrentWindow().close()">✕</button></div><div><span class="dot"></span><span id="msg">starting cockpit…</span></div></body></html>
+<div id="bar" data-tauri-drag-region><button title="close" onclick="window.__TAURI__.window.getCurrentWindow().close()">✕</button></div><div><span class="dot"></span><span id="msg">starting cockpit…</span></div>
+<script>
+  // desktop/src/main.rs says what is happening in ?msg; anything but "starting…" is the end of it.
+  const msg = new URLSearchParams(location.search).get("msg");
+  if (msg) { document.getElementById("msg").textContent = msg; if (!/…$/.test(msg)) document.querySelector(".dot").style.animation = "none"; }
+</script></body></html>
