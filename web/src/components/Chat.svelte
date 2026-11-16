@@ -119,7 +119,9 @@
     <button class="ctitle" onclick={showList} title="Your conversations in this project">
       <span class="chev">{list ? "▾" : "▸"}</span><span class="ctname">{title}</span>
     </button>
-    <select bind:value={model} onchange={() => post("model", { model })} title="model">{#each models as m}<option>{m}</option>{/each}</select>
+    <div class="cmodel" role="radiogroup" aria-label="Model">
+      {#each models as m}<button role="radio" aria-checked={m === model} class:on={m === model} title="Answer with {m}" onclick={() => { if (m !== model) { model = m; post("model", { model }); } }}>{m}</button>{/each}
+    </div>
     <button onclick={() => post("new")} title="Start a new conversation (this one stays in the list)">new</button>
   </div>
   {#if list}

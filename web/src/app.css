@@ -386,7 +386,11 @@ button.chip:hover{border-color:var(--accent);color:var(--accent)}
 #chat.hide{display:none}
 #right.hide{display:none}
 .ctools{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line)}
-.ctools select{font:inherit;font-size:11.5px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:1px 4px}
+/* the model: a small segmented pill */
+.cmodel{display:flex;flex:none;padding:2px;gap:2px;border-radius:8px;background:var(--btn)}
+.cmodel button{background:none;border:0;border-radius:6px;padding:1px 8px;font-size:11.5px;color:var(--muted);text-transform:capitalize;line-height:18px}
+.cmodel button:hover{color:var(--fg);background:none}
+.cmodel button.on{background:var(--card);color:var(--fg);box-shadow:0 1px 2px color-mix(in oklab,#000 18%,transparent)}
 button.ctitle{flex:1;min-width:0;display:flex;gap:4px;color:var(--fg);font-size:12px}
 button.ctitle .chev{color:var(--muted)}
 .ctname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
