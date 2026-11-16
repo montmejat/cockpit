@@ -138,12 +138,13 @@
     </div>
     <div class="gbline gsub">
       {#if g.upstream}
-        <span class="gup" title="upstream">{g.upstream}</span>
+        <!-- origin/<this branch> says nothing the branch name doesn't: just the remote then -->
+        <span class="gup" title="upstream: {g.upstream}">{g.upstream === "origin/" + g.branch ? "origin" : g.upstream}</span>
         {#if g.ahead}<span class="chip-s ahead" title="{g.ahead} commit{g.ahead > 1 ? 's' : ''} to push">↑{g.ahead}</span>{/if}
         {#if g.behind}<span class="chip-s behind" title="{g.behind} commit{g.behind > 1 ? 's' : ''} to pull">↓{g.behind}</span>{/if}
         {#if !g.ahead && !g.behind}<span class="chip-s" title="nothing to push or pull">✓ in sync</span>{/if}
       {:else}<span class="gup">no upstream</span>{/if}
-      {#if !R}<button class="gghost" onclick={openPicker} disabled={!!busy} title="Review a merge request, or compare two branches">◆ review…</button>{/if}
+      {#if !R}<button class="gghost" onclick={openPicker} disabled={!!busy} title="Review a merge request, or compare two branches">◆ review</button>{/if}
     </div>
     {#if mr}
       <div class="gpr {mr.state}" class:draft={mr.draft}>
