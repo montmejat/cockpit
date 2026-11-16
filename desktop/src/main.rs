@@ -13,7 +13,6 @@ use std::time::{Duration, Instant};
 
 use tauri::{Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
-use tauri_plugin_window_state::StateFlags;
 
 /// Process id of the running server, 0 when none.
 static SERVER: AtomicI32 = AtomicI32::new(0);
@@ -248,6 +247,95 @@ fn window_shadow(win: &WebviewWindow) {
 #[cfg(not(target_os = "linux"))]
 fn window_shadow(_win: &WebviewWindow) {}
 
+/// The window reopens at the size you left it (and maximized if it was; where it was too, on X11:
+/// Wayland doesn't let an app place its own window). Kept in ~/.config/cockpit/window as
+/// "width height maximized x y". GTK's own size, not Tauri's: GTK's is in the logical pixels it
+/// resizes with and leaves out the frame's shadow, so it comes back the same at any display
+/// scale. Tauri's window-state plugin saved device pixels and grew the window on fractional
+/// scaling (125%), until GNOME refused the size.
+#[cfg(target_os = "linux")]
+mod geometry {
+    use super::*;
+    use gtk::prelude::*;
+    use std::sync::Mutex;
+
+    #[derive(Clone, Copy, Default)]
+    struct Geo { w: i32, h: i32, max: bool, x: i32, y: i32 }
+    static NOW: Mutex<Option<Geo>> = Mutex::new(None);
+
+    fn file() -> Option<PathBuf> { last_project_file().map(|f| f.with_file_name("window")) }
+
+    fn load() -> Option<Geo> {
+        let text = std::fs::read_to_string(file()?).ok()?;
+        let n: Vec<i32> = text.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+        let g = Geo { w: *n.first()?, h: *n.get(1)?, max: n.get(2) == Some(&1), x: *n.get(3).unwrap_or(&0), y: *n.get(4).unwrap_or(&0) };
+        (g.w >= 400 && g.h >= 300).then_some(g)
+    }
+
+    /// Put the window back as it was, then follow it (size while not maximized, and whether it is).
+    pub fn restore_and_follow(win: &WebviewWindow) {
+        let Ok(w) = win.gtk_window() else { return };
+        let wayland = w.display().backend().is_wayland();
+        if let Some(g) = load() {
+            // After the window is on screen: before that, GTK adds the frame's shadow to whatever
+            // size it was given once it maps, and the window comes back larger each time.
+            let w2 = w.clone();
+            w.connect_map_event(move |_, _| {
+                let w = w2.clone();
+                gtk::glib::timeout_add_local_once(Duration::from_millis(50), move || {
+                    // Never larger than the screen it opens on (its work area, in the same units).
+                    let (mut gw, mut gh) = (g.w, g.h);
+                    if let Some(m) = w.display().monitor_at_window(&w.window().unwrap()).or_else(|| w.display().primary_monitor()) {
+                        let a = m.workarea();
+                        gw = gw.min(a.width()); gh = gh.min(a.height());
+                    }
+                    if g.max { w.maximize(); } else { w.resize(gw, gh); }
+                    if !wayland { w.move_(g.x, g.y); }
+                });
+                gtk::glib::Propagation::Proceed
+            });
+        }
+        w.connect_configure_event(|w, _| {
+            let mut now = NOW.lock().unwrap();
+            let g = now.get_or_insert_with(Geo::default);
+            if !w.is_maximized() {
+                let (cw, ch) = w.size();
+                g.w = cw; g.h = ch;
+                let (x, y) = w.position();
+                g.x = x; g.y = y;
+            }
+            drop(now);
+            save();
+            false
+        });
+        w.connect_window_state_event(|_, e| {
+            let max = e.new_window_state().contains(gtk::gdk::WindowState::MAXIMIZED);
+            NOW.lock().unwrap().get_or_insert_with(Geo::default).max = max;
+            save();
+            gtk::glib::Propagation::Proceed
+        });
+    }
+
+    /// Write it down when it changed (a crash or a kill doesn't lose it), and on exit.
+    pub fn save() {
+        static WRITTEN: Mutex<Option<String>> = Mutex::new(None);
+        let Some(g) = *NOW.lock().unwrap() else { return };
+        if g.w < 400 || g.h < 300 { return; }
+        let line = format!("{} {} {} {} {}\n", g.w, g.h, g.max as i32, g.x, g.y);
+        let mut last = WRITTEN.lock().unwrap();
+        if last.as_deref() == Some(line.as_str()) { return; }
+        if let Some(f) = file() {
+            let _ = std::fs::create_dir_all(f.parent().unwrap());
+            if std::fs::write(f, &line).is_ok() { *last = Some(line); }
+        }
+    }
+}
+#[cfg(not(target_os = "linux"))]
+mod geometry {
+    pub fn restore_and_follow(_win: &tauri::WebviewWindow) {}
+    pub fn save() {}
+}
+
 /// WebKit holds page rendering near 60fps by default (PreferPageRenderingUpdatesNear60FPS), even
 /// on a 120Hz screen. Off, the page draws at the screen's rate when WebKit knows it: on NVIDIA that
 /// needs a WebKitGTK with the vblank-timer fix (~/Projects/Forks/webkit-120hz); with the stock one
@@ -284,12 +372,6 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![open_project])
-        // The window opens where you left it, at the size you left it (and maximized if it was).
-        // Saved on close, in the app's config dir. Wayland doesn't let an app place its own window,
-        // so there only the size and maximized state come back.
-        .plugin(tauri_plugin_window_state::Builder::new()
-            .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN)
-            .build())
         .setup(|app| {
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("cockpit")
@@ -299,6 +381,7 @@ fn main() {
                 .min_inner_size(800.0, 500.0)
                 .build()?;
             window_shadow(&win);
+            geometry::restore_and_follow(&win); // the size you left it at (fn geometry)
             full_frame_rate(&win);
             let handle = app.handle().clone();
             std::thread::spawn(move || {
@@ -313,6 +396,7 @@ fn main() {
         .expect("could not start the app")
         .run(|_, event| {
             if let RunEvent::Exit = event {
+                geometry::save();
                 stop_server();
             }
         });
