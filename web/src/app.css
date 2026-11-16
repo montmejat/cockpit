@@ -56,7 +56,7 @@ header{position:relative}header button.wsbtn{background:none;border:0;padding:0;
 .fmods{font-size:11.5px;margin-top:3px;display:flex;flex-wrap:wrap;gap:2px 8px}
 .trow{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:12px;border-top:1px solid var(--line)}
 #inspector details summary{cursor:pointer;padding:2px 0}#inspector a.tname{display:block;padding:1px 0 1px 14px;font-size:11.5px}
-.livepill{background:color-mix(in oklab,var(--hot) 18%,transparent);color:var(--hot);border-radius:10px;padding:1px 9px;animation:breathe 1.6s ease-in-out infinite;cursor:default}
+.livepill{border:0;font:inherit;font-size:11.5px;background:color-mix(in oklab,var(--hot) 18%,transparent);color:var(--hot);border-radius:10px;padding:1px 9px;animation:breathe 1.6s ease-in-out infinite;cursor:default}button.livepill{cursor:pointer}
 @keyframes breathe{50%{opacity:.55}}
 
 main{flex:1;min-height:0;display:flex;position:relative}

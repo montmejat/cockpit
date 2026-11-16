@@ -21,7 +21,7 @@ export interface Live {
   problems: { where: string; problem: string }[];
   modules: { id: string; file: string; items: { key: string; line: number; end?: number }[] }[];
   layout: Record<string, Record<string, { x: number; y: number }>>;
-  live: { id: string; prompt: string; startedAt: string; touched: string[] } | null;
+  live: { id: string; prompt: string; startedAt: string; chat: boolean; touched: string[] } | null;
   files: string[];
   status: GitFile[];
   changedFiles: string[];
