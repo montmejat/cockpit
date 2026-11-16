@@ -340,6 +340,9 @@ mod geometry {
 /// on a 120Hz screen. Off, the page draws at the screen's rate when WebKit knows it: on NVIDIA that
 /// needs a WebKitGTK with the vblank-timer fix (~/Projects/Forks/webkit-120hz); with the stock one
 /// nothing changes (its fallback timer ticks at 60).
+/// WebKit only re-reads the preference when something else makes it recompute the page's frame
+/// rate, so changing it once the page exists does nothing (even across a reload). The window is
+/// built hidden and shown here, after the change: becoming visible is such a recompute.
 #[cfg(target_os = "linux")]
 fn full_frame_rate(win: &WebviewWindow) {
     use gtk::glib::object::ObjectType;
@@ -353,7 +356,8 @@ fn full_frame_rate(win: &WebviewWindow) {
         fn webkit_feature_get_identifier(f: *mut c_void) -> *const c_char;
         fn webkit_settings_set_feature_enabled(settings: *mut c_void, f: *mut c_void, enabled: i32);
     }
-    let _ = win.with_webview(|wv| unsafe {
+    let shown = win.clone();
+    let queued = win.with_webview(move |wv| unsafe {
         let settings = webkit_web_view_get_settings(wv.inner().as_ptr() as *mut c_void);
         let list = webkit_settings_get_all_features();
         for i in 0..webkit_feature_list_get_length(list) {
@@ -363,10 +367,16 @@ fn full_frame_rate(win: &WebviewWindow) {
             }
         }
         webkit_feature_list_unref(list);
+        let _ = shown.show();
     });
+    if queued.is_err() {
+        let _ = win.show();
+    }
 }
 #[cfg(not(target_os = "linux"))]
-fn full_frame_rate(_win: &WebviewWindow) {}
+fn full_frame_rate(win: &WebviewWindow) {
+    let _ = win.show();
+}
 
 fn main() {
     tauri::Builder::default()
@@ -379,6 +389,7 @@ fn main() {
                 .transparent(true) // the page rounds its corners (body.desktop in web/src/app.css)
                 .inner_size(1600.0, 1000.0)
                 .min_inner_size(800.0, 500.0)
+                .visible(false) // shown by full_frame_rate, once the page may draw at the screen's rate
                 .build()?;
             window_shadow(&win);
             geometry::restore_and_follow(&win); // the size you left it at (fn geometry)
