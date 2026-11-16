@@ -17,6 +17,7 @@
   import { lspFor, onLsp, pathOfUri, setDisplayFile } from "../lib/lsp.svelte";
   import { changeBars, changeStarts, languageFor, lineMarks, look, setHunks, toggleRemoved } from "../lib/editor";
   import { api } from "../lib/code";
+  import { smoothWheel } from "../lib/smoothwheel";
   import { closeTab, dirtyFiles, openFile, S, ui } from "../lib/state.svelte";
   import type { Hunk } from "../lib/types";
 
@@ -297,8 +298,9 @@
     view = new EditorView({ parent: el, state: EditorState.create({ doc: "" }) });
     (window as any).__cockpitEditor = api_;
     view.scrollDOM.addEventListener("scroll", () => { if (hoverLine) { hoverLine = 0; dispatchHover(0); } reportView(); }, { passive: true });
+    const unwheel = smoothWheel(view.scrollDOM); // wheel clicks glide instead of surging (lib/smoothwheel.ts)
     if (data && data.path === path && data.text != null) show(path, data);
-    return () => { view?.destroy(); view = null; if ((window as any).__cockpitEditor === api_) (window as any).__cockpitEditor = null; };
+    return () => { unwheel(); view?.destroy(); view = null; if ((window as any).__cockpitEditor === api_) (window as any).__cockpitEditor = null; };
   });
 
   // Leaving the page with unsaved changes asks first.
