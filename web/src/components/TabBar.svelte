@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { closeTab, saveTabs, statusOf, ui } from "../lib/state.svelte";
+  import { closeTab, dirtyFiles, saveTabs, statusOf, tabKey, ui } from "../lib/state.svelte";
 
   let bar: HTMLElement;
   const pick = (i: number) => { ui.active = i; ui.picked = null; saveTabs(); };
@@ -8,15 +8,16 @@
 </script>
 
 <div id="tabbar" bind:this={bar}>
-  {#each ui.tabs as t, i (t.kind === "map" ? "map" : t.kind === "file" ? "f:" + t.path : "c:" + t.sha)}
+  {#each ui.tabs as t, i (tabKey(t))}
     {#if t.kind === "map"}
       <button class="maptab" class:on={i === ui.active} title="The map: the agents’ diagrams" onclick={() => pick(i)}>◇</button>
     {:else}
       {@const st = t.kind === "file" ? statusOf(t.path) : null}
-      <div class="ctab" class:on={i === ui.active} title={t.kind === "file" ? t.path : "commit " + t.sha} role="tab" tabindex="0" aria-selected={i === ui.active}
+      <div class="ctab" class:on={i === ui.active} title={t.kind === "file" ? t.path : t.kind === "diff" ? (t.staged ? "staged changes in " : "changes in ") + t.path : "commit " + t.sha} role="tab" tabindex="0" aria-selected={i === ui.active}
         onclick={() => pick(i)} onauxclick={(e) => e.button === 1 && closeTab(i)} onkeydown={(e) => e.key === "Enter" && pick(i)}>
-        {#if t.kind === "file"}{t.path.split("/").pop()}{:else}<span class="ti">●</span>{t.sha}{/if}
+        {#if t.kind === "file"}{t.path.split("/").pop()}{:else if t.kind === "diff"}<span class="ti" title={t.staged ? "staged" : "not staged"}>Δ</span>{t.path.split("/").pop()}{#if t.staged}<span class="muted tstaged">staged</span>{/if}{:else}<span class="ti">●</span>{t.sha}{/if}
         {#if st}<span class="mark {st}">{st}</span>{/if}
+        {#if t.kind === "file" && dirtyFiles.has(t.path)}<span class="unsaved" title="Unsaved changes">●</span>{/if}
         <button class="tx" title="Close" onclick={(e) => { e.stopPropagation(); closeTab(i); }}>×</button>
       </div>
     {/if}

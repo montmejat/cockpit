@@ -1,6 +1,7 @@
 // cockpit as a desktop app. For now it is a window around the same local server as `npm run serve`:
 // it picks a project, starts the server on a free port, shows the page, and stops the server on exit.
-// The workspace menu switches the window to another project: its own server, started the first time.
+// Open Folder and the workspace menu switch the window to another project: its own server, started
+// the first time and kept running while you are elsewhere.
 //   cockpit [project dir]
 // Without a directory it reopens the last project, or asks for one; --pick always asks.
 
@@ -12,7 +13,7 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri::{RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_window_state::StateFlags;
 
@@ -86,8 +87,33 @@ fn pick_project(app: &tauri::AppHandle) -> Option<PathBuf> {
 fn remember(project: &Path) {
     if let Some(f) = last_project_file() {
         let _ = std::fs::create_dir_all(f.parent().unwrap());
-        let _ = std::fs::write(f, project.to_string_lossy().as_bytes());
+        let _ = std::fs::write(&f, project.to_string_lossy().as_bytes());
+        // The recent projects, newest first, for the page's "Open Folder" menu (src/serve.ts reads it).
+        let recent = f.with_file_name("recent-projects");
+        let me = project.to_string_lossy().into_owned();
+        let mut list: Vec<String> = std::fs::read_to_string(&recent).unwrap_or_default().lines()
+            .map(str::to_owned).filter(|l| !l.is_empty() && *l != me).collect();
+        list.insert(0, me);
+        list.truncate(12);
+        let _ = std::fs::write(recent, list.join("\n") + "\n");
     }
+}
+
+/// The page's "Open Folder…", its recent projects and the workspace menu: a folder to open, or a
+/// dialog to pick one. The window switches to it (show_project); the project it leaves keeps its server.
+#[tauri::command]
+async fn open_project(app: tauri::AppHandle, path: Option<String>) -> Result<bool, String> {
+    let project = match path {
+        Some(p) => std::fs::canonicalize(&p).map_err(|e| format!("{p}: {e}"))?,
+        None => match app.dialog().file().set_title("Open a project in cockpit").blocking_pick_folder() {
+            Some(p) => p.into_path().map_err(|e| e.to_string())?,
+            None => return Ok(false), // cancelled
+        },
+    };
+    if !project.is_dir() { return Err(format!("{} is not a folder", project.display())); }
+    let win = app.get_webview_window("main").ok_or("no window")?;
+    show_project(&win, project);
+    Ok(true)
 }
 
 fn free_port() -> std::io::Result<u16> {
@@ -220,32 +246,90 @@ fn serve(win: &WebviewWindow, project: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The page's way to switch the window to another project (the workspace menu in Header.svelte).
-#[tauri::command]
-fn switch_project(window: WebviewWindow, path: String) -> Result<(), String> {
-    let project = std::fs::canonicalize(&path).map_err(|e| format!("{path}: {e}"))?;
-    if !project.is_dir() { return Err(format!("{path} is not a folder")); }
-    show_project(&window, project);
-    Ok(())
+/// Without decorations, GTK draws no frame, so GNOME (Wayland) gives the window no shadow and
+/// no resize area around it, unlike the apps next to it. On Wayland, tao already puts an empty
+/// title bar in the frame; turning the frame back on brings GTK's shadow (and its resize edges)
+/// without a title bar. The page's header stays the title bar.
+#[cfg(target_os = "linux")]
+fn window_shadow(win: &WebviewWindow) {
+    use gtk::prelude::*;
+    if let Ok(w) = win.gtk_window() {
+        if w.display().backend().is_wayland() {
+            w.set_decorated(true);
+            // GTK 3's default shadow is heavier than the apps next to it (libadwaita, Firefox,
+            // VS Code): use libadwaita's, lighter when the window isn't focused. Same size both
+            // ways: a smaller one resizes the window on every focus change (Alt+Tab), and the
+            // page flickers as it lays itself out again. Around
+            // the same 12px corners the page draws. No ring: the page draws its own hairline.
+            // Nothing behind the page, so its rounded corners show through.
+            let css = gtk::CssProvider::new();
+            let _ = css.load_from_data(
+                b"window, window.background { background: transparent; }
+                  decoration { border-radius: 12px; box-shadow: 0 2px 8px 2px rgba(0,0,0,.13), 0 3px 20px 10px rgba(0,0,0,.09), 0 6px 32px 16px rgba(0,0,0,.03); }
+                  decoration:backdrop { box-shadow: 0 2px 8px 2px rgba(0,0,0,.08), 0 3px 20px 10px rgba(0,0,0,.05), 0 6px 32px 16px rgba(0,0,0,.02); }
+                  .maximized decoration, .fullscreen decoration, .tiled decoration { border-radius: 0; }",
+            );
+            if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&w) {
+                gtk::StyleContext::add_provider_for_screen(&screen, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+            }
+        }
+    }
 }
+#[cfg(not(target_os = "linux"))]
+fn window_shadow(_win: &WebviewWindow) {}
+
+/// WebKit holds page rendering near 60fps by default (PreferPageRenderingUpdatesNear60FPS), even
+/// on a 120Hz screen. Off, the page draws at the screen's rate when WebKit knows it: on NVIDIA that
+/// needs a WebKitGTK with the vblank-timer fix (~/Projects/Forks/webkit-120hz); with the stock one
+/// nothing changes (its fallback timer ticks at 60).
+#[cfg(target_os = "linux")]
+fn full_frame_rate(win: &WebviewWindow) {
+    use gtk::glib::object::ObjectType;
+    use std::ffi::{c_char, c_void, CStr};
+    unsafe extern "C" {
+        fn webkit_web_view_get_settings(view: *mut c_void) -> *mut c_void;
+        fn webkit_settings_get_all_features() -> *mut c_void;
+        fn webkit_feature_list_get_length(list: *mut c_void) -> usize;
+        fn webkit_feature_list_get(list: *mut c_void, i: usize) -> *mut c_void;
+        fn webkit_feature_list_unref(list: *mut c_void);
+        fn webkit_feature_get_identifier(f: *mut c_void) -> *const c_char;
+        fn webkit_settings_set_feature_enabled(settings: *mut c_void, f: *mut c_void, enabled: i32);
+    }
+    let _ = win.with_webview(|wv| unsafe {
+        let settings = webkit_web_view_get_settings(wv.inner().as_ptr() as *mut c_void);
+        let list = webkit_settings_get_all_features();
+        for i in 0..webkit_feature_list_get_length(list) {
+            let f = webkit_feature_list_get(list, i);
+            if CStr::from_ptr(webkit_feature_get_identifier(f)).to_bytes() == b"PreferPageRenderingUpdatesNear60FPS" {
+                webkit_settings_set_feature_enabled(settings, f, 0);
+            }
+        }
+        webkit_feature_list_unref(list);
+    });
+}
+#[cfg(not(target_os = "linux"))]
+fn full_frame_rate(_win: &WebviewWindow) {}
 
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .invoke_handler(tauri::generate_handler![open_project])
         // The window opens where you left it, at the size you left it (and maximized if it was).
         // Saved on close, in the app's config dir. Wayland doesn't let an app place its own window,
         // so there only the size and maximized state come back.
         .plugin(tauri_plugin_window_state::Builder::new()
             .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED | StateFlags::FULLSCREEN)
             .build())
-        .invoke_handler(tauri::generate_handler![switch_project])
         .setup(|app| {
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
                 .title("cockpit")
                 .decorations(false) // the page's header is the title bar (web/src/components/Header.svelte)
+                .transparent(true) // the page rounds its corners (body.desktop in web/src/app.css)
                 .inner_size(1600.0, 1000.0)
                 .min_inner_size(800.0, 500.0)
                 .build()?;
+            window_shadow(&win);
+            full_frame_rate(&win);
             let handle = app.handle().clone();
             // The folder dialog blocks, so not on the main thread.
             std::thread::spawn(move || match pick_project(&handle) {

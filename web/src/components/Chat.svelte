@@ -1,10 +1,10 @@
 <script lang="ts">
   // The agent chat. Cockpit runs the agent itself (src/chat.ts); the panel follows it live:
   // replies stream in, tool calls show as one line each (click for more), auto mode's questions
-  // as Allow/Deny cards. Past conversations are a click away; the bar under the box shows how full
-  // this conversation is, and how much of your plan's limits you've used.
+  // as Allow/Deny cards. Past conversations are a click away; the ring by "send" shows how full this
+  // conversation is, and hovering it, how much of your plan's limits you've used.
   import { onMount, tick } from "svelte";
-  import { api, fileRefAt, fileResolver, md } from "../lib/code";
+  import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
   import { openFile, S } from "../lib/state.svelte";
   import type { ChatItem, ChatSession, Usage } from "../lib/types";
 
@@ -19,13 +19,36 @@
   let near = true;
   let list: ChatSession[] | null = $state(null); // the conversations list, when open
   let usage: Usage | null = $state(null);
+  let hover = $state(false), pinned = $state(false), ctxEl: HTMLElement;
+  const ctxPct = $derived(context ? Math.min(100, (100 * context.used) / context.max) : null);
+  const unpin = (e: PointerEvent) => { if (pinned && !ctxEl?.contains(e.target as Node)) pinned = false; };
   const resolve = $derived(fileResolver(S.files ?? []));
+  // Copy a code block; the button shows a tick for a moment.
+  async function copy(button: HTMLElement, text: string) {
+    try { await navigator.clipboard.writeText(text); }
+    catch { // no clipboard API (not a secure context): the old way
+      const t = document.createElement("textarea");
+      t.value = text; document.body.append(t); t.select(); document.execCommand("copy"); t.remove();
+    }
+    button.classList.add("done");
+    setTimeout(() => button.classList.remove("done"), 1200);
+  }
   // A click on a file reference in a reply opens that file at that line.
   function clickRef(e: MouseEvent) {
+    const c = copyTargetAt(e.target);
+    if (c) return copy(c.button, c.text);
     const r = fileRefAt(e.target);
     if (!r) return;
     e.preventDefault();
     openFile(r.path, r.line, r.end);
+  }
+
+  const pending = new Map<string, string>();
+  let flushing = false;
+  function flushDeltas() {
+    flushing = false;
+    for (const [id, add] of pending) { const it = items.find((x) => x.id === id); if (it) it.text = String(it.text ?? "") + add; }
+    if (pending.size) { pending.clear(); stick(); onactivity(false); }
   }
 
   const stick = async (force = false) => { await tick(); if (msgs && (force || near)) msgs.scrollTop = msgs.scrollHeight; };
@@ -38,7 +61,13 @@
         items = e.items; busy = e.busy; model = e.model; models = e.models; context = e.context; session = e.session;
         stick(true);
       } else if (e.type === "state") { busy = e.busy; model = e.model; context = e.context; session = e.session; }
+      else if (e.type === "delta") {
+        // A streamed reply's new text: gathered, and shown once per frame.
+        pending.set(e.id, (pending.get(e.id) ?? "") + e.text);
+        if (!flushing) { flushing = true; requestAnimationFrame(flushDeltas); }
+      }
       else if (e.type === "item") {
+        if (pending.has(e.item.id)) pending.delete(e.item.id); // the whole item supersedes them
         const i = items.findIndex((x) => x.id === e.item.id);
         if (i >= 0) items[i] = e.item; else items.push(e.item);
         stick();
@@ -83,6 +112,8 @@
   const title = $derived(items.find((x) => x.kind === "user")?.text?.split("\n")[0] ?? "new conversation");
 </script>
 
+<svelte:window onpointerdown={unpin} onkeydown={(e) => e.key === "Escape" && (pinned = false)} />
+
 <section id="chat" class:hide={hidden}>
   <div class="ctools">
     <button class="ctitle" onclick={showList} title="Your conversations in this project">
@@ -105,7 +136,7 @@
   <div id="msgs" bind:this={msgs} onscroll={() => (near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60)}>
     {#each items as it (it.id)}
       {#if it.kind === "user"}<div class="cuser">{it.text}</div>
-      {:else if it.kind === "text"}{#if it.text}<div class="ctext" onclick={clickRef} role="presentation">{@html md(it.text, resolve)}</div>{/if}
+      {:else if it.kind === "text"}{#if it.text}{@const [kept, rest] = mdGrowing(it.id, it.text, resolve)}<div class="ctext" onclick={clickRef} role="presentation">{@html kept}{@html rest}</div>{/if}
       {:else if it.kind === "tool"}
         <div class="ctool" class:sub={it.sub}>
           {@html toolIcon[it.status] ?? ""}
@@ -140,23 +171,39 @@
       onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
     <div class="crow">
       {#if busy}<span class="muted"><span class="spin"></span> working…</span>{/if}
-      <!-- how full the context is, on the send button's line -->
-      <div class="meter ctx" title={context ? `This conversation uses ${context.used.toLocaleString()} of ${context.max.toLocaleString()} tokens of context. Near the end, Claude Code compacts it.` : "Context size shows after the agent's next reply"}>
-        <span class="mlabel">context</span>
-        <span class="bar"><i style="width:{context ? Math.min(100, (100 * context.used) / context.max) : 0}%" class={context ? level((100 * context.used) / context.max) : ""}></i></span>
-        <span class="mval">{context ? k(context.used) + " / " + k(context.max) : "–"}</span>
-      </div>
+      <span class="grow"></span>
+      <!-- how full the context is: a ring by "send"; hovering shows the numbers and plan usage, a click keeps them open -->
+      <span class="ctx" bind:this={ctxEl} role="group" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
+        <button type="button" class="ring {ctxPct == null ? '' : level(ctxPct)}" onclick={() => (pinned = !pinned)}
+          aria-label={context ? `Context ${Math.round(ctxPct ?? 0)}% used; plan usage` : "Context and plan usage"} aria-expanded={hover || pinned}>
+          <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+            <circle class="track" cx="10" cy="10" r="7.5" />
+            {#if ctxPct != null}<circle class="fill" cx="10" cy="10" r="7.5" pathLength="100" stroke-dasharray="{Math.max(1, ctxPct)} 100" transform="rotate(-90 10 10)" />{/if}
+          </svg>
+        </button>
+        {#if hover || pinned}
+          <div class="ctxpop">
+            <div class="ctxline">
+              {#if context}<b>{Math.round(ctxPct ?? 0)}%</b> of context: {k(context.used)} / {k(context.max)} tokens. Near the end, Claude Code compacts it.
+              {:else}Context size shows after the agent's next reply.{/if}
+            </div>
+            {#if usage?.windows?.length}
+              <div class="meters">
+                {#each usage.windows as w (w.name)}
+                  <div class="meter" title="{w.pct}% of the {w.name} limit used, {resets(w.resets)}">
+                    <span class="mlabel">{w.name}</span>
+                    <span class="bar"><i style="width:{Math.min(100, w.pct)}%" class={level(w.pct)}></i></span>
+                    <span class="mval">{Math.round(w.pct)}%</span>
+                  </div>
+                {/each}
+              </div>
+              <div class="ctxnote">Your {usage.plan ?? "Claude"} plan</div>
+            {/if}
+          </div>
+        {/if}
+      </span>
       {#if busy}<button type="button" onclick={() => post("stop")}>stop</button>{/if}
       <button type="submit">send</button>
     </div>
-    {#if usage?.windows?.length}<div class="meters">
-      {#each usage?.windows ?? [] as w (w.name)}
-        <div class="meter" title="Your {usage?.plan ?? 'Claude'} plan: {w.pct}% of the {w.name} limit used, {resets(w.resets)}">
-          <span class="mlabel">{w.name}</span>
-          <span class="bar"><i style="width:{Math.min(100, w.pct)}%" class={level(w.pct)}></i></span>
-          <span class="mval">{Math.round(w.pct)}%</span>
-        </div>
-      {/each}
-    </div>{/if}
   </form>
 </section>

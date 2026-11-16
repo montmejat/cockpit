@@ -73,6 +73,17 @@ export function parsePatch(patch: string): { path: string; rows: DiffRow[] }[] {
   return files;
 }
 
+// A code block with a copy button in its corner (Chat handles the click).
+const COPY_ICON = `<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><rect x="5" y="5" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M3 11V3.5A1.5 1.5 0 0 1 4.5 2H11" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>`;
+const copyable = (pre: string) => `<div class=cblock>${pre}<button class=copy type=button title="Copy" aria-label="Copy">${COPY_ICON}</button></div>`;
+
+/** The text a copy button stands for, if the click landed on one. */
+export function copyTargetAt(target: EventTarget | null): { button: HTMLElement; text: string } | null {
+  const b = (target as HTMLElement | null)?.closest?.("button.copy") as HTMLElement | null;
+  const pre = b?.parentElement?.querySelector("pre");
+  return b && pre ? { button: b, text: pre.textContent ?? "" } : null;
+}
+
 // A fenced block: a diff (```diff, or lines that all look like one) colors its added and removed
 // lines; a known language (```ts, ```cpp…) is highlighted; anything else stays plain.
 function codeBlock(code: string[], tag: string) {
@@ -137,7 +148,7 @@ export function md(src: string, resolve?: (name: string) => string | null) {
       flush();
       const code: string[] = [], tag = l.slice(3).trim().toLowerCase();
       while (++i < lines.length && !/^```/.test(lines[i])) code.push(lines[i]);
-      out.push(codeBlock(code, tag));
+      out.push(copyable(codeBlock(code, tag)));
     } else if (/^\s*\|.*\|\s*$/.test(l) && /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/.test(lines[i + 1] ?? "")) {
       // A table: a header row, the |---|:--:| line (which sets each column's alignment), then rows.
       flush();
@@ -155,6 +166,11 @@ export function md(src: string, resolve?: (name: string) => string | null) {
       if (list !== kind) { if (list) out.push("</" + list + ">"); out.push("<" + kind + ">"); list = kind; }
       out.push("<li>" + inline(l.replace(/^\s*([-*]|\d+\.)\s+/, "")) + "</li>");
     } else if (!l.trim()) flush();
+    else if (/^\s*`[^`]+`\s*$/.test(l) && !list) {
+      // A line that is only code ("Please run:\n`sudo dnf install x`") is a command to copy.
+      flush();
+      out.push(copyable("<pre>" + esc(l.trim().slice(1, -1)) + "</pre>"));
+    }
     else { if (list) { out.push("</" + list + ">"); list = null; } para.push(l); }
   }
   flush();
@@ -162,6 +178,33 @@ export function md(src: string, resolve?: (name: string) => string | null) {
   if (!resolve) return html;
   // Code blocks stay as they are; everything else gets its file references linked.
   return html.split(/(<pre[\s\S]*?<\/pre>)/).map((part) => part.startsWith("<pre") ? part : linkFiles(part, resolve)).join("");
+}
+
+// md for a message that keeps growing (a streamed reply): the part up to its last blank line
+// outside a code block is rendered once and kept, only the rest again. md starts afresh after a
+// blank line, so the result is the same as md of the whole text; rendering the whole of a long
+// reply on every token cost ~13 ms at 24k characters.
+const grown = new Map<string, { pre: string; html: string }>();
+// Returned as two parts, the kept one and the rest, so the page can leave the kept part's DOM alone.
+export function mdGrowing(key: string, src: string, resolve?: (name: string) => string | null): [string, string] {
+  let cut = -1, fences = 0, i = 0;
+  for (;;) {
+    const nl = src.indexOf("\n", i);
+    const line = src.slice(i, nl < 0 ? undefined : nl);
+    if (line.startsWith("```")) fences++;
+    if (nl < 0) break;
+    if (!line.trim() && i > 0 && fences % 2 === 0) cut = i - 1; // the "\n" before this blank line
+    i = nl + 1;
+  }
+  if (cut <= 0) return ["", md(src, resolve)];
+  const pre = src.slice(0, cut);
+  let hit = grown.get(key);
+  if (hit?.pre !== pre) {
+    hit = { pre, html: md(pre, resolve) };
+    grown.set(key, hit);
+    if (grown.size > 50) grown.delete(grown.keys().next().value!);
+  }
+  return [hit.html, md(src.slice(cut + 1), resolve)];
 }
 
 export const api = {

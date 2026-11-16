@@ -1,20 +1,35 @@
 <script lang="ts">
   // The open file or commit, in the center.
-  //   A file shows its uncommitted changes in place, like an editor: a bar in the margin by lines
-  //   added (green) or changed (blue), a red mark where lines were removed. Click a mark to see the
-  //   old lines; "show removed" shows them all. It follows the file live while an agent edits it.
+  //   A file opens in the editor (FileEditor.svelte, vim keys): its uncommitted changes show in place,
+  //   a bar in the margin by lines added (green) or changed (blue), a red mark where lines were
+  //   removed. Click a mark to see the old lines and revert that change; "show removed" shows them all. It follows the file
+  //   live while an agent edits it, as long as you have no unsaved changes.
   //   A commit shows its patch.
   import MiniMap from "./MiniMap.svelte";
-  import { api, hlLines, langOf, parsePatch } from "../lib/code";
-  import { cur, openFile, S, statusOf, store } from "../lib/state.svelte";
+  import FileEditor from "./FileEditor.svelte";
+  import { api, parsePatch } from "../lib/code";
+  import { cur, openFile, S, statusOf, store, dirtyFiles } from "../lib/state.svelte";
+  import { lspStatus, serverOf } from "../lib/lsp.svelte";
   import type { Hunk } from "../lib/types";
 
-  type FileData = { path: string; text: string | null; note?: string; error?: string; hunks: Hunk[] };
+  type FileData = { path: string; text: string | null; hash?: string; note?: string; error?: string; hunks: Hunk[] };
   type CommitData = { sha: string; subject: string; author: string; date: string; body: string; patch: string; error?: string };
 
   const tab = $derived(cur());
   const path = $derived(tab.kind === "file" ? tab.path : null);
   const sha = $derived(tab.kind === "commit" ? tab.sha : null);
+  // A changed file's diff (from the Git tab): reloaded when the file, the index or HEAD moves.
+  const dtab = $derived(tab.kind === "diff" ? tab : null);
+  type DiffData = { path: string; staged: boolean; patch: string; note?: string };
+  let diff: DiffData | null = $state(null);
+  const dkey = $derived(dtab ? dtab.path + "@" + dtab.staged + "@" + (S.fileRevs[dtab.path] ?? 0) + "@" + S.git.head + "@" + JSON.stringify(S.status.find((x) => x.path === dtab.path) ?? null) : "");
+  $effect(() => {
+    if (!dtab) return;
+    const k = dkey, d = dtab;
+    if (diff && (diff.path !== d.path || diff.staged !== d.staged)) diff = null;
+    api.get<DiffData>(`api/git/diff?path=${encodeURIComponent(d.path)}&staged=${d.staged ? 1 : 0}`).then((r) => { if (dkey === k) diff = r; }).catch(() => {});
+  });
+  const dfiles = $derived(diff?.patch ? parsePatch(diff.patch) : []);
   // The file is loaded again when it changes on disk, when HEAD moves, or when a review starts or
   // ends (in review mode its changes are against the review's target, not the last commit).
   const rev = $derived(path ? (S.fileRevs[path] ?? 0) + "@" + S.git.head + "@" + (statusOf(path) ?? "") + "@" + (S.review?.base ?? "") : "");
@@ -24,8 +39,6 @@
   const files = new Map<string, { rev: string; data: FileData }>();
   let file: FileData | null = $state(null);
   let commit: CommitData | null = $state(null);
-  let body: HTMLElement | undefined = $state();
-  const scrolls = new Map<string, number>(); // where each tab was scrolled to
 
   $effect(() => {
     if (!path) return;
@@ -46,84 +59,27 @@
     api.get<CommitData>("api/git/commit?sha=" + encodeURIComponent(s)).then((c) => { if (sha === s) commit = c; });
   });
 
-  // ---- the file, with its changes ------------------------------------------------
+  // ---- the file: an editor (FileEditor.svelte) ------------------------------------------
 
+  let editor: ReturnType<typeof FileEditor> | undefined = $state();
   let showAll = $state(store.get("cockpit-show-removed", "0") === "1");
-  let opened: Record<string, boolean> = $state({});
-  const hunkKey = (h: Hunk) => h.at + ":" + h.added + ":" + h.removed.length;
-
-  type Row = { key: string; kind: "line" | "del"; n?: number; html: string; mark?: "add" | "mod"; delBefore?: Hunk; hunk?: Hunk };
-  const lang = $derived(path ? langOf(path) : null);
-  const lines = $derived(file?.text != null ? hlLines(file.text.replace(/\n$/, ""), lang) : []);
-  const rows = $derived.by(() => {
-    if (!file || file.text == null) return [];
-    const marks = new Map<number, "add" | "mod">(), delAt = new Map<number, Hunk>(), inHunk = new Map<number, Hunk>();
-    for (const h of file.hunks) {
-      for (let k = 0; k < h.added && h.at + k <= lines.length; k++) { marks.set(h.at + k, h.removed.length ? "mod" : "add"); inHunk.set(h.at + k, h); }
-      if (h.removed.length) delAt.set(h.at, h);
-    }
-    const out: Row[] = [];
-    const removed = (h: Hunk) => {
-      if (!(showAll || opened[hunkKey(h)])) return;
-      h.removed.forEach((l, i) => out.push({ key: `d${h.at}:${i}`, kind: "del", html: hlLines(l, lang)[0] ?? "" }));
-    };
-    lines.forEach((html, i) => {
-      const n = i + 1, h = delAt.get(n);
-      if (h) removed(h);
-      out.push({ key: "L" + n, kind: "line", n, html, mark: marks.get(n), delBefore: h && !h.added ? h : undefined, hunk: inHunk.get(n) ?? (h && !h.added ? h : undefined) });
-    });
-    const tail = delAt.get(lines.length + 1);
-    if (tail) removed(tail);
-    return out;
-  });
-  const hunkAt = $derived(new Map((file?.hunks ?? []).map((h) => [h.at, h])));
-  const changes = $derived((file?.hunks ?? []).filter((h) => h.added < 1e9));
-
+  // The file's language server, in the header: ready, starting, or not installed.
+  const LSPCMD: Record<string, string> = { rust: "rust-analyzer", typescript: "typescript-language-server", python: "pyright", zig: "zls", c: "clangd" };
+  const srv = $derived(path ? serverOf(path)?.server ?? null : null);
+  const lsp = $derived(srv ? lspStatus[srv] ?? "starting" : null);
+  let vimOn = $state(store.get("cockpit-vim", "1") === "1");
+  let changes = $state(0), changeAt = $state(0);
   // Requested lines (from a diagram link or a test) are highlighted and scrolled to.
-  const want = $derived(tab.kind === "file" ? { a: tab.line ?? -1, b: tab.end ?? tab.line ?? -1 } : { a: -1, b: -1 });
-  let placed = "";
-  $effect(() => {
-    if (!path || !rows.length || !body) return;
-    const key = path + ":" + (tab.kind === "file" ? (tab.line ?? "") + ":" + (tab.at ?? "") : "");
-    if (placed === key) return;
-    placed = key;
-    queueMicrotask(() => {
-      if (tab.kind === "file" && tab.line) body.querySelector(`[data-n="${tab.line}"]`)?.scrollIntoView({ block: "center" });
-      else if (body) body.scrollTop = scrolls.get(path!) ?? 0;
-      visible();
-    });
-  });
+  const want = $derived(tab.kind === "file" ? { line: tab.line, end: tab.end, at: tab.at } : {});
 
-  function jump(dir: 1 | -1) {
-    if (!body) return;
-    const top = body.scrollTop + 40, rowsEls = [...body.querySelectorAll<HTMLElement>("tr.first")];
-    const target = dir > 0 ? rowsEls.find((r) => r.offsetTop > top + 4) : rowsEls.reverse().find((r) => r.offsetTop < top - 4);
-    (target ?? (dir > 0 ? rowsEls[0] : rowsEls.at(-1)))?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }
-  const firstOfHunk = (r: Row) => r.kind === "line" && r.n && (hunkAt.has(r.n) && (r.mark || r.delBefore));
-
-  // ---- the floating diagram: which lines are on screen, which box is hovered ----------
-
+  // ---- the floating diagram: which lines are on screen, which box is hovered, where you are ----
   let view = $state<[number, number]>([0, 0]);
   let boxLines = $state<[number, number][]>([]);
-  let tick = 0;
-  function visible() {
-    if (!body) return;
-    const box = body.getBoundingClientRect();
-    let lo = Infinity, hi = -Infinity;
-    for (const tr of body.querySelectorAll<HTMLElement>("tr[data-n]")) {
-      const r = tr.getBoundingClientRect();
-      if (r.bottom < box.top) continue;
-      if (r.top > box.bottom) break;
-      lo = Math.min(lo, +tr.dataset.n!); hi = Math.max(hi, +tr.dataset.n!);
-    }
-    view = [lo, hi];
-  }
-  function scrolled() {
-    if (path && body) scrolls.set(path, body.scrollTop);
-    cancelAnimationFrame(tick); tick = requestAnimationFrame(visible);
-  }
-  const inBox = (n?: number) => !!n && boxLines.some(([a, b]) => n >= a && n <= b);
+  // The line under the mouse, else the line the cursor is on. The floating diagram lights up the
+  // box that holds it.
+  let hoverLine = $state(0), caretLine = $state(0);
+  const cursor = $derived(hoverLine || caretLine);
+  $effect(() => { void path; hoverLine = 0; caretLine = 0; });
   const files_ = $derived(commit ? parsePatch(commit.patch) : []);
 </script>
 
@@ -132,41 +88,46 @@
     <div class="dhead">
       <span class="path">{path}</span>
       {#if statusOf(path)}<span class="mark {statusOf(path)}">{statusOf(path)}</span>{/if}
-      {#if changes.length}
-        <span class="grow"></span>
-        <span class="muted">{changes.length} change{changes.length > 1 ? "s" : ""}{S.review?.base && file?.path === path ? " vs " + S.review.target : ""}</span>
-        <button title="Previous change" onclick={() => jump(-1)}>↑</button><button title="Next change" onclick={() => jump(1)}>↓</button>
+      {#if dirtyFiles.has(path)}<button class="esave" title="Save (Ctrl+S, or :w in vim)" onclick={() => editor?.saveNow()}>● save</button>{/if}
+      <span class="grow"></span>
+      {#if srv && lsp}<span class="lsp {lsp}" title={lsp === "ready" ? `${srv} language server: hover, completion, diagnostics; F12 / gd definition, Shift+F12 / gr references, F2 / Space rn rename, Shift+Alt+F / Space f format` : lsp === "missing" ? `No ${srv} language server installed (${LSPCMD[srv] ?? srv})` : `${srv} language server ${lsp}`}>{srv}{lsp === "ready" ? "" : lsp === "missing" ? " ×" : " …"}</span>{/if}
+      <button class="vimtoggle" class:on={vimOn} title={vimOn ? "Vim keys on: :w saves, :q closes, :wq both. Click to turn off." : "Vim keys off. Click to turn on."}
+        onclick={() => { vimOn = !vimOn; store.set("cockpit-vim", vimOn ? "1" : "0"); }}>vim</button>
+      {#if changes}
+        <span class="muted">{changeAt ? changeAt + "/" : ""}{changes} change{changes > 1 ? "s" : ""}{S.review?.base && file?.path === path ? " vs " + S.review.target : ""}</span>
+        <button title="Previous change ([c in vim)" onclick={() => editor?.jump(-1)}>↑</button><button title="Next change (]c in vim)" onclick={() => editor?.jump(1)}>↓</button>
         <label class="muted toggle"><input type="checkbox" bind:checked={showAll} onchange={() => store.set("cockpit-show-removed", showAll ? "1" : "0")}> show removed</label>
       {/if}
     </div>
-    <div class="dbody" bind:this={body} onscroll={scrolled}>
-      {#if !file}<p class="dnote">loading…</p>
-      {:else if file.error || file.text == null}<p class="dnote">{file.error ?? file.note}</p>
+    {#if !file}<div class="dbody"><p class="dnote">loading…</p></div>
+    {:else if file.path === path && (file.error || file.text == null)}<div class="dbody"><p class="dnote">{file.error ?? file.note}</p></div>
+    {/if}
+    <div class="ewrap" hidden={!file || (file.path === path && file.text == null)}>
+      <FileEditor bind:this={editor} {path} data={file} {want} {boxLines} {showAll} {vimOn}
+        onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n, at) => { changes = n; changeAt = at; }} />
+    </div>
+    <MiniMap {path} {view} {cursor} onlines={(ls) => (boxLines = ls)} onjump={(n) => editor?.scrollToLine(n)} />
+  {:else if dtab}
+    <div class="dhead">
+      <span class="path">{dtab.path}</span>
+      <span class="muted">{dtab.staged ? "staged" : "not staged"}</span>
+      <span class="grow"></span>
+      <button title="Open the file in the editor" onclick={() => openFile(dtab.path)}>open file</button>
+    </div>
+    <div class="dbody">
+      {#if !diff}<p class="dnote">loading…</p>
+      {:else if !dfiles.length}<p class="dnote">{diff.note ?? "no changes"}</p>
       {:else}
-        <table class="code"><tbody>
-          {#each rows as r (r.key)}
-            {#if r.kind === "del"}
-              <tr class="del"><td class="ln"></td><td class="gut"><span class="g del"></span></td><td class="c">{@html r.html}</td></tr>
-            {:else}
-              {@const h = r.hunk}
-              <tr data-n={r.n} class:hl={r.n! >= want.a && r.n! <= want.b} class:chg={!!r.mark} class:boxhl={inBox(r.n)} class:first={firstOfHunk(r)}>
-                <td class="ln">{r.n}</td>
-                <td class="gut">
-                  {#if r.mark || r.delBefore}
-                    {#if h?.removed.length}
-                      <button class="g {r.mark ?? ''}" class:delmark={!!r.delBefore} title={opened[hunkKey(h)] || showAll ? "Hide the removed lines" : `Show the ${h.removed.length} removed line${h.removed.length > 1 ? "s" : ""}`}
-                        onclick={() => (opened[hunkKey(h)] = !opened[hunkKey(h)])}></button>
-                    {:else}<span class="g {r.mark ?? ''}"></span>{/if}
-                  {/if}
-                </td>
-                <td class="c">{@html r.html}</td>
-              </tr>
-            {/if}
-          {/each}
-        </tbody></table>
+        {#each dfiles as f (f.path)}
+          <table class="code"><tbody>
+            {#each f.rows as r}
+              {#if r.kind === "hunk"}<tr class="hunk"><td colspan="4">{@html r.html}</td></tr>
+              {:else}<tr class={r.kind}><td class="ln">{r.o ?? ""}</td><td class="ln">{r.n ?? ""}</td><td class="sg">{r.kind === "add" ? "+" : r.kind === "del" ? "-" : ""}</td><td class="c">{@html r.html}</td></tr>{/if}
+            {/each}
+          </tbody></table>
+        {/each}
       {/if}
     </div>
-    <MiniMap {path} {view} onlines={(ls) => (boxLines = ls)} onjump={(n) => body?.querySelector(`[data-n="${n}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" })} />
   {:else if sha}
     <div class="dhead"><span class="path">commit {sha}</span></div>
     <div class="dbody">

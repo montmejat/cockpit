@@ -9,6 +9,7 @@
   import MapView from "./components/MapView.svelte";
   import CodeView from "./components/CodeView.svelte";
   import Terminal from "./components/Terminal.svelte";
+  import Palette from "./components/Palette.svelte";
   import Chat from "./components/Chat.svelte";
   import Inspector from "./components/Inspector.svelte";
   import { byId, openCommit, openDiagram, openFile, showRight, ui, cur, mapTab, S, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
@@ -18,6 +19,7 @@
   let unread = $state(false);
   let rightWidth = $state(savedWidth("cockpit-right-width", 390, 280));
   let term: Terminal;
+  let palette: Palette;
 
   // Links can open a tab directly: ?tab=git, ?panel=features|tests, ?file=path[&line=n],
   // ?commit=sha, ?at=diagram[&box=node], or the hash the page keeps (#f=path, #c=sha, #diagram).
@@ -34,7 +36,7 @@
   // The address follows what's open, so a reload comes back to it.
   $effect(() => {
     const t = cur();
-    const hash = t.kind === "map" ? (t.id ?? "") : t.kind === "file" ? "f=" + t.path : "c=" + t.sha;
+    const hash = t.kind === "map" ? (t.id ?? "") : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
     history.replaceState(null, "", location.pathname + (hash ? "#" + encodeURIComponent(hash) : ""));
   });
   // A diagram that disappeared from .cockpit/: the map goes back home.
@@ -43,12 +45,19 @@
   // Ctrl+` toggles the terminal drawer, Ctrl+K opens the ask line, Ctrl+L the chat (not inside a
   // terminal, where it clears the screen), F1 shows or hides the hints, anywhere.
   function keys(e: KeyboardEvent) {
+    const inEditor = !!(e.target as HTMLElement).closest?.(".cm-editor");
+    // Ctrl+S saves the open file (and never opens the browser's "save page").
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); e.stopPropagation(); (window as any).__cockpitEditor?.save(); return; }
     if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l" && !(e.target as HTMLElement).closest?.(".xterm")) { e.preventDefault(); toggleChat(); unread = false; }
     else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
-    else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r"))) { e.preventDefault(); location.reload(); }
-    else if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { e.preventDefault(); term?.openAsk(); }
+    // (Not in the editor, where Ctrl+R is vim's redo.)
+    else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor))) { e.preventDefault(); location.reload(); }
+    // Ctrl+P opens a file by name, Ctrl+Shift+F searches the project.
+    else if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "p") { e.preventDefault(); e.stopPropagation(); palette?.open("files"); }
+    else if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "f") { e.preventDefault(); e.stopPropagation(); palette?.open("search"); }
+    else if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K") && !inEditor && !(e.target as HTMLElement).closest?.("input,textarea,.xterm")) { e.preventDefault(); term?.openAsk(); }
   }
 
   // Web links (in the chat, the details) open in your browser. A plain browser tab does that by
@@ -64,6 +73,7 @@
 
 <svelte:window onkeydowncapture={keys} onclickcapture={outLink} onauxclickcapture={outLink} />
 
+<Palette bind:this={palette} />
 <Header ontoggleterm={() => term?.toggle()} />
 <main>
   <Sidebar />

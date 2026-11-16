@@ -1,6 +1,7 @@
 // The page's state: what the server pushes (S), what you have open (ui), and the questions every
 // part asks of them (what changed, where a diagram link points).
 
+import { SvelteSet } from "svelte/reactivity";
 import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 
 declare global { interface Window { INIT: Live & { terminals: TermMeta[] }; __TAURI__?: any } }
@@ -9,14 +10,46 @@ const boot = window.INIT;
 export const initialTerminals: TermMeta[] = boot.terminals ?? [];
 
 // Live data. The server sends it whole once, then only the parts that changed (src/serve.ts).
-export const S: Live = $state(boot);
+// Each part is reactive as a whole and never deeply: parts are only ever replaced, and some are
+// big (a large project's modules and tests are ~1 MB, sent again on every save as lines shift),
+// so deep proxies made every push stall the page for ~170 ms.
+function cell<T>(v: T) {
+  let x = $state.raw(v);
+  return { get: () => x, set: (n: T) => { x = n; } };
+}
+export const S: Live = (() => {
+  const o = {} as Live;
+  for (const k of Object.keys(boot) as (keyof Live)[]) {
+    const c = cell(boot[k]);
+    Object.defineProperty(o, k, { get: c.get, set: c.set as (v: unknown) => void, enumerable: true });
+  }
+  return o;
+})();
+
+// A list patched by key: changed and new entries replace or join, removed ones go; when the
+// membership changed the server sends the new order of keys.
+function merge<T>(list: T[], p: { set: T[]; del: string[]; keys?: string[] }, key: (x: T) => string): T[] {
+  const by = new Map(list.map((x) => [key(x), x]));
+  for (const k of p.del) by.delete(k);
+  for (const x of p.set) by.set(key(x), x);
+  return p.keys ? p.keys.map((k) => by.get(k)!).filter(Boolean) : list.filter((x) => by.has(key(x))).map((x) => by.get(key(x))!);
+}
 
 export function connectLive() {
   const es = new EventSource("api/events");
   es.onmessage = (m) => {
     const e = JSON.parse(m.data);
     const parts = e.type === "full" ? e.state : e.patch;
-    for (const k of Object.keys(parts)) (S as any)[k] = parts[k];
+    // The whole state comes on (re)connecting, usually the same as the page's (it just loaded
+    // with it): unchanged parts are left alone, so nothing is redrawn or fetched again for them.
+    for (const k of Object.keys(parts)) if (e.type !== "full" || JSON.stringify((S as any)[k]) !== JSON.stringify(parts[k])) (S as any)[k] = parts[k];
+    // Big lists come as their changed entries (src/serve.ts, listPatch).
+    const l = e.lists ?? {};
+    if (l.modules) S.modules = merge(S.modules, l.modules, (m) => m.id);
+    if (l["tests.unit"] || l["tests.integration"]) S.tests = {
+      unit: l["tests.unit"] ? merge(S.tests.unit, l["tests.unit"], (u) => u.module + "\0" + u.file) : S.tests.unit,
+      integration: l["tests.integration"] ? merge(S.tests.integration, l["tests.integration"], (t) => t.file) : S.tests.integration,
+    };
   };
   // EventSource reconnects by itself; the server starts again with the whole state.
 }
@@ -92,7 +125,7 @@ export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map
 
 type Insp = "features" | "tests" | "problems" | null;
 const saved = (): Tab[] => {
-  try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit")); } catch { return []; }
+  try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff")); } catch { return []; }
 };
 const sideTab = store.get("cockpit-tab", "files");
 
@@ -118,7 +151,10 @@ export function saveTabs() {
   store.set("cockpit-active-" + S.project, String(ui.active));
 }
 
-const sameTab = (a: Tab, b: Tab) => a.kind === b.kind && (a.kind === "file" ? a.path === (b as any).path : a.kind === "commit" ? a.sha === (b as any).sha : true);
+const sameTab = (a: Tab, b: Tab) => a.kind === b.kind && (a.kind === "file" ? a.path === (b as any).path : a.kind === "commit" ? a.sha === (b as any).sha
+  : a.kind === "diff" ? a.path === (b as any).path && a.staged === (b as any).staged : true);
+// A tab's key and label, for the tab bar and the address.
+export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + t.sha : (t.staged ? "s:" : "d:") + t.path);
 // Open (or focus) a tab next to the current one. Old file tabs make room past 14.
 export function openTab(spec: Tab) {
   let i = ui.tabs.findIndex((t) => sameTab(t, spec));
@@ -134,8 +170,18 @@ export function openTab(spec: Tab) {
 // `at` makes a repeat request for the same line scroll there again.
 export const openFile = (path: string, line?: number, end?: number) => openTab({ kind: "file", path, line, end, at: line ? Date.now() : undefined });
 export const openCommit = (sha: string) => openTab({ kind: "commit", sha });
+// A changed file's diff: staged (index against HEAD) or not (working tree against the index).
+export const openDiff = (path: string, staged: boolean) => openTab({ kind: "diff", path, staged });
+// Files with unsaved changes in the editor (FileEditor.svelte keeps the buffers).
+export const dirtyFiles = new SvelteSet<string>();
+
 export function closeTab(i: number) {
   if (i === 0) return; // the map stays
+  const t = ui.tabs[i];
+  if (t?.kind === "file" && dirtyFiles.has(t.path)) {
+    if (!confirm(`${t.path} has unsaved changes. Close it and lose them?`)) return;
+    dirtyFiles.delete(t.path); // the editor drops the buffer when it sees it's no longer dirty
+  }
   ui.tabs.splice(i, 1);
   if (i < ui.active || ui.active >= ui.tabs.length) ui.active = Math.max(0, ui.active - 1);
   saveTabs();

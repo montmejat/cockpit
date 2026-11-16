@@ -1,33 +1,44 @@
 /* cockpit, one view: sidebar (files, git) | center tabs (map, files, commits) over the terminal drawer | right panel (chat, details). */
-:root{--bg:#f4f5f7;--fg:#1f2329;--muted:#6e7781;--line:#e1e4e8;--card:#ffffff;--accent:#2f6fde;
+:root{--head:#ffffff;--side:#ebebed;--btn:color-mix(in oklab,var(--fg) 9%,transparent);--btn-hover:color-mix(in oklab,var(--fg) 14%,transparent);
+--ui:"Adwaita Sans",Cantarell,system-ui,sans-serif;--mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--bg:#fafafb;--fg:#2e2e32;--muted:#6e6e73;--line:#e2e2e6;--card:#ffffff;--accent:#1c71d8;
 --ok:#1f9e7a;--warn:#c98a0b;--bad:#d1453b;--hot:#ef6a2d;--add-bg:#e6f6ec;--del-bg:#fdecea;--add:#1a7f45;--del:#b8332a;
---k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#e7eefc;--edge:#cdd2d8;--rev:#8250df}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111317;--fg:#dde1e7;--muted:#7d8590;--line:#262a31;--card:#181b20;--accent:#6ea8ff;
+--k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#dce8f9;--edge:#d8d8dc;--rev:#8250df}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--head:#2e2e32;--side:#2e2e32;--bg:#222226;--fg:#eeeef0;--muted:#9a9a9f;--line:#3a3a3f;--card:#1d1d20;--accent:#78aeed;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
---k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#454b54;--rev:#b392f0;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#111317;--fg:#dde1e7;--muted:#7d8590;--line:#262a31;--card:#181b20;--accent:#6ea8ff;
+--k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#24364f;--edge:#3c3c41;--rev:#b392f0;color-scheme:dark}}
+:root[data-theme="dark"]{--head:#2e2e32;--side:#2e2e32;--bg:#222226;--fg:#eeeef0;--muted:#9a9a9f;--line:#3a3a3f;--card:#1d1d20;--accent:#78aeed;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
---k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#22314d;--edge:#454b54;--rev:#b392f0;color-scheme:dark}
+--k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#24364f;--edge:#3c3c41;--rev:#b392f0;color-scheme:dark}
 *{box-sizing:border-box}
 html,body,#app{margin:0;height:100%}
 #app{display:flex;flex-direction:column}
-body{background:var(--bg);color:var(--fg);font:12.5px/1.5 "JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace}
+body{background:var(--bg);color:var(--fg);font:13px/1.45 var(--ui)}
+/* code stays monospace: the editor, the terminal, patches, code blocks, paths and hashes */
+pre,code,kbd,.mono,.path,.sha,table.code,.gnum,.cm-editor{font-family:var(--mono)}
+pre,code,table.code{font-size:12px}
 /* A hairline around the whole page (browser tab or desktop window), so it doesn't melt into
    white windows next to it. Drawn over everything and never in the way of the mouse. */
 body::after{content:"";position:fixed;inset:0;border:1px solid var(--edge);pointer-events:none;z-index:2147483647}
+/* The desktop window has rounded corners (the window itself is transparent: desktop/src/main.rs),
+   square when maximized or fullscreen. */
+html:has(body.desktop),body.desktop{background:transparent}
+body.desktop #app{border-radius:12px;overflow:hidden;background:var(--bg)}
+body.desktop::after{border-radius:12px}
+body.desktop.square #app,body.desktop.square::after{border-radius:0}
 .hide{display:none!important}
 [hidden]{display:none!important}
 /* buttons that read as links or rows */
 button.link,button.file,button.folder,button.gitfile,button.grow-row,button.mlink,button.chip,button.tname,button.csess,button.ctitle,button.tpick,button.g{font:inherit;color:inherit;background:none;border:0;border-radius:0;padding:0;text-align:left;cursor:pointer}
 button.link{color:var(--accent)}button.link:hover{text-decoration:underline}
 a{color:var(--accent);text-decoration:none;cursor:pointer}
-button{font:inherit;font-size:12px;color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:4px;padding:2px 9px;cursor:pointer}
+button{font:inherit;font-size:12.5px;font-weight:500;color:var(--fg);background:var(--btn);border:1px solid transparent;border-radius:6px;padding:2px 10px;cursor:pointer;transition:background .12s}
+button:hover{background:var(--btn-hover)}button:active{background:color-mix(in oklab,var(--fg) 20%,transparent)}
 button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .muted{color:var(--muted)}.grow{flex:1}
 h4{margin:16px 0 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500}
 
-header{display:flex;align-items:center;gap:14px;padding:7px 14px;border-bottom:1px solid var(--line);background:var(--card);flex-wrap:wrap}
-header h1{font-size:13px;margin:0;font-weight:700}
+header{display:flex;align-items:center;gap:14px;padding:7px 14px;border-bottom:1px solid var(--line);background:var(--head);flex-wrap:wrap}
+header h1{font-size:14px;margin:0;font-weight:700}
 header{position:relative}header button.wsbtn{background:none;border:0;padding:0;font-size:13px;color:var(--muted);font-weight:500}header button.wsbtn:hover,header button.wsbtn.on{color:var(--accent)}header .wssep{margin:0 -10px}
 .wsmenu{position:absolute;top:calc(100% + 4px);left:10px;z-index:40;width:min(440px,calc(100vw - 24px));background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px rgb(0 0 0 / .16);padding:6px 0;font-size:12px}
 .wsmenu .wshead,.wsmenu .wsfoot{padding:4px 12px;font-size:11px}.wsmenu .wsfoot{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
@@ -49,7 +60,7 @@ header{position:relative}header button.wsbtn{background:none;border:0;padding:0;
 @keyframes breathe{50%{opacity:.55}}
 
 main{flex:1;min-height:0;display:flex;position:relative}
-#side{width:280px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--card);position:relative}
+#side{width:280px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--line);background:var(--side);position:relative}
 /* the sidebar's resize handle: a few pixels over its right edge, lit while hovered or dragged */
 /* a panel's resize handle (Grip.svelte): a few pixels over its edge, lit while hovered or dragged */
 .sgrip{position:absolute;top:0;bottom:0;width:7px;z-index:8;cursor:col-resize}
@@ -216,13 +227,14 @@ a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-col
 
 /* the floating diagram over the code, in file tabs */
 #codeview{position:relative}
-#mini{position:absolute;right:22px;bottom:22px;width:400px;height:480px;min-width:220px;min-height:140px;z-index:20;resize:both;overflow:hidden;
+#mini{position:absolute;user-select:none;right:22px;bottom:22px;width:400px;height:480px;min-width:220px;min-height:140px;z-index:20;resize:both;overflow:hidden;
   display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 10px 36px rgba(0,0,0,.22)}
 #mini[hidden]{display:none}
 #mini.collapsed{height:auto!important;min-height:0;resize:none}#mini.collapsed .mcy,#mini.collapsed .mfoot{display:none}
 .mhead{display:flex;align-items:center;gap:6px;padding:5px 8px;border-bottom:1px solid var(--line);cursor:move;user-select:none;background:var(--bg);border-radius:8px 8px 0 0}
 .mtitle{font-weight:700;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
 .mtabs{display:flex;gap:3px}.mtabs button{font-size:10.5px;padding:0 6px;color:var(--muted)}.mtabs button.on{color:var(--fg);border-color:var(--accent)}
+.mtabs button.has::after{content:"";display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--accent);margin-left:4px;vertical-align:middle}
 .mclose{padding:0 7px}
 .mcy{flex:1;min-height:0}
 .mfoot{font-size:11px;color:var(--muted);padding:3px 8px 5px;min-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -231,6 +243,7 @@ a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-col
 p.q{color:var(--muted);font-size:12px;margin:0 0 6px}
 @media (max-width:900px){#mini{display:none}}
 table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color-mix(in oklab,var(--accent) 9%,transparent)}
+table.code tr.cur td.ln{color:var(--fg);font-weight:700}table.code tr.cur td.c{background:color-mix(in oklab,var(--fg) 6%,transparent)}
 
 
 /* semantic zoom */
@@ -252,14 +265,16 @@ table.code tr.boxhl td.c{box-shadow:inset 3px 0 0 var(--accent);background:color
 .maptab{display:flex;align-items:center;justify-content:center;width:38px;flex-shrink:0;cursor:pointer;color:var(--muted);font-size:15px;border-right:1px solid var(--line);border-bottom:2px solid transparent}
 .maptab:hover{color:var(--accent)}.maptab.on{color:var(--accent);background:var(--bg);border-bottom-color:var(--accent)}
 /* desktop app: the header doubles as the title bar */
-body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;padding-right:8px}
-#winctl{display:flex;gap:10px;margin-left:6px}
-#winctl button{width:24px;height:24px;padding:0;border:0;border-radius:50%;display:grid;place-items:center;background:var(--line);color:var(--fg)}
-#winctl button:hover{filter:brightness(1.25)}
-#winctl button[data-w="close"]:hover{background:var(--bad);color:#fff;filter:none}
-#winctl svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
+body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;padding:0 6px 0 14px;min-height:47px}
+body.desktop header.wleft{padding-left:6px}
+/* the window's buttons, as GNOME draws them: round, the ones your button layout lists, on its side */
+.winctl{display:flex;gap:12px;padding:0 6px;flex:none}
+.winctl button{width:24px;height:24px;padding:0;border:0;border-radius:50%;display:grid;place-items:center;background:color-mix(in oklab,var(--fg) 10%,transparent);color:var(--fg)}
+.winctl button:hover{background:color-mix(in oklab,var(--fg) 15%,transparent)}
+.winctl button:active{background:color-mix(in oklab,var(--fg) 25%,transparent)}
+.winctl svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
 /* right panel: chat and details */
-#right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--card);border-left:1px solid var(--line);min-height:0;position:relative}
+#right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--side);border-left:1px solid var(--line);min-height:0;position:relative}
 .rtabs{display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
 .rtabs [data-r]{border:0;background:none;color:var(--muted);padding:3px 8px;position:relative}
 .rtabs [data-r].on{color:var(--fg);box-shadow:inset 0 -2px 0 var(--accent)}
@@ -272,6 +287,10 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 .cuser{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-top:14px;white-space:normal}
 .ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:12.5px}
 .ctext code{background:var(--bg);border-radius:3px;padding:0 3px;font-size:11.5px}
+.ctext .cblock{position:relative}#msgs .cblock pre{padding-right:30px}
+.ctext .copy{position:absolute;top:4px;right:4px;padding:3px;line-height:0;border-radius:4px;color:var(--muted);background:var(--card);border:1px solid var(--line);opacity:.55;cursor:pointer}
+.ctext .cblock:hover .copy{opacity:1}.ctext .copy:hover{color:var(--fg)}
+.ctext .copy.done{opacity:1;color:#2da44e;border-color:#2da44e}
 .ctext a.fref{color:var(--accent,#6aa9ff);cursor:pointer;text-decoration:none}.ctext a.fref:hover{text-decoration:underline}
 #msgs pre{background:var(--bg);border:1px solid var(--line);border-radius:5px;padding:6px 8px;overflow:auto;font-size:11px;max-height:260px;white-space:pre-wrap;word-break:break-word}
 #msgs pre.diff{padding:6px 0}#msgs pre.diff>span{display:block;padding:0 8px}#msgs pre.diff .da{background:var(--add-bg);color:var(--add)}#msgs pre.diff .dd{background:var(--del-bg);color:var(--del)}#msgs pre.diff .dh{color:var(--accent)}#msgs pre.diff .df{color:var(--muted);font-weight:700}
@@ -329,7 +348,7 @@ body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;p
 #metrics .mlink,header .mlink{color:var(--muted);border-bottom:1px dotted var(--muted);font-size:11.5px}
 header .mlink.bad{color:var(--bad);border-bottom-color:var(--bad)}
 header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--accent)}
-#winctl button.close:hover{background:var(--bad);color:#fff;filter:none}
+
 
 /* files tree */
 .sidetools{display:flex;align-items:center;gap:6px;padding:4px 10px;border-bottom:1px solid var(--line);font-size:11px}
@@ -385,7 +404,14 @@ button.csess .muted{font-size:11px}
 .ctool .chip{flex:none}
 .meters{display:flex;flex-direction:column;gap:2px;margin-top:7px;font-size:10.5px;color:var(--muted)}
 .meter{display:flex;align-items:center;gap:7px;cursor:default}
-.crow .meter.ctx{flex:1;min-width:0;font-size:10.5px;color:var(--muted);margin-right:4px}
+.ctx{position:relative;display:inline-flex}
+button.ring{padding:2px;border:0;background:none;border-radius:50%;display:inline-flex;cursor:pointer;color:var(--accent)}
+button.ring:hover,button.ring[aria-expanded=true]{background:var(--sel)}
+button.ring.warn{color:var(--warn)}button.ring.bad{color:var(--bad)}
+.ring circle{fill:none;stroke-width:3}.ring .track{stroke:var(--line)}.ring .fill{stroke:currentColor;stroke-linecap:round;transition:stroke-dasharray .4s}
+.ctxpop{position:absolute;right:-4px;bottom:calc(100% + 6px);z-index:30;width:250px;padding:8px 10px;background:var(--card);border:1px solid var(--line);border-radius:7px;box-shadow:0 8px 24px rgba(0,0,0,.18);font-size:11px;color:var(--muted);cursor:default}
+.ctxpop::after{content:"";position:absolute;left:0;right:0;top:100%;height:8px}
+.ctxline b{color:var(--fg)}.ctxnote{margin-top:4px;font-size:10px}
 .mlabel{width:9ch;flex:none}
 .meter .bar{flex:1;height:4px;border-radius:2px;background:var(--line);overflow:hidden}
 .meter .bar i{display:block;height:100%;background:var(--accent);border-radius:2px;transition:width .4s}
@@ -408,3 +434,58 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 #dlist button{display:block;width:100%;text-align:left;padding:3px 10px;color:var(--fg);background:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:0;border-left:2px solid transparent;border-radius:0}
 #dlist button:hover{background:var(--sel)}
 #dlist button.on{border-left-color:var(--accent);font-weight:600}
+/* the file editor (FileEditor.svelte) */
+.ewrap{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}.ewrap[hidden]{display:none}
+.editor{flex:1;min-height:0;overflow:hidden}.editor .cm-editor{height:100%}
+.vimtoggle{color:var(--muted);opacity:.7;font-size:11px;padding:0 6px}.esave{font-size:11px;padding:0 6px;color:var(--accent);border-color:var(--accent)}.vimtoggle.on{color:var(--fg);opacity:1;border-color:var(--accent)}
+.econflict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px;background:color-mix(in oklab,var(--warn) 14%,var(--card));border-bottom:1px solid var(--line);font-size:12px}
+.econflict.bad{background:color-mix(in oklab,var(--bad) 14%,var(--card))}
+#tabbar .unsaved{color:var(--accent);font-size:10px;margin-left:4px}
+/* git tab: commit box, staged / changes */
+.commitbox{display:flex;flex-direction:column;gap:6px;margin:10px 0 4px}
+.commitbox textarea{font:inherit;font-size:12px;resize:vertical;min-height:38px;padding:5px 7px;border:1px solid var(--line);border-radius:5px;background:var(--card);color:var(--fg)}
+.commitbox textarea:focus{outline:none;border-color:var(--accent)}
+.commitbtn{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700;padding:3px 8px}
+.commitbtn:disabled{background:var(--bg);color:var(--muted);border-color:var(--line);font-weight:400}
+.commitbox .err{margin:0;white-space:pre-wrap;font-size:11px;color:var(--bad)}
+.ghead{display:flex;align-items:center;gap:8px;margin-top:12px}.ghead h4{flex:1;margin:0}
+.gall{font-size:10.5px;padding:0 6px;color:var(--muted)}
+.gitrow{display:flex;align-items:center}.gitrow:hover,.gitrow.sel{background:var(--sel)}
+.gitrow .gitfile{flex:1;min-width:0;align-items:baseline}.gitrow .gitfile:hover{background:none}
+.gitrow .gname{flex:none}.gitrow .gdir{color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.gitrow .gnum{margin-left:auto;flex:none;font-size:10.5px;display:flex;gap:4px;padding-left:6px}.gnum i{font-style:normal}.gnum .a{color:var(--add)}.gnum .d{color:var(--del)}
+.gact{visibility:hidden;flex:none;width:22px;padding:0;margin-right:8px;font-size:13px;line-height:16px;border-radius:4px}
+.gitrow:hover .gact{visibility:visible}
+.mark.C{color:var(--bad)}.mark.R{color:var(--rev)}
+
+/* the palette: open a file by name, search the project */
+#palette{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.18);display:flex;justify-content:center;align-items:flex-start;padding:10vh 16px 0}
+#palette .pbox{width:min(720px,100%);max-height:70vh;display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 16px 48px rgba(0,0,0,.28);overflow:hidden}
+#palette .pin{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
+#palette input[type=text]{flex:1;font:inherit;font-size:13px;color:var(--fg);background:none;border:0;outline:0;min-width:0}
+#palette .pin label{font-size:11px;color:var(--muted);display:flex;gap:3px;align-items:center;cursor:pointer}
+#palette .plist{overflow:auto;padding:4px 0}
+#palette button.prow{display:flex;gap:10px;width:100%;font:inherit;font-size:12px;color:var(--fg);background:none;border:0;border-radius:0;padding:3px 12px;text-align:left;cursor:pointer;white-space:nowrap}
+#palette button.prow.on{background:var(--sel)}
+#palette .prow .pp{overflow:hidden;text-overflow:ellipsis}
+#palette .prow .pl{color:var(--muted);flex:none}
+#palette .prow .pt{color:var(--muted);overflow:hidden;text-overflow:ellipsis;min-width:0}
+#palette .prow b{color:var(--accent);font-weight:700}
+#palette .pnote{padding:8px 12px;color:var(--muted);font-size:12px}
+
+/* the file's language server, in the editor's header */
+.dhead .lsp{font-size:11px;border:1px solid var(--line);border-radius:10px;padding:0 7px;color:var(--muted);cursor:default}
+.dhead .lsp.ready{color:var(--ok);border-color:color-mix(in oklab,var(--ok) 40%,transparent)}
+
+/* the project name: a menu to open another folder (desktop app) */
+header button.projbtn{display:flex;align-items:center;gap:5px;background:none;padding:3px 8px;margin:0 -8px}
+header button.projbtn:hover,header button.projbtn.on{background:var(--btn-hover)}
+header .projbtn svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;color:var(--muted)}
+.projmenu{width:min(380px,calc(100vw - 24px));padding:6px}
+.projmenu button.prow{display:flex;align-items:baseline;gap:10px;width:100%;background:none;border:0;border-radius:6px;padding:6px 10px;text-align:left;font-weight:400}
+.projmenu button.prow:hover{background:var(--btn-hover)}
+.projmenu .prow .ppath{margin-left:auto;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.projmenu .wshead{padding:8px 10px 2px}
+
+/* a staged file's diff tab */
+.ctab .tstaged{font-size:10.5px}

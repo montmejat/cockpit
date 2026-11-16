@@ -24,7 +24,8 @@ cockpit --pick                # choose another project ("Open project…" on the
 ```
 
 It starts the server on a free port, shows the page, and stops the server when the window
-closes. Everything is bundled, so it works offline. The plan is to move the server to Rust piece
+closes. The project name in the header opens another folder or a recent one (Ctrl+O), in the same
+window; the project you leave keeps its server running, so switching back is instant. Everything is bundled, so it works offline. The plan is to move the server to Rust piece
 by piece, and the UI later once it stops changing.
 
 Working on the page: `npm run dev:web` rebuilds it on every change; reload to see it (Ctrl+R or

@@ -14,6 +14,8 @@ export interface Diagram {
 export interface Feature { id: string; name: string; status: "working" | "partial" | "broken" | "planned"; description: string; modules: string[]; note?: string }
 export interface GitFile { x: string; y: string; path: string }
 export interface Live {
+  root?: string; // the project folder (for the language servers)
+  desktop?: { accent: string | null; buttons: string | null }; // GNOME's accent and window buttons
   project: string;
   diagrams: Diagram[];
   problems: { where: string; problem: string }[];
@@ -54,7 +56,8 @@ export interface TermMeta { id: string; n: number; cwd: string; running: string 
 export type Tab =
   | { kind: "map"; id: string | null; code: string | null }
   | { kind: "file"; path: string; line?: number; end?: number; mini?: string; at?: number }
-  | { kind: "commit"; sha: string };
+  | { kind: "commit"; sha: string }
+  | { kind: "diff"; path: string; staged: boolean };
 
 export interface Hunk { at: number; added: number; removed: string[] }
 export interface Commit { hash: string; parents: string[]; sha: string; subject: string; author: string; date: string; refs: string[] }
