@@ -48,6 +48,7 @@ export interface Review {
   base: string | null; error: string | null; commits: number;
   files: { path: string; st: string }[];
   changedFiles: string[]; changedItems: string[];
+  impacted: string[]; // modules that use changed ones
   diagrams: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }>;
   removedDiagrams: { id: string; question: string }[];
 }

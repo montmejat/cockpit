@@ -87,6 +87,7 @@ class Changes {
   // Review mode: what the branch changes against its target, committed or not.
   rItems = $derived(new Set(S.review?.changedItems ?? []));
   rFiles = $derived(new Set(S.review?.changedFiles ?? []));
+  rImpacted = $derived(new Set(S.review?.impacted ?? []));
 }
 export const C = new Changes();
 
@@ -113,7 +114,8 @@ export function anchorChanged(a: string, files = C.files, items = C.items) {
   return false;
 }
 // What's changing on a box: uncommitted (unc), being edited by the agent (live), and in review
-// mode changed by the branch (rev) or new in the branch's diagrams (added).
+// mode changed by the branch (rev), new in the branch's diagrams (added), or using code the
+// branch changed (imp: what the change impacts).
 export function nodeState(n: DiagramNode, diagram?: string) {
   const hit = (n.anchors ?? []).filter((a) => anchorChanged(a));
   const r = S.review, rd = r && diagram ? r.diagrams[diagram] : null;
@@ -121,6 +123,7 @@ export function nodeState(n: DiagramNode, diagram?: string) {
     unc: hit.length > 0, live: !!S.live && hit.some((a) => C.touched.has(where(a)?.file ?? "")),
     rev: !!r && (n.anchors ?? []).some((a) => anchorChanged(a, C.rFiles, C.rItems)),
     added: !!rd && !rd.isNew && rd.added.includes(n.id),
+    imp: !!r && (n.anchors ?? []).some((a) => C.rImpacted.has(a.split("::")[0])),
   };
 }
 // How many boxes of a diagram the review changes (for the diagram list).

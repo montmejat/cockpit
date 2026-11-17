@@ -16,7 +16,7 @@ const PAL = ["#2b7bd6", "#d9622b", "#2a9d6f", "#a35bd1", "#c79a1c", "#d1477a", "
 // agent edits it.
 const stateClasses = (d: Diagram, id: string) => {
   const n = d.nodes.find((x) => x.id === id);
-  if (!n) return { unc: false, live: false, rev: false, added: false };
+  if (!n) return { unc: false, live: false, rev: false, added: false, imp: false };
   return nodeState(n, d.id);
 };
 
@@ -25,7 +25,7 @@ export function elements(d: Diagram): ElementDefinition[] {
   for (const n of d.nodes) {
     const ns = nodeState(n, d.id);
     const cls = [n.zone ? "zone" : n.outside ? "outside" : "part", n.focus && "focus", n.total && "total", n.carries && "carries",
-      (n.start || n.end) && "terminal", n.detail && byId(n.detail) && "zoomable", ns.rev && "rev", ns.added && "added", ns.live && "live", ns.unc && "unc"].filter(Boolean).join(" ");
+      (n.start || n.end) && "terminal", n.detail && byId(n.detail) && "zoomable", ns.rev && "rev", ns.added && "added", !ns.rev && !ns.added && ns.imp && "imp", ns.live && "live", ns.unc && "unc"].filter(Boolean).join(" ");
     els.push({ data: { id: n.id, label: n.label + (n.detail && byId(n.detail) ? "  ⤢" : ""), parent: n.in }, classes: cls });
   }
   // Labels where they can't collide: by the source if it's the only edge leaving it, else by
@@ -71,6 +71,8 @@ export function style(): any[] {
     { selector: "node.focus", style: { "border-color": sig, "border-width": 2.4, "background-color": sig, "background-opacity": 0.12, "font-weight": 700 } },
     { selector: "node.rev", style: { "border-color": rev, "border-width": 2.6, "background-color": rev, "background-opacity": 0.12 } },
     { selector: "node.added", style: { "border-color": add, "border-width": 2.6, "background-color": add, "background-opacity": 0.12 } },
+    // Uses what the review changed: a faint ring of the same color, the change's reach.
+    { selector: "node.imp", style: { "border-color": rev, "border-style": "dashed", "border-width": 1.8, "background-color": rev, "background-opacity": 0.04 } },
     { selector: "node.unc", style: { "border-style": "dashed", "border-color": warn, "border-width": 2.4 } },
     { selector: "node.live", style: { "border-color": sig, "border-width": 3, "underlay-color": sig, "underlay-opacity": 0.3, "underlay-padding": 9 } },
     { selector: "node.picked", style: { "border-color": data, "border-width": 3 } },
@@ -107,6 +109,7 @@ export function legend(cy: Core) {
   if (has("edge.next")) sw("next", "↻ used in the next round");
   if (has("node.rev")) sw("rev", "changed in this review");
   if (has("node.added")) sw("added", "new in this review");
+  if (has("node.imp")) sw("imp", "uses what changed");
   if (has("node.unc")) sw("unc", "its code changed, not committed");
   if (has("node.live")) sw("live", "the agent is changing it now");
   return items;
@@ -223,7 +226,7 @@ export function restyle(cy: Core, d: Diagram) {
     for (const n of d.nodes) {
       const ns = stateClasses(d, n.id), x = cy.getElementById(n.id);
       if (x.empty()) continue;
-      x.toggleClass("live", ns.live).toggleClass("unc", ns.unc).toggleClass("rev", ns.rev).toggleClass("added", ns.added);
+      x.toggleClass("live", ns.live).toggleClass("unc", ns.unc).toggleClass("rev", ns.rev).toggleClass("added", ns.added).toggleClass("imp", !ns.rev && !ns.added && ns.imp);
     }
   });
 }

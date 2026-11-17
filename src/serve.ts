@@ -274,7 +274,7 @@ function reviewState(sk: Skeleton, status: ReturnType<typeof gitStatus>, diagram
   const r = review.current();
   if (!r) return null;
   const base = reviewBase();
-  if (!base) return { ...r, base: null, error: `${r.target} and this branch share no history`, files: [], changedFiles: [], changedItems: [], commits: 0, diagrams: {}, removedDiagrams: [] };
+  if (!base) return { ...r, base: null, error: `${r.target} and this branch share no history`, files: [], changedFiles: [], changedItems: [], impacted: [], commits: 0, diagrams: {}, removedDiagrams: [] };
   const lines = changedLines(status, base);
   const files: { path: string; st: string }[] = tryGit("diff", "--name-status", "--no-renames", base).split("\n").filter(Boolean)
     .map((l) => { const [st, path] = l.split("\t"); return { path, st: st[0] }; });
@@ -287,10 +287,14 @@ function reviewState(sk: Skeleton, status: ReturnType<typeof gitStatus>, diagram
     const removed = b ? [...b.nodes].filter(([id]) => !d.nodes.some((n) => n.id === id)).map(([id, label]) => ({ id, label })) : [];
     if (!b || added.length || removed.length) diff[d.id] = { isNew: !b, added, removed };
   }
+  // What it impacts: the modules that use a changed one (one step out), not changed themselves.
+  const changedFiles = new Set(Object.keys(lines));
+  const changedMods = new Set(sk.modules.filter((m) => changedFiles.has(m.file)).map((m) => m.id));
+  const impacted = [...new Set(sk.edges.filter((e) => changedMods.has(e.to) && !changedMods.has(e.from)).map((e) => e.from))];
   return {
     ...r, base: tryGit("rev-parse", "--short", base), error: null,
     commits: Number(tryGit("rev-list", "--count", `${base}..HEAD`)) || 0,
-    files, changedFiles: Object.keys(lines), changedItems: itemsIn(sk, lines),
+    files, changedFiles: [...changedFiles], changedItems: itemsIn(sk, lines), impacted,
     diagrams: diff, removedDiagrams: [...(before ?? [])].filter(([id]) => !diagrams.some((d) => d.id === id)).map(([id, b]) => ({ id, question: b.question })),
   };
 }
