@@ -14,6 +14,7 @@
 //     "compdb": ["engine/build/compile_commands.json"] }   // optional: else found by looking
 
 import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { basename, delimiter, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -107,7 +108,7 @@ function findScipClang(): string {
 
 // The command that indexes `dir` (the repo, or a snapshot worktree of `repo`) into `scip`. For
 // C++ this also writes the merged compile database next to `scip`; remove it after the run.
-type Run = { cmd: string; args: string[]; cwd: string; env?: NodeJS.ProcessEnv; tool: string };
+type Run = { cmd: string; args: string[]; cwd: string; env?: NodeJS.ProcessEnv; tool: string; build?: string[] };
 function indexCommand(lang: Lang, dir: string, scip: string, opts: { repo?: string; config?: IndexConfig }): Run {
   const repo = opts.repo ?? dir;
   if (lang === "rust") return {
@@ -122,24 +123,65 @@ function indexCommand(lang: Lang, dir: string, scip: string, opts: { repo?: stri
 
   const bin = findScipClang();
   const args = [`--compdb-path=${merged}`, `--index-output-path=${scip}`];
-  if (!cfg.image) return { cmd: bin, args, cwd: dir, tool: "scip-clang" };
+  const dev = cfg.image ? null : devcontainerImage(repo);
+  const image = cfg.image ?? dev?.image;
+  if (!image) return { cmd: bin, args, cwd: dir, tool: "scip-clang" };
   // In the build image: the repo (and worktree) at their own paths, read-only; the output dir
   // writable. The other projects of its workspace (workspace.ts) too, read-only, since a build
   // often includes their headers or sources straight from their checkouts.
   const uid = process.getuid?.() ?? 1000, gid = process.getgid?.() ?? 1000;
   const siblings = (workspaceOf(repo)?.projects ?? []).filter((p) => !p.here && existsSync(p.path)).map((p) => p.path);
   const mounts = [...new Set([repo, dir, ...siblings])].flatMap((p) => ["-v", `${p}:${p}:ro`]);
-  return { cmd: "docker", cwd: dir, tool: "scip-clang", args: ["run", "--rm", "-u", `${uid}:${gid}`, ...mounts, "-v", `${dirname(scip)}:${dirname(scip)}`,
-    "-v", `${bin}:/usr/local/bin/scip-clang:ro`, "-w", dir, "--entrypoint", "/usr/local/bin/scip-clang", cfg.image, ...args] };
+  // label=disable: on SELinux hosts (Fedora) the container can't read bind mounts otherwise.
+  return { cmd: "docker", cwd: dir, tool: dev ? "scip-clang in the dev container" : "scip-clang", build: dev?.build,
+    args: ["run", "--rm", "--security-opt", "label=disable", "-u", `${uid}:${gid}`, ...mounts, "-v", `${dirname(scip)}:${dirname(scip)}`,
+    "-v", `${bin}:/usr/local/bin/scip-clang:ro`, "-w", dir, "--entrypoint", "/usr/local/bin/scip-clang", image, ...args] };
 }
+// The repo's dev container (.devcontainer/devcontainer.json or .devcontainer.json), as the build
+// image when index.json names none: its "image", or the image its "build" (a Dockerfile) makes,
+// tagged cockpit-dev-<repo>:<hash of the files>, so it's built again only when they change.
+// `build` is the docker build to run first when that image doesn't exist yet.
+export function devcontainerImage(repo: string): { image: string; build?: string[] } | null {
+  const file = [join(repo, ".devcontainer", "devcontainer.json"), join(repo, ".devcontainer.json")].find((f) => existsSync(f));
+  if (!file) return null;
+  let dc: any;
+  try { dc = parseJsonc(readFileSync(file, "utf8")); } catch { return null; }
+  if (typeof dc.image === "string") return { image: dc.image };
+  const b = dc.build ?? (dc.dockerFile ? { dockerfile: dc.dockerFile, context: dc.context } : null);
+  if (!b?.dockerfile) return null;
+  const here = dirname(file), dockerfile = join(here, b.dockerfile), context = join(here, b.context ?? ".");
+  if (!existsSync(dockerfile)) return null;
+  const buildArgs = Object.entries(b.args ?? {}).flatMap(([k, v]) => ["--build-arg", `${k}=${v}`]);
+  const hash = createHash("sha1").update(readFileSync(file)).update(readFileSync(dockerfile)).update(buildArgs.join("\0")).digest("hex").slice(0, 12);
+  const image = `cockpit-dev-${basename(repo).toLowerCase().replace(/[^a-z0-9_.-]/g, "-")}:${hash}`;
+  let built = false;
+  try { execFileSync("docker", ["image", "inspect", image], { stdio: "ignore" }); built = true; } catch {}
+  return { image, build: built ? undefined : ["build", "-t", image, "-f", dockerfile, ...(b.target ? ["--target", b.target] : []), ...buildArgs, context] };
+}
+
+// JSON with comments and trailing commas, as devcontainer.json is written.
+function parseJsonc(text: string) {
+  let out = "";
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"') { const end = /"(?:[^"\\]|\\.)*"/y; end.lastIndex = i; const m = end.exec(text); out += m ? m[0] : c; i += (m ? m[0].length : 1) - 1; }
+    else if (c === "/" && text[i + 1] === "/") { while (i < text.length && text[i] !== "\n") i++; out += "\n"; }
+    else if (c === "/" && text[i + 1] === "*") { i = text.indexOf("*/", i + 2); if (i < 0) break; i++; }
+    else out += c;
+  }
+  return JSON.parse(out.replace(/,(\s*[\]}])/g, "$1"));
+}
+
 const failed = (r: Run, e: any) => new Error(`${r.tool} failed: ${String(e.stderr || e.message).trim().split("\n").slice(-5).join("\n")}`);
 
 // Index now, blocking: for one-off tools and turn snapshots.
 export function indexProject(lang: Lang, dir: string, scip: string, opts: { repo?: string; config?: IndexConfig } = {}) {
   if (lang === "zig") return writeFileSync(scip, JSON.stringify(buildZigSkeleton(dir)));
   const r = indexCommand(lang, dir, scip, opts);
-  try { execFileSync(r.cmd, r.args, { cwd: r.cwd, env: r.env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 << 20 }); }
-  catch (e) { throw failed(r, e); }
+  try {
+    if (r.build) execFileSync("docker", r.build, { stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 << 20 });
+    execFileSync(r.cmd, r.args, { cwd: r.cwd, env: r.env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 << 20 });
+  } catch (e) { throw failed(r, e); }
 }
 
 // Index in the background, so a server keeps answering while the indexer runs (minutes for C++).
@@ -148,7 +190,10 @@ export function indexProjectAsync(lang: Lang, dir: string, scip: string, opts: {
   return new Promise((done, fail) => {
     let r: Run;
     try { r = indexCommand(lang, dir, scip, opts); } catch (e) { return fail(e); }
-    execFile(r.cmd, r.args, { cwd: r.cwd, env: r.env, maxBuffer: 256 << 20 }, (e, _out, stderr) => (e ? fail(failed(r, { stderr, message: e.message })) : done()));
+    const index = () => execFile(r.cmd, r.args, { cwd: r.cwd, env: r.env, maxBuffer: 256 << 20 }, (e, _out, stderr) => (e ? fail(failed(r, { stderr, message: e.message })) : done()));
+    // The dev container's image first, when it isn't built yet (minutes, the first time).
+    if (r.build) execFile("docker", r.build, { maxBuffer: 256 << 20 }, (e, _out, stderr) => (e ? fail(failed({ ...r, tool: "docker build of the dev container" }, { stderr, message: e.message })) : index()));
+    else index();
   });
 }
 

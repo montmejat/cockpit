@@ -164,7 +164,9 @@ map, chat, turns and checks work unchanged:
   ```
 
   Both keys are optional (`COCKPIT_CXX_IMAGE` also sets the image). Without `compdb`, every
-  compile database found is used.
+  compile database found is used. Without an image, a dev container is used when the repo has one
+  (`.devcontainer/devcontainer.json`): its `image`, or the image its `build` Dockerfile makes,
+  built by cockpit as `cockpit-dev-<repo>:<hash>` the first time and again when the files change.
 - Turn snapshots reuse the repo's compile databases, with source paths moved to the snapshot;
   files added in a turn are only indexed once the build has seen them.
 - Tests: `*_test.cpp`, `test_*.cpp`, `*Test.cpp` or anything under `test/`, with their
