@@ -94,7 +94,7 @@
         const ns = nodeState(n, dd.id), go = diveTarget(target), gn = go && dd.nodes.find((x) => x.id === go.id()), det = gn?.detail && byId(gn.detail);
         html = `<b>${escH(n.label)}</b><br>${escH(tldr(n, n.explain))}` +
           (ns.live ? "<br><span style='color:var(--hot)'>◉ the agent is changing it now</span>" : ns.unc ? "<br><span style='color:var(--warn)'>its code changed, not committed</span>" : "") +
-          (ns.added ? "<br><span style='color:var(--add)'>new in this review</span>" : ns.rev ? "<br><span style='color:var(--rev)'>changed in this review</span>" : "") +
+          (ns.added ? "<br><span style='color:var(--add)'>new in this review</span>" : ns.rev ? "<br><span style='color:var(--rev)'>changed in this review</span>" : ns.imp ? "<br><span style='color:var(--rev)'>uses code this review changed</span>" : "") +
           (det ? `<br><span class=muted>⤢ double-click to open ${escH(nameOf(det))}</span>` : go ? "<br><span class=muted>double-click for its code</span>" : "");
         cy.elements().not(target.closedNeighborhood()).not(target.ancestors()).not(target.descendants()).addClass("faded");
         target.connectedEdges().addClass("hl");
@@ -280,10 +280,10 @@
     <div id="crumbs">
       <button class="dtoggle" class:on={listOpen} title="All diagrams  (F1: hints)" aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰</button>
       {#each chain as x, i (x.id)}
-        {#if i}<span class="muted"> › </span>{/if}
+        {#if i}<span class="muted csep">›</span>{/if}
         {#if i === chain.length - 1 && !codeNode}<b>{nameOf(x)}</b>{:else}<button class="link" onclick={() => jumpTo(x.id)}>{nameOf(x)}</button>{/if}
       {/each}
-      {#if codeNode}<span class="muted"> › </span><b>{codeNode.label}</b>{/if}
+      {#if codeNode}<span class="muted csep">›</span><b>{codeNode.label}</b>{/if}
       {#if ui.help}<span class="muted zhint"> · {chain.length > 1 || codeNode ? "Esc or scroll out to go up" : "double-click a box to go in"} · F1 hides hints</span>{/if}
     </div>
   {/if}
