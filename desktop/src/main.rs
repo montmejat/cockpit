@@ -1,8 +1,18 @@
-// cockpit as a desktop app. For now it is a window around the same local server as `npm run serve`:
-// it picks a project, starts the server on a free port, shows the page, and stops the server on exit.
+// cockpit as a desktop app: a GTK 4 window around the same local server as `npm run serve`.
+// It picks a project, starts the server on a free port, shows the page, and stops the server on exit.
 //   cockpit [project dir]
 // Without a directory it reopens the last project, or asks for one; --pick always asks.
+//
+// GTK 4 and libadwaita, not Tauri: Tauri (wry/tao) is GTK 3 on Linux, and GTK 3 draws a
+// transparent window (the rounded corners) by copying the whole page through the CPU every frame,
+// which held scrolling near 80fps on a 120Hz screen at ~90% of a core. GTK 4 draws the window,
+// its rounded corners and its shadow on the GPU: 120fps at a few percent.
+//
+// The page draws its own title bar (web/src/components/Header.svelte) and talks to this window
+// through `window.cockpitDesktop` (BRIDGE below): open another project, move, minimize, maximize,
+// close.
 
+use std::cell::RefCell;
 use std::io::{BufRead, BufReader};
 use std::net::{TcpListener, TcpStream};
 use std::os::unix::process::CommandExt;
@@ -11,11 +21,32 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
-use tauri::{Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
-use tauri_plugin_dialog::DialogExt;
+use adw::prelude::*;
+use gtk::{gdk, gio, glib};
+use webkit6::prelude::*;
+use webkit6::javascriptcore;
 
 /// Process id of the running server, 0 when none.
 static SERVER: AtomicI32 = AtomicI32::new(0);
+
+/// The page shown while the server starts, and where errors are told.
+const LOADING: &str = include_str!("../loading/index.html");
+const LOADING_URI: &str = "cockpit-loading:///";
+
+/// What the page can call (window.cockpitDesktop). Each call is a message to `on_message` and
+/// resolves with its JSON answer.
+const BRIDGE: &str = r#"(() => {
+  const call = (cmd, args) => window.webkit.messageHandlers.cockpit
+    .postMessage(JSON.stringify({ cmd, ...args })).then((r) => JSON.parse(r));
+  window.cockpitDesktop = {
+    openProject: (path) => call("open_project", { path: path ?? null }),
+    state: () => call("state"),
+    startDragging: () => call("start_drag"),
+    minimize: () => call("minimize"),
+    toggleMaximize: () => call("toggle_maximize"),
+    close: () => call("close"),
+  };
+})();"#;
 
 /// Where the cockpit sources live (src/serve.ts, node_modules). Defaults to the checkout this was built from.
 fn cockpit_home() -> PathBuf {
@@ -51,83 +82,45 @@ fn find_node() -> PathBuf {
     newest.unwrap_or_else(|| PathBuf::from("node"))
 }
 
-fn last_project_file() -> Option<PathBuf> {
+fn config_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("cockpit").join("last-project"))
-}
-
-/// `cockpit <dir>` opens that project, `cockpit --pick` always asks, plain `cockpit` reopens the last one.
-fn pick_project(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let arg = std::env::args_os().nth(1);
-    let pick = arg.as_deref() == Some("--pick".as_ref());
-    if let (Some(arg), false) = (&arg, pick) {
-        return std::fs::canonicalize(arg).ok();
-    }
-    let last = last_project_file()
-        .and_then(|f| std::fs::read_to_string(f).ok())
-        .map(|s| PathBuf::from(s.trim()))
-        .filter(|p| p.is_dir() && !pick);
-    last.or_else(|| {
-        app.dialog()
-            .file()
-            .set_title("Open a project in cockpit")
-            .blocking_pick_folder()
-            .and_then(|p| p.into_path().ok())
-    })
+    Some(base.join("cockpit"))
 }
 
 fn remember(project: &Path) {
-    if let Some(f) = last_project_file() {
-        let _ = std::fs::create_dir_all(f.parent().unwrap());
-        let _ = std::fs::write(&f, project.to_string_lossy().as_bytes());
-        // The recent projects, newest first, for the page's "Open Folder" menu (src/serve.ts reads it).
-        let recent = f.with_file_name("recent-projects");
-        let me = project.to_string_lossy().into_owned();
-        let mut list: Vec<String> = std::fs::read_to_string(&recent).unwrap_or_default().lines()
-            .map(str::to_owned).filter(|l| !l.is_empty() && *l != me).collect();
-        list.insert(0, me);
-        list.truncate(12);
-        let _ = std::fs::write(recent, list.join("\n") + "\n");
-    }
+    let Some(dir) = config_dir() else { return };
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("last-project"), project.to_string_lossy().as_bytes());
+    // The recent projects, newest first, for the page's "Open Folder" menu (src/serve.ts reads it).
+    let recent = dir.join("recent-projects");
+    let me = project.to_string_lossy().into_owned();
+    let mut list: Vec<String> = std::fs::read_to_string(&recent).unwrap_or_default().lines()
+        .map(str::to_owned).filter(|l| !l.is_empty() && *l != me).collect();
+    list.insert(0, me);
+    list.truncate(12);
+    let _ = std::fs::write(recent, list.join("\n") + "\n");
 }
 
-/// The page's "Open Folder…" (and its recent projects): a folder to open, or a dialog to pick one.
-/// The window switches to it: the current server stops, one for the new project starts.
-#[tauri::command]
-async fn open_project(app: tauri::AppHandle, path: Option<String>) -> Result<bool, String> {
-    let project = match path {
-        Some(p) => std::fs::canonicalize(&p).map_err(|e| format!("{p}: {e}"))?,
-        None => match app.dialog().file().set_title("Open a project in cockpit").blocking_pick_folder() {
-            Some(p) => p.into_path().map_err(|e| e.to_string())?,
-            None => return Ok(false), // cancelled
-        },
-    };
-    if !project.is_dir() { return Err(format!("{} is not a folder", project.display())); }
-    let win = app.get_webview_window("main").ok_or("no window")?;
-    stop_server();
-    let _ = win.navigate("tauri://localhost/".parse().unwrap());
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        if let Err(e) = run(handle, win.clone(), Some(project)) {
-            eprintln!("cockpit: {e}");
-            show_message(&win, &e);
-        }
-    });
-    Ok(true)
+/// `cockpit <dir>` opens that project, plain `cockpit` reopens the last one; None: ask
+/// (`--pick`, or nothing to reopen).
+fn project_from_args() -> Option<PathBuf> {
+    let arg = std::env::args_os().nth(1);
+    if arg.as_deref() == Some("--pick".as_ref()) {
+        return None;
+    }
+    if let Some(arg) = arg {
+        return std::fs::canonicalize(arg).ok();
+    }
+    config_dir()
+        .and_then(|d| std::fs::read_to_string(d.join("last-project")).ok())
+        .map(|s| PathBuf::from(s.trim()))
+        .filter(|p| p.is_dir())
 }
 
 fn free_port() -> std::io::Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
-}
-
-fn show_message(win: &WebviewWindow, text: &str) {
-    let js = format!(
-        "document.getElementById('msg').textContent = {}; document.querySelector('.dot').style.animation = 'none';",
-        serde_json::to_string(text).unwrap()
-    );
-    let _ = win.eval(&js);
 }
 
 fn stop_server() {
@@ -137,15 +130,92 @@ fn stop_server() {
     }
 }
 
+// ---- The window, on GTK's thread --------------------------------------------------------------
+
+struct Ui {
+    win: adw::ApplicationWindow,
+    view: webkit6::WebView,
+    /// The last mouse press on the page: moving the window starts from it (start_drag).
+    press: RefCell<Option<gdk::Event>>,
+}
+
+thread_local! {
+    static UI: RefCell<Option<std::rc::Rc<Ui>>> = const { RefCell::new(None) };
+}
+
+fn ui() -> Option<std::rc::Rc<Ui>> {
+    UI.with(|u| u.borrow().clone())
+}
+
+/// Run `f` on GTK's thread (from the server's thread).
+fn on_ui(f: impl FnOnce(&Ui) + Send + 'static) {
+    glib::MainContext::default().invoke(move || {
+        if let Some(ui) = ui() { f(&ui) }
+    });
+}
+
+fn show_loading(ui: &Ui) {
+    ui.view.load_html(LOADING, Some(LOADING_URI));
+}
+
+/// A line on the loading page: what is happening, or why it stopped.
+fn show_message(ui: &Ui, text: &str) {
+    let js = format!(
+        "document.getElementById('msg').textContent = {}; document.querySelector('.dot').style.animation = 'none';",
+        serde_json::to_string(text).unwrap()
+    );
+    // The loading page may still be loading: try again once it is there.
+    let uri = ui.view.uri().map(|u| u.to_string()).unwrap_or_default();
+    if uri.starts_with(LOADING_URI) && !ui.view.is_loading() {
+        ui.view.evaluate_javascript(&js, None, None, None::<&gio::Cancellable>, |_| {});
+    } else {
+        let view = ui.view.clone();
+        let id: std::rc::Rc<RefCell<Option<glib::SignalHandlerId>>> = Default::default();
+        let id2 = id.clone();
+        *id.borrow_mut() = Some(ui.view.connect_load_changed(move |v, e| {
+            if e == webkit6::LoadEvent::Finished {
+                if v.uri().is_some_and(|u| u.starts_with(LOADING_URI)) {
+                    v.evaluate_javascript(&js, None, None, None::<&gio::Cancellable>, |_| {});
+                }
+                if let Some(id) = id2.borrow_mut().take() { view.disconnect(id); }
+            }
+        }));
+    }
+}
+
+/// Switch the window to a project: stop the current server, start one for it.
+fn open(project: PathBuf) {
+    stop_server();
+    if let Some(ui) = ui() {
+        show_loading(&ui);
+        let name = project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        ui.win.set_title(Some(&format!("{name} · cockpit")));
+        show_message(&ui, &format!("starting cockpit for {name}…"));
+    }
+    std::thread::spawn(move || {
+        if let Err(e) = run(&project) {
+            eprintln!("cockpit: {e}");
+            on_ui(move |ui| {
+                show_loading(ui);
+                show_message(ui, &e);
+            });
+        }
+    });
+}
+
+/// Ask for a folder; `done` gets it, or None when cancelled.
+fn pick_folder(done: impl FnOnce(Option<PathBuf>) + 'static) {
+    let Some(ui) = ui() else { return done(None) };
+    let dialog = gtk::FileDialog::builder().title("Open a project in cockpit").modal(true).build();
+    dialog.select_folder(Some(&ui.win), None::<&gio::Cancellable>, move |r| {
+        done(r.ok().and_then(|f| f.path()));
+    });
+}
+
 /// Runs on its own thread for the life of the server: the server is tied to this thread
 /// (it gets SIGTERM if the thread or the app dies), and the thread reports if the server stops.
-fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Result<(), String> {
-    let project = chosen.or_else(|| pick_project(&app)).ok_or("no project chosen")?;
-    remember(&project);
-    let name = project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let _ = win.set_title(&format!("{name} · cockpit"));
-    show_message(&win, &format!("starting cockpit for {name}…"));
-
+fn run(project: &Path) -> Result<(), String> {
+    remember(project);
     let home = cockpit_home();
     let port = free_port().map_err(|e| format!("no free port: {e}"))?;
     // `node --import tsx` keeps it to one process, so stopping it leaves nothing behind.
@@ -158,10 +228,12 @@ fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Re
         };
         let mut cmd = Command::new(&node);
         if let Some(path) = path { cmd.env("PATH", path); }
+        // Not ours: the patched WebKit's library path (see README) is for this window only.
+        cmd.env_remove("LD_LIBRARY_PATH");
         cmd
             .current_dir(&home)
             .args(["--import", "tsx", "src/serve.ts"])
-            .arg(&project)
+            .arg(project)
             .args(["--port", &port.to_string()])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -196,219 +268,216 @@ fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Re
             return Err(format!("the server stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
         }
         if TcpStream::connect(("127.0.0.1", port)).is_ok() { break; }
+        if SERVER.load(Ordering::SeqCst) != pid { return Ok(()); } // switched to another project meanwhile
         if started.elapsed() > Duration::from_secs(60) {
             return Err("the server did not answer within a minute".into());
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let url: Url = format!("http://127.0.0.1:{port}/").parse().unwrap();
-    win.navigate(url).map_err(|e| e.to_string())?;
+    let url = format!("http://127.0.0.1:{port}/");
+    on_ui(move |ui| ui.view.load_uri(&url));
 
     let status = child.wait().map_err(|e| e.to_string())?;
     // Still the current server, so not stopped by us (stop_server, or a switch to another project).
     if SERVER.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-        // Not stopped by us: go back to the loading page and say why.
-        let _ = win.navigate("tauri://localhost/".parse().unwrap());
-        std::thread::sleep(Duration::from_millis(500));
         return Err(format!("the server stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
     }
     Ok(())
 }
 
-/// Without decorations, GTK draws no frame, so GNOME (Wayland) gives the window no shadow and
-/// no resize area around it, unlike the apps next to it. On Wayland, tao already puts an empty
-/// title bar in the frame; turning the frame back on brings GTK's shadow (and its resize edges)
-/// without a title bar. The page's header stays the title bar.
-#[cfg(target_os = "linux")]
-fn window_shadow(win: &WebviewWindow) {
-    use gtk::prelude::*;
-    if let Ok(w) = win.gtk_window() {
-        if w.display().backend().is_wayland() {
-            w.set_decorated(true);
-            // GTK 3's default shadow is heavier than the apps next to it (libadwaita, Firefox,
-            // VS Code): use libadwaita's, lighter when the window isn't focused. Same size both
-            // ways: a smaller one resizes the window on every focus change (Alt+Tab), and the
-            // page flickers as it lays itself out again. Around
-            // the same 12px corners the page draws. No ring: the page draws its own hairline.
-            // Nothing behind the page, so its rounded corners show through.
-            let css = gtk::CssProvider::new();
-            let _ = css.load_from_data(
-                b"window, window.background { background: transparent; }
-                  decoration { border-radius: 12px; box-shadow: 0 2px 8px 2px rgba(0,0,0,.13), 0 3px 20px 10px rgba(0,0,0,.09), 0 6px 32px 16px rgba(0,0,0,.03); }
-                  decoration:backdrop { box-shadow: 0 2px 8px 2px rgba(0,0,0,.08), 0 3px 20px 10px rgba(0,0,0,.05), 0 6px 32px 16px rgba(0,0,0,.02); }
-                  .maximized decoration, .fullscreen decoration, .tiled decoration { border-radius: 0; }",
-            );
-            if let Some(screen) = gtk::prelude::GtkWindowExt::screen(&w) {
-                gtk::StyleContext::add_provider_for_screen(&screen, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+// ---- The page's calls (window.cockpitDesktop) ---------------------------------------------------
+
+/// Only the cockpit page (from its local server) and the loading page may drive the window.
+fn trusted(view: &webkit6::WebView) -> bool {
+    view.uri().is_some_and(|u| u.starts_with("http://127.0.0.1:") || u.starts_with(LOADING_URI))
+}
+
+fn on_message(ui: &Ui, msg: &str, reply: webkit6::ScriptMessageReply, ctx: javascriptcore::Context) {
+    let answer = move |json: serde_json::Value| {
+        reply.return_value(&javascriptcore::Value::new_string(&ctx, Some(&json.to_string())));
+    };
+    let msg: serde_json::Value = serde_json::from_str(msg).unwrap_or_default();
+    let win = &ui.win;
+    match msg["cmd"].as_str().unwrap_or("") {
+        "state" => answer(serde_json::json!({ "maximized": win.is_maximized(), "fullscreen": win.is_fullscreen() })),
+        "minimize" => { win.minimize(); answer(true.into()) }
+        "toggle_maximize" => {
+            if win.is_maximized() { win.unmaximize() } else { win.maximize() }
+            answer(true.into())
+        }
+        "close" => { win.close(); answer(true.into()) }
+        "start_drag" => {
+            // From the press that is still down: GNOME moves the window until it's released.
+            let press = ui.press.borrow().clone();
+            if let (Some(e), Some(surface)) = (press, win.surface()) {
+                if let (Some(top), Some(device), Some((x, y))) =
+                    (surface.downcast_ref::<gdk::Toplevel>(), e.device(), e.position())
+                {
+                    let button = e.downcast_ref::<gdk::ButtonEvent>().map(|b| b.button() as i32).unwrap_or(1);
+                    top.begin_move(&device, button, x, y, e.time());
+                }
+            }
+            answer(true.into())
+        }
+        "open_project" => {
+            let chosen = move |p: Result<Option<PathBuf>, String>| match p {
+                Err(e) => answer(serde_json::json!({ "error": e })),
+                Ok(None) => answer(false.into()), // cancelled
+                Ok(Some(p)) if !p.is_dir() => answer(serde_json::json!({ "error": format!("{} is not a folder", p.display()) })),
+                Ok(Some(p)) => { answer(true.into()); open(p) }
+            };
+            match msg["path"].as_str() {
+                Some(p) => chosen(std::fs::canonicalize(p).map(Some).map_err(|e| format!("{p}: {e}"))),
+                None => pick_folder(move |p| chosen(Ok(p))),
             }
         }
+        other => answer(serde_json::json!({ "error": format!("unknown call {other:?}") })),
     }
 }
-#[cfg(not(target_os = "linux"))]
-fn window_shadow(_win: &WebviewWindow) {}
 
-/// The window reopens at the size you left it (and maximized if it was; where it was too, on X11:
-/// Wayland doesn't let an app place its own window). Kept in ~/.config/cockpit/window as
-/// "width height maximized x y". GTK's own size, not Tauri's: GTK's is in the logical pixels it
-/// resizes with and leaves out the frame's shadow, so it comes back the same at any display
-/// scale. Tauri's window-state plugin saved device pixels and grew the window on fractional
-/// scaling (125%), until GNOME refused the size.
-#[cfg(target_os = "linux")]
+// ---- Window size, kept across runs ----------------------------------------------------------------
+
+/// ~/.config/cockpit/window: "width height maximized" (GTK's own size, in logical pixels, without
+/// the shadow; Wayland doesn't let an app place its own window, so no position).
 mod geometry {
     use super::*;
-    use gtk::prelude::*;
-    use std::sync::Mutex;
 
-    #[derive(Clone, Copy, Default)]
-    struct Geo { w: i32, h: i32, max: bool, x: i32, y: i32 }
-    static NOW: Mutex<Option<Geo>> = Mutex::new(None);
+    fn file() -> Option<PathBuf> { config_dir().map(|d| d.join("window")) }
 
-    fn file() -> Option<PathBuf> { last_project_file().map(|f| f.with_file_name("window")) }
-
-    fn load() -> Option<Geo> {
-        let text = std::fs::read_to_string(file()?).ok()?;
+    pub fn restore(win: &adw::ApplicationWindow) {
+        let Some(text) = file().and_then(|f| std::fs::read_to_string(f).ok()) else { return };
         let n: Vec<i32> = text.split_whitespace().filter_map(|x| x.parse().ok()).collect();
-        let g = Geo { w: *n.first()?, h: *n.get(1)?, max: n.get(2) == Some(&1), x: *n.get(3).unwrap_or(&0), y: *n.get(4).unwrap_or(&0) };
-        (g.w >= 400 && g.h >= 300).then_some(g)
-    }
-
-    /// Put the window back as it was, then follow it (size while not maximized, and whether it is).
-    pub fn restore_and_follow(win: &WebviewWindow) {
-        let Ok(w) = win.gtk_window() else { return };
-        let wayland = w.display().backend().is_wayland();
-        if let Some(g) = load() {
-            // After the window is on screen: before that, GTK adds the frame's shadow to whatever
-            // size it was given once it maps, and the window comes back larger each time.
-            let w2 = w.clone();
-            w.connect_map_event(move |_, _| {
-                let w = w2.clone();
-                gtk::glib::timeout_add_local_once(Duration::from_millis(50), move || {
-                    // Never larger than the screen it opens on (its work area, in the same units).
-                    let (mut gw, mut gh) = (g.w, g.h);
-                    if let Some(m) = w.display().monitor_at_window(&w.window().unwrap()).or_else(|| w.display().primary_monitor()) {
-                        let a = m.workarea();
-                        gw = gw.min(a.width()); gh = gh.min(a.height());
-                    }
-                    if g.max { w.maximize(); } else { w.resize(gw, gh); }
-                    if !wayland { w.move_(g.x, g.y); }
-                });
-                gtk::glib::Propagation::Proceed
-            });
+        if let (Some(&w), Some(&h)) = (n.first(), n.get(1)) {
+            if w >= 400 && h >= 300 { win.set_default_size(w, h); }
         }
-        w.connect_configure_event(|w, _| {
-            let mut now = NOW.lock().unwrap();
-            let g = now.get_or_insert_with(Geo::default);
-            if !w.is_maximized() {
-                let (cw, ch) = w.size();
-                g.w = cw; g.h = ch;
-                let (x, y) = w.position();
-                g.x = x; g.y = y;
-            }
-            drop(now);
-            save();
-            false
-        });
-        w.connect_window_state_event(|_, e| {
-            let max = e.new_window_state().contains(gtk::gdk::WindowState::MAXIMIZED);
-            NOW.lock().unwrap().get_or_insert_with(Geo::default).max = max;
-            save();
-            gtk::glib::Propagation::Proceed
-        });
+        if n.get(2) == Some(&1) { win.maximize(); }
     }
 
-    /// Write it down when it changed (a crash or a kill doesn't lose it), and on exit.
-    pub fn save() {
-        static WRITTEN: Mutex<Option<String>> = Mutex::new(None);
-        let Some(g) = *NOW.lock().unwrap() else { return };
-        if g.w < 400 || g.h < 300 { return; }
-        let line = format!("{} {} {} {} {}\n", g.w, g.h, g.max as i32, g.x, g.y);
-        let mut last = WRITTEN.lock().unwrap();
-        if last.as_deref() == Some(line.as_str()) { return; }
+    pub fn save(win: &adw::ApplicationWindow) {
+        // While maximized, the size to come back to is the default size, which GTK keeps as is.
+        let (w, h) = win.default_size();
+        if w < 400 || h < 300 { return; }
         if let Some(f) = file() {
             let _ = std::fs::create_dir_all(f.parent().unwrap());
-            if std::fs::write(f, &line).is_ok() { *last = Some(line); }
+            let _ = std::fs::write(f, format!("{w} {h} {}\n", win.is_maximized() as i32));
         }
     }
 }
-#[cfg(not(target_os = "linux"))]
-mod geometry {
-    pub fn restore_and_follow(_win: &tauri::WebviewWindow) {}
-    pub fn save() {}
-}
 
-/// WebKit holds page rendering near 60fps by default (PreferPageRenderingUpdatesNear60FPS), even
-/// on a 120Hz screen. Off, the page draws at the screen's rate when WebKit knows it: on NVIDIA that
-/// needs a WebKitGTK with the vblank-timer fix (~/Projects/Forks/webkit-120hz); with the stock one
-/// nothing changes (its fallback timer ticks at 60).
-/// WebKit only re-reads the preference when something else makes it recompute the page's frame
-/// rate, so changing it once the page exists does nothing (even across a reload). The window is
-/// built hidden and shown here, after the change: becoming visible is such a recompute.
-#[cfg(target_os = "linux")]
-fn full_frame_rate(win: &WebviewWindow) {
-    use gtk::glib::object::ObjectType;
-    use std::ffi::{c_char, c_void, CStr};
-    unsafe extern "C" {
-        fn webkit_web_view_get_settings(view: *mut c_void) -> *mut c_void;
-        fn webkit_settings_get_all_features() -> *mut c_void;
-        fn webkit_feature_list_get_length(list: *mut c_void) -> usize;
-        fn webkit_feature_list_get(list: *mut c_void, i: usize) -> *mut c_void;
-        fn webkit_feature_list_unref(list: *mut c_void);
-        fn webkit_feature_get_identifier(f: *mut c_void) -> *const c_char;
-        fn webkit_settings_set_feature_enabled(settings: *mut c_void, f: *mut c_void, enabled: i32);
-    }
-    let shown = win.clone();
-    let queued = win.with_webview(move |wv| unsafe {
-        let settings = webkit_web_view_get_settings(wv.inner().as_ptr() as *mut c_void);
-        let list = webkit_settings_get_all_features();
-        for i in 0..webkit_feature_list_get_length(list) {
-            let f = webkit_feature_list_get(list, i);
-            if CStr::from_ptr(webkit_feature_get_identifier(f)).to_bytes() == b"PreferPageRenderingUpdatesNear60FPS" {
-                webkit_settings_set_feature_enabled(settings, f, 0);
-            }
-        }
-        webkit_feature_list_unref(list);
-        let _ = shown.show();
-    });
-    if queued.is_err() {
-        let _ = win.show();
-    }
-}
-#[cfg(not(target_os = "linux"))]
-fn full_frame_rate(win: &WebviewWindow) {
-    let _ = win.show();
-}
+// ---- Startup -------------------------------------------------------------------------------------
 
-fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![open_project])
-        .setup(|app| {
-            let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("cockpit")
-                .decorations(false) // the page's header is the title bar (web/src/components/Header.svelte)
-                .transparent(true) // the page rounds its corners (body.desktop in web/src/app.css)
-                .inner_size(1600.0, 1000.0)
-                .min_inner_size(800.0, 500.0)
-                .visible(false) // shown by full_frame_rate, once the page may draw at the screen's rate
-                .build()?;
-            window_shadow(&win);
-            geometry::restore_and_follow(&win); // the size you left it at (fn geometry)
-            full_frame_rate(&win);
-            let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                if let Err(e) = run(handle.clone(), win.clone(), None) {
-                    eprintln!("cockpit: {e}");
-                    show_message(&win, &e);
+fn build(app: &adw::Application) {
+    let content = webkit6::UserContentManager::new();
+    content.add_script(&webkit6::UserScript::new(
+        BRIDGE,
+        webkit6::UserContentInjectedFrames::TopFrame,
+        webkit6::UserScriptInjectionTime::Start,
+        &[],
+        &[],
+    ));
+    content.register_script_message_handler_with_reply("cockpit", None);
+
+    let settings = webkit6::Settings::new();
+    // WebKit holds page rendering near 60fps by default, even on a 120Hz screen. Off, the page
+    // draws at the screen's rate when WebKit knows it: on NVIDIA that needs a WebKitGTK with the
+    // vblank-timer fix (~/Projects/Forks/webkit-120hz); with the stock one it stays at 60.
+    // Set before the page exists: WebKit doesn't re-read it later.
+    if let Some(list) = webkit6::Settings::all_features() {
+        for i in 0..list.length() {
+            if let Some(f) = list.get(i) {
+                if f.identifier().as_deref() == Some("PreferPageRenderingUpdatesNear60FPS") {
+                    settings.set_feature_enabled(&f, false);
                 }
-            });
-            Ok(())
-        })
-        .build(tauri::generate_context!())
-        .expect("could not start the app")
-        .run(|_, event| {
-            if let RunEvent::Exit = event {
-                geometry::save();
-                stop_server();
             }
-        });
+        }
+    }
+    // Right click → Inspect Element, with COCKPIT_DEVTOOLS=1.
+    settings.set_enable_developer_extras(std::env::var_os("COCKPIT_DEVTOOLS").is_some());
+
+    let view = webkit6::WebView::builder().user_content_manager(&content).settings(&settings).build();
+    view.set_hexpand(true);
+    view.set_vexpand(true);
+
+    let win = adw::ApplicationWindow::builder()
+        .application(app)
+        .title("cockpit")
+        .default_width(1600)
+        .default_height(1000)
+        .width_request(800)
+        .height_request(500)
+        .content(&view)
+        .build();
+    geometry::restore(&win);
+
+    let shared = std::rc::Rc::new(Ui { win: win.clone(), view: view.clone(), press: RefCell::new(None) });
+    UI.with(|u| *u.borrow_mut() = Some(shared.clone()));
+
+    // Remember each mouse press on the page, without taking it from the page.
+    let click = gtk::GestureClick::builder().button(0).propagation_phase(gtk::PropagationPhase::Capture).build();
+    click.connect_pressed(|g, _, _, _| {
+        if let Some(ui) = ui() { *ui.press.borrow_mut() = g.current_event(); }
+    });
+    view.add_controller(click);
+
+    content.connect_script_message_with_reply_received(Some("cockpit"), |_, value, reply| {
+        let Some(ui) = ui() else { return false };
+        if !trusted(&ui.view) {
+            reply.return_error_message("not allowed from this page");
+            return true;
+        }
+        if let Some(ctx) = value.context() {
+            on_message(&ui, &value.to_str(), reply.clone(), ctx);
+        }
+        true
+    });
+
+    // Links that would leave cockpit open in the browser (the page itself asks the server for
+    // that; this catches the rest, like window.open).
+    view.connect_decide_policy(|_, decision, kind| {
+        if kind == webkit6::PolicyDecisionType::NewWindowAction {
+            if let Some(nav) = decision.downcast_ref::<webkit6::NavigationPolicyDecision>() {
+                if let Some(uri) = nav.navigation_action().and_then(|a| a.request()).and_then(|r| r.uri()) {
+                    let _ = gio::AppInfo::launch_default_for_uri(&uri, None::<&gio::AppLaunchContext>);
+                }
+            }
+            decision.ignore();
+            return true;
+        }
+        false
+    });
+
+    win.connect_close_request(|w| {
+        geometry::save(w);
+        stop_server();
+        glib::Propagation::Proceed
+    });
+    win.connect_maximized_notify(geometry::save);
+
+    show_loading(&shared);
+    win.present();
+
+    match project_from_args() {
+        Some(p) => open(p),
+        None => pick_folder(|p| match p {
+            Some(p) => open(p),
+            None => if let Some(ui) = ui() { show_message(&ui, "no project chosen") },
+        }),
+    }
+}
+
+fn main() -> glib::ExitCode {
+    // GTK 4's default renderer (Vulkan) shows WebKit's frames slowly on NVIDIA (~38fps at
+    // 300% CPU); its GL renderer draws them at the screen's rate.
+    if std::env::var_os("GSK_RENDERER").is_none() {
+        unsafe { std::env::set_var("GSK_RENDERER", "gl") };
+    }
+    let app = adw::Application::builder()
+        .application_id("io.github.montmejat.cockpit")
+        // Each `cockpit` is its own window and server, not a second window of the first one.
+        .flags(gio::ApplicationFlags::NON_UNIQUE)
+        .build();
+    app.connect_activate(build);
+    app.connect_shutdown(|_| stop_server());
+    // The arguments are ours (project_from_args), not GApplication's.
+    app.run_with_args::<&str>(&[])
 }

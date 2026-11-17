@@ -4,7 +4,16 @@
 import { SvelteSet } from "svelte/reactivity";
 import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 
-declare global { interface Window { INIT: Live & { terminals: TermMeta[] }; __TAURI__?: any } }
+// The desktop app's window (desktop/src/main.rs, BRIDGE), absent in a browser tab.
+export interface Desktop {
+  openProject(path: string | null): Promise<boolean | { error: string }>;
+  state(): Promise<{ maximized: boolean; fullscreen: boolean }>;
+  startDragging(): Promise<boolean>;
+  minimize(): Promise<boolean>;
+  toggleMaximize(): Promise<boolean>;
+  close(): Promise<boolean>;
+}
+declare global { interface Window { INIT: Live & { terminals: TermMeta[] }; cockpitDesktop?: Desktop } }
 
 const boot = window.INIT;
 export const initialTerminals: TermMeta[] = boot.terminals ?? [];

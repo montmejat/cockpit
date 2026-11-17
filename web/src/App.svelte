@@ -53,7 +53,7 @@
     else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
     // (Not in the editor, where Ctrl+R is vim's redo.)
-    else if (window.__TAURI__ && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor))) { e.preventDefault(); location.reload(); }
+    else if (window.cockpitDesktop && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor))) { e.preventDefault(); location.reload(); }
     // Ctrl+P opens a file by name, Ctrl+Shift+F searches the project.
     else if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "p") { e.preventDefault(); e.stopPropagation(); palette?.open("files"); }
     else if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "f") { e.preventDefault(); e.stopPropagation(); palette?.open("search"); }
@@ -63,7 +63,7 @@
   // Web links (in the chat, the details) open in your browser. A plain browser tab does that by
   // itself; the desktop app's window can't, so the server opens them.
   function outLink(e: MouseEvent) {
-    if (!window.__TAURI__ || (e.type === "auxclick" && e.button !== 1)) return;
+    if (!window.cockpitDesktop || (e.type === "auxclick" && e.button !== 1)) return;
     const a = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
     if (!a || !/^https?:$/.test(a.protocol) || a.origin === location.origin) return;
     e.preventDefault();

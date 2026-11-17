@@ -15,16 +15,20 @@ npm run serve -- ~/Projects/slipangle       # http://127.0.0.1:4173
 npm run serve -- ~/Projects/slipangle --host 0.0.0.0   # reachable from your network, no login
 ```
 
-Desktop app (Linux), a Tauri 2 window around the same server:
+Desktop app (Linux), a GTK 4 / libadwaita window (WebKitGTK 6) around the same server:
 
 ```sh
-desktop/install.sh            # once: needs webkit2gtk4.1-devel libsoup3-devel gtk3-devel librsvg2-devel
+desktop/install.sh            # once: needs gtk4-devel libadwaita-devel webkitgtk6.0-devel
 cockpit ~/Projects/slipangle  # or open "cockpit" from the app menu (reopens the last project)
 cockpit --pick                # choose another project ("Open project…" on the launcher icon)
 ```
 
 It starts the server on a free port, shows the page, and stops the server when the window
-closes. Everything is bundled, so it works offline. The plan is to move the server to Rust piece
+closes. GNOME draws the window's rounded corners and shadow; the page's header is the title bar.
+On a screen faster than 60Hz where WebKit can't follow the display's refresh (NVIDIA), the stock
+WebKitGTK still draws at 60: `COCKPIT_WEBKIT_LIB=<dir of a patched libwebkitgtk-6.0> desktop/install.sh`
+makes the app-menu launcher use one (~/Projects/Forks/webkit-120hz). `COCKPIT_DEVTOOLS=1` adds
+Inspect Element to the right-click menu. Everything is bundled, so it works offline. The plan is to move the server to Rust piece
 by piece, and the UI later once it stops changing.
 
 Working on the page: `npm run dev:web` rebuilds it on every change; reload to see it (Ctrl+R or

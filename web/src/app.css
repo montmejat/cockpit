@@ -19,12 +19,8 @@ pre,code,table.code{font-size:12px}
 /* A hairline around the whole page (browser tab or desktop window), so it doesn't melt into
    white windows next to it. Drawn over everything and never in the way of the mouse. */
 body::after{content:"";position:fixed;inset:0;border:1px solid var(--edge);pointer-events:none;z-index:2147483647}
-/* The desktop window has rounded corners (the window itself is transparent: desktop/src/main.rs),
-   square when maximized or fullscreen. */
-html:has(body.desktop),body.desktop{background:transparent}
-body.desktop #app{border-radius:12px;overflow:hidden;background:var(--bg)}
-body.desktop::after{border-radius:12px}
-body.desktop.square #app,body.desktop.square::after{border-radius:0}
+/* The desktop window (desktop/, GTK 4) rounds the corners and draws its own outline. */
+body.desktop::after{display:none}
 .hide{display:none!important}
 [hidden]{display:none!important}
 /* buttons that read as links or rows */

@@ -11,18 +11,13 @@
   const fparts = $derived(([["working", ""], ["partial", "warn"], ["broken", "bad"], ["planned", "muted"]] as const)
     .map(([st, c]) => ({ st, c, n: S.features.filter((f) => f.status === st).length })).filter((x) => x.n));
 
-  // Desktop app (desktop/, Tauri): no system title bar, so the header drags the window.
-  const tauri = window.__TAURI__;
-  const win = tauri?.window.getCurrentWindow();
+  // Desktop app (desktop/, GTK 4): no system title bar, so the header drags the window.
+  const win = window.cockpitDesktop;
   let maximized = $state(false);
   const wb = windowButtons(); // GNOME's layout: which buttons, which side
   if (win) {
     document.body.classList.add("desktop");
-    // Rounded corners like the windows around it, square when maximized or fullscreen.
-    const sync = async () => {
-      maximized = await win.isMaximized();
-      document.body.classList.toggle("square", maximized || (await win.isFullscreen()));
-    };
+    const sync = async () => { maximized = (await win.state()).maximized; };
     addEventListener("resize", sync);
     sync();
   }
@@ -48,8 +43,11 @@
   async function openFolder(path?: string) {
     if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Open another folder anyway?`)) return;
     projNote = "";
-    try { if (await tauri.core.invoke("open_project", { path: path ?? null })) projOpen = false; }
-    catch (e) { projNote = String(e); projOpen = true; }
+    try {
+      const r = await win!.openProject(path ?? null);
+      if (r === true) projOpen = false;
+      else if (r) { projNote = r.error; projOpen = true; }
+    } catch (e) { projNote = String(e); projOpen = true; }
   }
   function keys(e: KeyboardEvent) {
     if (e.key === "Escape") { wsOpen = false; projOpen = false; }
@@ -65,10 +63,10 @@
 {#snippet controls(list: WinButton[])}
   <span class="winctl">
     {#each list as b (b)}
-      {#if b === "minimize"}<button title="Minimize" aria-label="Minimize" onclick={() => win.minimize()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4.5 8.5h7" /></svg></button>
-      {:else if b === "maximize"}<button title={maximized ? "Restore" : "Maximize"} aria-label={maximized ? "Restore" : "Maximize"} onclick={() => win.toggleMaximize()}>
+      {#if b === "minimize"}<button title="Minimize" aria-label="Minimize" onclick={() => win!.minimize()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4.5 8.5h7" /></svg></button>
+      {:else if b === "maximize"}<button title={maximized ? "Restore" : "Maximize"} aria-label={maximized ? "Restore" : "Maximize"} onclick={() => win!.toggleMaximize()}>
           <svg viewBox="0 0 16 16" width="16" height="16">{#if maximized}<rect x="4.5" y="6" width="5.5" height="5.5" rx="1" /><path d="M6.5 4.5h4a1 1 0 0 1 1 1v4" />{:else}<rect x="4.5" y="4.5" width="7" height="7" rx="1.2" />{/if}</svg></button>
-      {:else}<button title="Close" aria-label="Close" onclick={() => win.close()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M5 5l6 6M11 5l-6 6" /></svg></button>{/if}
+      {:else}<button title="Close" aria-label="Close" onclick={() => win!.close()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M5 5l6 6M11 5l-6 6" /></svg></button>{/if}
     {/each}
   </span>
 {/snippet}
