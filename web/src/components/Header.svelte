@@ -53,8 +53,16 @@
     if (e.key === "Escape") { wsOpen = false; projOpen = false; }
     else if (win && e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !(e.target as HTMLElement).closest?.(".cm-editor,.xterm")) { e.preventDefault(); openFolder(); }
   }
+  // The numbers' popup (lines, tests, features): open while hovered, or kept open (remembered).
+  let mHover = $state(false), mPinned = $state(false);
+  try { mPinned = localStorage.getItem("cockpit.metrics") === "1"; } catch {}
+  function pinMetrics() {
+    mPinned = !mPinned;
+    if (!mPinned) mHover = false; // closing by click hides it now, not when the mouse leaves
+    try { localStorage.setItem("cockpit.metrics", mPinned ? "1" : "0"); } catch {}
+  }
   function drag(e: MouseEvent) {
-    if (!win || e.button !== 0 || (e.target as HTMLElement).closest("a,button,input,select,textarea")) return;
+    if (!win || e.button !== 0 || (e.target as HTMLElement).closest("a,button,input,select,textarea,.mpop")) return;
     if (e.detail === 2) win.toggleMaximize(); else win.startDragging();
   }
 </script>
@@ -119,12 +127,21 @@
       <button title="End the review" onclick={() => api.post("api/review/stop", { back: false })}>✕</button>
     </span>
   {/if}
-  <span id="metrics" class="muted">
-    <b>{(S.lines / 1000).toFixed(1)}k</b> lines ·
-    <button class="mlink" class:on={ui.insp === "tests"} title="What is tested" onclick={() => toggleInsp("tests")}><b>{tests}</b> tests</button>
-    {#if S.features.length}
-      · <button class="mlink" class:on={ui.insp === "features"} title="What the features are and where their status comes from" onclick={() => toggleInsp("features")}>features:
-        {#each fparts as p, i}<span class={p.c}><b>{p.n}</b> {p.st}</span>{i < fparts.length - 1 ? ", " : ""}{/each}</button>
+  <!-- The project's numbers, out of the way: shown while the mouse is on the icon, kept open by a click. -->
+  <span class="mwrap" role="presentation" onmouseenter={() => (mHover = true)} onmouseleave={() => (mHover = false)}>
+    <button class="mbtn" class:on={mPinned} aria-expanded={mHover || mPinned} aria-label="Project numbers"
+      title={mPinned ? "Project numbers (click to hide)" : "Project numbers (click to keep open)"} onclick={pinMetrics}>
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 12.5v-3M8 12.5v-9M12.5 12.5v-6" /></svg>
+    </button>
+    {#if mHover || mPinned}
+      <div class="mpop"><div id="metrics" class="mbox muted">
+        <div><b>{(S.lines / 1000).toFixed(1)}k</b> lines</div>
+        <div><button class="mlink" class:on={ui.insp === "tests"} title="What is tested" onclick={() => toggleInsp("tests")}><b>{tests}</b> tests</button></div>
+        {#if S.features.length}
+          <div><button class="mlink" class:on={ui.insp === "features"} title="What the features are and where their status comes from" onclick={() => toggleInsp("features")}>features:
+            {#each fparts as p, i}<span class={p.c}><b>{p.n}</b> {p.st}</span>{i < fparts.length - 1 ? ", " : ""}{/each}</button></div>
+        {/if}
+      </div></div>
     {/if}
   </span>
   {#if S.problems.length}
