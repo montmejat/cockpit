@@ -21,7 +21,7 @@
   // A changed file's diff (from the Git tab): reloaded when the file, the index or HEAD moves.
   const dtab = $derived(tab.kind === "diff" ? tab : null);
   type DiffData = { path: string; staged: boolean; patch: string; note?: string };
-  let diff: DiffData | null = $state(null);
+  let diff = $state<DiffData | null>(null);
   const dkey = $derived(dtab ? dtab.path + "@" + dtab.staged + "@" + (S.fileRevs[dtab.path] ?? 0) + "@" + S.git.head + "@" + JSON.stringify(S.status.find((x) => x.path === dtab.path) ?? null) : "");
   $effect(() => {
     if (!dtab) return;
@@ -37,8 +37,8 @@
   // Recent files, so switching tabs shows them at once; the last version stays on screen while
   // a new one loads.
   const files = new Map<string, { rev: string; data: FileData }>();
-  let file: FileData | null = $state(null);
-  let commit: CommitData | null = $state(null);
+  let file = $state<FileData | null>(null);
+  let commit = $state<CommitData | null>(null);
 
   $effect(() => {
     if (!path) return;

@@ -166,8 +166,8 @@
   function nodeAt(x: number, y: number): NodeSingular | null {
     if (!cy) return null;
     const under = cy.nodes().filter((n) => { const b = n.renderedBoundingBox({}); return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2; });
-    const leaf = under.filter((n) => !n.isParent());
-    const hit = leaf.nonempty() ? leaf.first() : under.sort((a, b) => b.ancestors().length - a.ancestors().length).first();
+    const leaf = under.filter((n) => !(n as NodeSingular).isParent());
+    const hit = leaf.nonempty() ? leaf.first() : under.sort((a, b) => (b as NodeSingular).ancestors().length - (a as NodeSingular).ancestors().length).first();
     return hit.nonempty() ? (hit as NodeSingular) : null;
   }
 

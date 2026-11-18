@@ -161,7 +161,7 @@ export function md(src: string, resolve?: (name: string) => string | null) {
       out.push(html + "</tbody></table></div>");
     } else if (/^#{1,4}\s/.test(l)) { flush(); out.push("<h4>" + inline(l.replace(/^#+\s*/, "")) + "</h4>"); }
     else if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
-      if (para.length) { const keep = list; list = null; flush(); list = keep; }
+      if (para.length) { const keep: string | null = list; list = null; flush(); list = keep; }
       const kind = /^\s*\d+\./.test(l) ? "ol" : "ul";
       if (list !== kind) { if (list) out.push("</" + list + ">"); out.push("<" + kind + ">"); list = kind; }
       out.push("<li>" + inline(l.replace(/^\s*([-*]|\d+\.)\s+/, "")) + "</li>");

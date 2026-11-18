@@ -12,7 +12,7 @@
 
   let items: ChatItem[] = $state([]);
   let busy = $state(false), model = $state("sonnet"), models: string[] = $state([]);
-  let context: { used: number; max: number } | null = $state(null);
+  let context = $state<{ used: number; max: number } | null>(null);
   let session: string | null = $state(null);
   let text = $state("");
   let msgs: HTMLElement;
