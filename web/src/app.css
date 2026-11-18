@@ -168,11 +168,17 @@ button.mrrow .mm{font-size:11px;color:var(--muted);white-space:nowrap;overflow:h
 
 /* center: tabs, then a diagram or code */
 #center{flex:1;min-width:0;display:flex;flex-direction:column}
-#tabbar{display:flex;overflow-x:auto;border-bottom:1px solid var(--line);background:var(--card);flex-shrink:0;scrollbar-width:thin}
-.ctab{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 12px;border-right:1px solid var(--line);cursor:pointer;white-space:nowrap;color:var(--muted);font-size:12px;border-bottom:2px solid transparent}
-.ctab:hover{color:var(--fg)}.ctab.on{color:var(--fg);background:var(--bg);border-bottom-color:var(--accent)}
-.ctab .ti{color:var(--accent);font-size:10px}.ctab .mark{margin-left:0}
-.ctab .tx{border:0;background:none;padding:0 4px;color:var(--muted);visibility:hidden}.ctab:hover .tx,.ctab.on .tx{visibility:visible}.ctab .tx:hover{color:var(--fg)}
+/* Center tabs, libadwaita-like: rounded tabs on the bar, the open one raised like a card. The map is the same tab, icon only. */
+#tabbar{display:flex;align-items:center;gap:3px;overflow-x:auto;padding:4px 6px;border-bottom:1px solid var(--line);background:var(--bg);flex-shrink:0;scrollbar-width:none}
+.ctab{display:flex;align-items:center;gap:6px;height:28px;padding:0 4px 0 11px;border-radius:7px;cursor:pointer;white-space:nowrap;color:var(--muted);font-size:12px;font-weight:500;flex-shrink:0;transition:background .12s,color .12s;outline-offset:-2px}
+.ctab:hover{color:var(--fg);background:var(--btn)}
+.ctab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(--line),0 1px 3px rgb(0 0 0 / .08)}
+.ctab .ti{color:var(--accent);font-size:10px;flex:none}.ctab .mark{margin-left:0}
+.ctab svg{fill:none;stroke:currentColor;stroke-width:1.3;stroke-linejoin:round;stroke-linecap:round}
+.ctab .tx{display:grid;place-items:center;width:20px;height:20px;border:0;border-radius:50%;background:none;padding:0;color:var(--muted);font-size:14px;line-height:1;opacity:0;transition:opacity .12s}
+.ctab:hover .tx,.ctab.on .tx{opacity:1}.ctab .tx:hover{color:var(--fg);background:var(--btn-hover)}
+.ctab.maptab{width:34px;padding:0;justify-content:center}.ctab.maptab.on{color:var(--accent)}
+.ctab.maptab + .ctab{margin-left:6px;position:relative}.ctab.maptab + .ctab::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:var(--line)}
 #canvas[hidden],#codeview[hidden]{display:none}
 /* min-width:0: a long line scrolls inside the view instead of widening the page (and the view follows the panels' widths) */
 #codeview{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--card)}
@@ -263,8 +269,6 @@ table.code tr.cur td.ln{color:var(--fg);font-weight:700}table.code tr.cur td.c{b
 .zfile{padding:6px 12px;font-size:11.5px;background:var(--bg);position:sticky;top:0}
 .chg{color:var(--warn)}
 @media (prefers-reduced-motion:reduce){.zsnap{display:none}}
-.maptab{display:flex;align-items:center;justify-content:center;width:38px;flex-shrink:0;cursor:pointer;color:var(--muted);font-size:15px;border-right:1px solid var(--line);border-bottom:2px solid transparent}
-.maptab:hover{color:var(--accent)}.maptab.on{color:var(--accent);background:var(--bg);border-bottom-color:var(--accent)}
 /* desktop app: the header doubles as the title bar */
 body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;padding:0 6px 0 14px;min-height:47px}
 body.desktop header.wleft{padding-left:6px}
@@ -547,7 +551,7 @@ button.gall{font-size:11px;padding:0 6px;color:var(--muted);background:none}butt
 /* Guardrails tab (Guardrails.svelte): rules in layers, narrowing from design down to prose, then the checks */
 #guardrails{flex:1;min-height:0;overflow:auto;background:var(--card);padding:18px 24px 40px}
 #guardrails h2{margin:0;font-size:17px;font-weight:600}
-#guardrails .ghead{display:flex;align-items:baseline;gap:12px}#guardrails .ghead b{font-weight:600}
+#guardrails .ghead{display:flex;align-items:baseline;gap:6px 12px;flex-wrap:wrap}#guardrails .ghead > *{white-space:nowrap}#guardrails .ghead b{font-weight:600}
 #guardrails .okc{color:var(--ok)}
 #guardrails code{font-size:11.5px}
 .gempty{border:1px dashed var(--line);border-radius:8px;padding:10px 14px;margin:10px 0 16px;max-width:760px}.gempty p{margin:0 0 8px}
