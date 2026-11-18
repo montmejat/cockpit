@@ -543,3 +543,37 @@ button.gall{font-size:11px;padding:0 6px;color:var(--muted);background:none}butt
 .grow-row{gap:2px}
 .grow-row .ref{display:inline-block;max-width:11ch;overflow:hidden;text-overflow:ellipsis;vertical-align:-3px;white-space:nowrap}
 .ref.synced::after{content:" ⇅";opacity:.7}.ref.more{border-color:var(--line);color:var(--muted)}
+
+/* Guardrails tab (Guardrails.svelte): rules in layers, narrowing from design down to prose, then the checks */
+#guardrails{flex:1;min-height:0;overflow:auto;background:var(--card);padding:18px 24px 40px}
+#guardrails h2{margin:0;font-size:17px;font-weight:600}
+#guardrails .ghead{display:flex;align-items:baseline;gap:12px}#guardrails .ghead b{font-weight:600}
+#guardrails .okc{color:var(--ok)}
+#guardrails code{font-size:11.5px}
+.gempty{border:1px dashed var(--line);border-radius:8px;padding:10px 14px;margin:10px 0 16px;max-width:760px}.gempty p{margin:0 0 8px}
+.gproblems{margin:6px 0 12px;padding-left:18px;font-size:12px}
+.pyramid{display:flex;flex-direction:column;align-items:center;gap:6px;margin:14px 0 22px}
+.band{width:var(--w);min-width:min(520px,100%);border:1px solid var(--line);border-left:3px solid var(--lc);border-radius:8px;padding:8px 12px;background:color-mix(in oklab,var(--lc) 5%,var(--card))}
+.b-design{--lc:var(--ok)}.b-static{--lc:var(--accent)}.b-verification{--lc:var(--rev)}.b-prose{--lc:var(--warn)}
+.band .bhead{display:flex;align-items:baseline;gap:10px;font-size:12px}.band .bhead b{font-size:12.5px;color:var(--lc);filter:saturate(1.2)}
+.band .none{margin:4px 0 0;font-size:11.5px}
+.rules{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.rule summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;padding:3px 4px;border-radius:5px;font-size:12.5px}
+.rule summary::-webkit-details-marker{display:none}.rule summary:hover{background:var(--btn)}
+.rule .rtext{flex:1;min-width:0}
+.rdot{width:8px;height:8px;border-radius:50%;flex:none;border:1.5px solid var(--muted)}
+.r-ok .rdot{background:var(--ok);border-color:var(--ok)}.r-bad .rdot{background:var(--bad);border-color:var(--bad)}.r-prose .rdot{border-style:dashed;border-color:var(--warn)}
+.cchip{font-size:10.5px;border:1px solid var(--line);border-radius:9px;padding:0 7px;color:var(--muted);flex:none}
+.cchip.ok{border-color:color-mix(in oklab,var(--ok) 50%,var(--line));color:var(--ok)}.cchip.bad{border-color:var(--bad);color:var(--bad)}
+.rule .why{margin:2px 0 2px 20px;font-size:12px}.rule .rmeta{margin:0 0 6px 20px;font-size:11px;display:flex;gap:10px}
+.band .files{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;font-size:11.5px}
+#guardrails .checks{display:flex;flex-direction:column;gap:4px;max-width:1000px}
+.check{border:1px solid var(--line);border-radius:7px}
+.check summary{display:flex;align-items:center;gap:10px;padding:5px 10px;cursor:pointer;list-style:none;font-size:12.5px}
+.check summary::-webkit-details-marker{display:none}
+.check summary code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.check .cst{width:14px;text-align:center;font-weight:600;color:var(--muted)}.check .cst.ok{color:var(--ok)}.check .cst.bad{color:var(--bad)}
+.check pre{margin:0;padding:8px 12px;border-top:1px solid var(--line);font-size:11.5px;max-height:320px;overflow:auto;white-space:pre-wrap;background:var(--bg)}
+.check .hint{margin:4px 12px 8px}
+header .gpill.bad{border-color:var(--bad);color:var(--bad)}
+.check summary b{white-space:nowrap}.check summary > span.muted{white-space:nowrap}

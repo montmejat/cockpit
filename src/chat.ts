@@ -18,6 +18,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
+import { GUARDRAILS, failureReport, lastResults, loadGuardrails, runChecks } from "./guardrails.ts";
 import type { createIndex } from "./codeindex.ts";
 import { turnEnd, turnStart, turnTool, type HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
@@ -62,6 +63,9 @@ function brief(root: string) {
     has
       ? `The project is described in ${ARCH_DIR}/ (features and diagrams). Read ${ARCH_DIR}/README.md before you start and keep the folder true as you work.`
       : `This project has no ${ARCH_DIR}/ yet. When the owner asks you to describe the project, or with your first change, create it: copy ${join(COCKPIT, "templates", "cockpit-README.md")} to ${ARCH_DIR}/README.md and follow it.`,
+    existsSync(join(root, GUARDRAILS))
+      ? `This project has guardrails: ${GUARDRAILS} (checks run when you finish a turn that edited files, and rules with why). Read ${join(COCKPIT, "templates", "guardrails.md")} once, before you change them or when the owner corrects how code is written.`
+      : `Guardrails (checks and rules in ${GUARDRAILS}) are off in this project. Set them up only when the owner asks, following ${join(COCKPIT, "templates", "guardrails.md")}.`,
   ].join("\n\n");
 }
 
@@ -127,7 +131,7 @@ function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSe
   return items;
 }
 
-export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>) {
+export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, onChecks?: () => void) {
   const dir = join(outDir(project), "chats");
   mkdirSync(dir, { recursive: true });
   const fileOf = (id: string) => join(dir, `${id}.json`);
@@ -160,6 +164,11 @@ export function createChat(root: string, project: string, terms: Terminals, inde
   let streamMsg = "";
   let checks = 0; // times the .cockpit/ check sent the agent back this turn
   let lastProblems = ""; // what that check found last time (this turn or an earlier one): the same list again means a round fixed nothing
+  // Guardrails (src/guardrails.ts), only in a project that has .cockpit/guardrails.json. A turn that
+  // edited files runs its checks; the agent is sent back only for checks that passed before the
+  // turn (a failure that was already there is shown in cockpit, not pinned on this agent).
+  let edited = false, gRounds = 0, gLast = "";
+  let passedBefore = new Set<string>();
 
   let saveTimer: NodeJS.Timeout | null = null;
   const save = () => {
@@ -260,8 +269,13 @@ export function createChat(root: string, project: string, terms: Terminals, inde
             if (!other || inside(root)) return {};
             return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `edits ${other.name}, another project of the workspace` } };
           }] }],
-          UserPromptSubmit: [{ hooks: [async (i) => { checks = 0; try { turnStart(i as HookInput); } catch {} return {}; }] }],
-          PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { try { turnTool(i as HookInput); } catch {} return {}; }] }],
+          UserPromptSubmit: [{ hooks: [async (i) => {
+            checks = 0; edited = false; gRounds = 0;
+            passedBefore = new Set(Object.values(lastResults(project)).filter((r) => r.ok).map((r) => r.id));
+            try { turnStart(i as HookInput); } catch {}
+            return {};
+          }] }],
+          PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { edited = true; try { turnTool(i as HookInput); } catch {} return {}; }] }],
           Stop: [{ hooks: [async (i) => {
             // .cockpit/ must match the code: up to 3 rounds of "fix what the check found" per
             // turn, against the live index once it has caught up with the agent's edits. A round
@@ -283,6 +297,8 @@ export function createChat(root: string, project: string, terms: Terminals, inde
                 return { decision: "block", reason };
               }
             }
+            const sent = await guard();
+            if (sent) return { decision: "block", reason: sent };
             try { turnEnd(i as HookInput); } catch {}
             return {};
           }] }],
@@ -292,6 +308,34 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     const mine = q;
     pump(mine).catch((e) => { if (q === mine) put({ id: "err-" + Date.now(), kind: "note", at: now(), text: "The agent stopped: " + String(e?.message ?? e), error: true }); })
       .finally(() => { if (q === mine) { q = null; box = null; busy = false; state(); } });
+  }
+
+  // The guardrails' checks at the end of a turn that edited files. Returns what to send the agent
+  // back with, or null. At most 3 rounds, and not again when a round changed nothing.
+  async function guard(): Promise<string | null> {
+    const { g } = loadGuardrails(root);
+    if (!g?.checks.length || !edited || gRounds >= 3) return null;
+    put({ id: "note-" + Date.now(), kind: "note", at: now(), text: `Running the guardrails' checks (${g.checks.map((c) => c.name).join(", ")})…` });
+    const results = await runChecks(root, project, g, undefined, onChecks);
+    const failed = results.filter((r) => !r.ok);
+    const broke = failed.filter((r) => passedBefore.has(r.id)), already = failed.filter((r) => !passedBefore.has(r.id));
+    const name = (id: string) => g.checks.find((c) => c.id === id)?.name ?? id;
+    if (already.length) put({ id: "note-" + Date.now() + "a", kind: "note", at: now(),
+      text: `Already failing before this turn, not sent back: ${already.map((r) => name(r.id)).join(", ")}.`, detail: failureReport(g, already) });
+    if (!broke.length) {
+      if (!failed.length) put({ id: "note-" + Date.now() + "ok", kind: "note", at: now(), text: `Guardrails: ${results.length} check${results.length > 1 ? "s" : ""} pass.` });
+      return null;
+    }
+    const sig = broke.map((r) => r.id + "\t" + r.output).join("\n");
+    if (sig === gLast) {
+      put({ id: "note-" + Date.now(), kind: "note", at: now(), error: true, text: `Still failing after the agent's last round, which changed nothing: ${broke.map((r) => name(r.id)).join(", ")}. Not sent back again.`, detail: failureReport(g, broke) });
+      return null;
+    }
+    gLast = sig; gRounds++;
+    const reason = `This turn broke ${broke.length > 1 ? "checks" : "a check"} that passed before it (${GUARDRAILS}). Fix the cause in the code, not the check; ` +
+      `if the check itself is wrong, say so instead of changing it.\n\n` + failureReport(g, broke);
+    put({ id: "note-" + Date.now(), kind: "note", at: now(), text: `This turn broke ${broke.map((r) => name(r.id)).join(", ")}: sent the agent back to fix it.`, detail: reason });
+    return reason;
   }
 
   async function pump(cur: Query) {

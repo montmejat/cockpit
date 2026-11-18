@@ -1,7 +1,7 @@
 <script lang="ts">
   // The top bar: project, branch, size and health at a glance (each opens its explanation), the
   // running agent, the terminal and chat toggles (with the hints on). In the desktop app it is also the window's title bar.
-  import { S, dirtyFiles, plural, showRight, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
+  import { S, dirtyFiles, openGuardrails, plural, showRight, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
 
@@ -163,6 +163,15 @@
   </span>
   {#if S.problems.length}
     <button class="mlink bad" class:on={ui.insp === "problems"} title="The agents’ description in .cockpit/ no longer matches the code" onclick={() => toggleInsp("problems")}>⚠ {S.problems.length} out of date</button>
+  {/if}
+  <!-- Guardrails: always reachable; colored by the checks' last results once there are any. -->
+  {#if S.guardrails.on}
+    {@const gr = S.guardrails}
+    {@const fail = gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length}
+    <button class="pill gpill" class:bad={fail > 0 || gr.problems.length > 0} title="Guardrails: {gr.rules.length} rules, {gr.checks.length} checks{fail ? `, ${fail} failing` : ''}" onclick={openGuardrails}>
+      ◈ {gr.running.length ? "checking…" : fail ? `${fail} failing` : `${gr.rules.length} rules`}</button>
+  {:else}
+    <button class="mlink" title="Guardrails: off in this project" onclick={openGuardrails}>◈</button>
   {/if}
   <span class="grow"></span>
   {#if S.live}

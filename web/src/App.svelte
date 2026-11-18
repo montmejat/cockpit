@@ -12,7 +12,8 @@
   import Palette from "./components/Palette.svelte";
   import Chat from "./components/Chat.svelte";
   import Inspector from "./components/Inspector.svelte";
-  import { byId, openCommit, openDiagram, openFile, showRight, ui, cur, mapTab, S, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
+  import Guardrails from "./components/Guardrails.svelte";
+  import { byId, openCommit, openDiagram, openFile, openGuardrails, showRight, ui, cur, mapTab, S, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
   import Grip, { savedWidth } from "./components/Grip.svelte";
   import { api } from "./lib/code";
 
@@ -30,13 +31,14 @@
   else if (Q.get("commit")) openCommit(Q.get("commit")!);
   else if (H.startsWith("f=")) openFile(H.slice(2));
   else if (H.startsWith("c=")) openCommit(H.slice(2));
+  else if (Q.get("tab") === "guardrails" || H === "guardrails") openGuardrails();
   else if (byId(Q.get("at"))) { openDiagram(Q.get("at")!); mapTab().code = Q.get("box") || null; }
   else if (byId(H)) openDiagram(H);
 
   // The address follows what's open, so a reload comes back to it.
   $effect(() => {
     const t = cur();
-    const hash = t.kind === "map" ? (t.id ?? "") : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
+    const hash = t.kind === "map" ? (t.id ?? "") : t.kind === "guardrails" ? "guardrails" : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
     history.replaceState(null, "", location.pathname + (hash ? "#" + encodeURIComponent(hash) : ""));
   });
   // A diagram that disappeared from .cockpit/: the map goes back home.
@@ -81,7 +83,7 @@
     <TabBar />
     <div id="work">
       <MapView hidden={cur().kind !== "map"} />
-      {#if cur().kind !== "map"}<CodeView />{/if}
+      {#if cur().kind === "guardrails"}<Guardrails />{:else if cur().kind !== "map"}<CodeView />{/if}
     </div>
     <Terminal bind:this={term} />
   </section>

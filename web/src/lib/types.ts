@@ -37,7 +37,17 @@ export interface Live {
   summary: string;
   review: Review | null;
   workspace: Workspace | null;
+  guardrails: Guardrails;
 }
+// Guardrails (src/guardrails.ts): checks and rules in .cockpit/guardrails.json, by layer.
+export type Layer = "design" | "static" | "verification" | "prose";
+export interface Check { id: string; name: string; run: string; timeout?: number }
+export interface Rule { id: string; rule: string; why: string; layer: Layer; checks?: string[]; since?: string }
+export interface CheckResult { id: string; ok: boolean; exit: number | null; at: string; ms: number; output: string }
+export interface Instruction { path: string; lines: number; kind: "agents" | "skill" | "rules" }
+export type Guardrails =
+  | { on: false; instructions: Instruction[] }
+  | { on: true; checks: Check[]; rules: Rule[]; problems: { where: string; problem: string }[]; results: Record<string, CheckResult>; running: string[]; instructions: Instruction[] };
 // The workspace this project is in (src/workspace.ts): projects that work together.
 export interface Workspace { name: string; system: string | null; projects: { name: string; path: string; summary: string | null; here: boolean }[] }
 export interface MergeRequest { id: number; ref: string; title: string; source: string; target: string; author: string; url: string; draft: boolean; fork: boolean }
@@ -59,7 +69,8 @@ export type Tab =
   | { kind: "map"; id: string | null; code: string | null }
   | { kind: "file"; path: string; line?: number; end?: number; mini?: string; at?: number }
   | { kind: "commit"; sha: string }
-  | { kind: "diff"; path: string; staged: boolean };
+  | { kind: "diff"; path: string; staged: boolean }
+  | { kind: "guardrails" };
 
 export interface Hunk { at: number; added: number; removed: string[] }
 export interface Commit { hash: string; parents: string[]; sha: string; subject: string; author: string; date: string; refs: string[] }

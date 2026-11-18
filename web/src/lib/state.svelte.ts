@@ -137,7 +137,7 @@ export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map
 
 type Insp = "features" | "tests" | "problems" | null;
 const saved = (): Tab[] => {
-  try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff")); } catch { return []; }
+  try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff" || t.kind === "guardrails")); } catch { return []; }
 };
 const sideTab = store.get("cockpit-tab", "files");
 
@@ -166,7 +166,7 @@ export function saveTabs() {
 const sameTab = (a: Tab, b: Tab) => a.kind === b.kind && (a.kind === "file" ? a.path === (b as any).path : a.kind === "commit" ? a.sha === (b as any).sha
   : a.kind === "diff" ? a.path === (b as any).path && a.staged === (b as any).staged : true);
 // A tab's key and label, for the tab bar and the address.
-export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + t.sha : (t.staged ? "s:" : "d:") + t.path);
+export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : t.kind === "guardrails" ? "guardrails" : t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + t.sha : (t.staged ? "s:" : "d:") + t.path);
 // Open (or focus) a tab next to the current one. Old file tabs make room past 14.
 export function openTab(spec: Tab) {
   let i = ui.tabs.findIndex((t) => sameTab(t, spec));
@@ -182,6 +182,7 @@ export function openTab(spec: Tab) {
 // `at` makes a repeat request for the same line scroll there again.
 export const openFile = (path: string, line?: number, end?: number) => openTab({ kind: "file", path, line, end, at: line ? Date.now() : undefined });
 export const openCommit = (sha: string) => openTab({ kind: "commit", sha });
+export const openGuardrails = () => openTab({ kind: "guardrails" });
 // A changed file's diff: staged (index against HEAD) or not (working tree against the index).
 export const openDiff = (path: string, staged: boolean) => openTab({ kind: "diff", path, staged });
 // Files with unsaved changes in the editor (FileEditor.svelte keeps the buffers).

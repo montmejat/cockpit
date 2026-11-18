@@ -1,0 +1,41 @@
+{
+  "checks": [
+    { "id": "types-server", "name": "Server types", "run": "npm run -s check" },
+    { "id": "types-ui", "name": "Page types", "run": "npx svelte-check --tsconfig web/tsconfig.json --threshold error --output human" },
+    { "id": "build-page", "name": "Page builds", "run": "npm run -s build 2>&1 | grep -v 'chunk' | tail -5" },
+    { "id": "desktop", "name": "Desktop app builds", "run": "cd desktop && cargo build --release --quiet", "timeout": 600 },
+    { "id": "boundaries", "name": "Page/server boundary", "run": "node .cockpit/checks/boundaries.mjs", "timeout": 30 }
+  ],
+  "rules": [
+    {
+      "id": "page-type-checked", "layer": "static", "checks": ["types-ui"], "since": "2026-11-18",
+      "rule": "The page (web/) is type-checked like the server, with svelte-check",
+      "why": "npm run check only covered src/; 13 errors had piled up in the page, some hiding real mistakes"
+    },
+    {
+      "id": "state-generic", "layer": "static", "checks": ["types-ui"], "since": "2026-11-18",
+      "rule": "Nullable state is typed with the generic: $state<T | null>(null)",
+      "why": "let x: T | null = $state(null) makes TypeScript narrow x to never, so every use of it goes unchecked"
+    },
+    {
+      "id": "page-server-apart", "layer": "static", "checks": ["boundaries"], "since": "2026-11-18",
+      "rule": "web/ and src/ never import each other; shapes they share go in web/src/lib/types.ts",
+      "why": "the page is bundled for the browser and the server runs on node: code crossing over breaks one of them"
+    },
+    {
+      "id": "desktop-builds", "layer": "static", "checks": ["desktop"], "since": "2026-11-18",
+      "rule": "The GTK desktop window builds with every change to it",
+      "why": "it is Rust beside a TypeScript project: nothing else would notice it broke"
+    },
+    {
+      "id": "no-timer-fixes", "layer": "prose", "since": "2026-11-18",
+      "rule": "No setTimeout or requestAnimationFrame to fix an ordering problem in a component: find what it waits for",
+      "why": "timers patch over a missing dependency, then get copied as the pattern; they also make the page janky"
+    },
+    {
+      "id": "projects-untouched", "layer": "prose", "since": "2026-11-18",
+      "rule": "What cockpit keeps for a project stays in its .cockpit/ or in cockpit's own state folder, never in the project's setup",
+      "why": "cockpit is used on work projects whose structure isn't ours to change"
+    }
+  ]
+}

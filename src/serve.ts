@@ -18,6 +18,7 @@ import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview } from "./review.ts";
 import { workspaceOf } from "./workspace.ts";
+import { instructions, lastResults, loadGuardrails, runChecks, runningChecks } from "./guardrails.ts";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : undefined);
@@ -32,7 +33,7 @@ const WEB = join(COCKPIT, "web", "dist");
 const index = createIndex(root, name); // the code index (rust-analyzer or scip-clang), rebuilt when code changes
 const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
 const ask = createAsk(root); // the terminal's ask line: words → a command
-const chat = createChat(root, name, terms, index); // the agent, run by cockpit itself
+const chat = createChat(root, name, terms, index, () => changed()); // the agent, run by cockpit itself
 const review = createReview(root, name); // reviewing a merge request against its target
 
 // No optional locks: `git status` must not rewrite .git/index, which the watcher below follows.
@@ -323,6 +324,15 @@ function workspaceState() {
   return w && { name: w.name, system: existsSync(w.system) ? w.system : null, projects: w.projects };
 }
 
+// Guardrails (src/guardrails.ts): the project's checks and rules, each check's last result, and
+// the instruction files agents read. null when the project has none: nothing is set up for it.
+function guardrailsState() {
+  const { g, problems } = loadGuardrails(root);
+  const told = instructions(root);
+  if (!g && !problems.length) return { on: false as const, instructions: told };
+  return { on: true as const, checks: g?.checks ?? [], rules: g?.rules ?? [], problems, results: lastResults(name), running: runningChecks(name), instructions: told };
+}
+
 function state() {
   const sk = index.current();
   const loaded = loadArch(root), arch = loaded.arch;
@@ -348,6 +358,7 @@ function state() {
     summary: arch?.summary ?? "",
     review: reviewState(sk, status, arch?.diagrams ?? []),
     workspace: workspaceState(),
+    guardrails: guardrailsState(),
   };
 }
 type State = ReturnType<typeof state>;
@@ -510,6 +521,13 @@ const routes: Record<string, Handler> = {
   "GET /api/file": (_req, res, url) => { try { json(res, readSource(q(url, "path"), q(url, "review") === "1")); } catch (e) { json(res, { error: String(e) }, 400); } },
   "GET /api/git/graph": (_req, res) => json(res, gitGraph()),
   "GET /api/git/numstat": (_req, res) => json(res, numstat()),
+  // Run the guardrails' checks now (all, or `ids`); the results arrive with the live state.
+  "POST /api/guardrails/run": post(({ ids }) => {
+    const { g } = loadGuardrails(root);
+    if (!g) return { error: "no .cockpit/guardrails.json" };
+    void runChecks(root, name, g, Array.isArray(ids) ? ids : undefined, () => changed());
+    return { ok: true };
+  }),
   "POST /api/git/stage": post(({ paths }) => { stagePaths(paths, true); recompute(); }),
   "POST /api/git/unstage": post(({ paths }) => { stagePaths(paths, false); recompute(); }),
   "POST /api/git/commit": post(({ message }) => { const r = commitStaged(message); recompute(); return r; }),

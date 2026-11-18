@@ -143,6 +143,27 @@ Written and kept true by the agents, never by hand (the brief they follow is
 `npm run modules -- <project dir> [filter]` lists every module and item exactly as links must
 write them; the agent's brief tells it to use it before writing links. Test code needs no feature.
 
+## Guardrails (`.cockpit/guardrails.json`)
+
+What keeps agents' work right without re-reading every line: **checks** (commands that pass or
+fail: types, lint, tests, a script that drives the app) and **rules** (decisions about how the code
+is written, each with why and where it is enforced). The ◈ in the header opens them as layers,
+strongest first: *design* (the code makes the wrong thing impossible), *static* (a check finds it
+without running the program), *verification* (a check runs it and looks), *prose* (only written
+down; it lists the instruction files agents read, like CLAUDE.md and skills). A prose rule has a
+"harden it" button that asks the agent to turn it into a check.
+
+- **Opt-in.** Without the file nothing runs. "Ask the agent to set them up" has it write checks
+  that use the tools the project already has; it lives in `.cockpit/` only (a check script goes in
+  `.cockpit/checks/`), so a project's own setup is never changed. Results are kept in cockpit's
+  state folder.
+- **At the end of a chat turn that edited files**, cockpit runs the checks. The agent is sent back
+  (up to 3 rounds) only for a check that **passed before its turn**: failures that were already
+  there show in the tab and aren't pinned on it. Claude Code sessions in a terminal don't run them
+  yet.
+- When you correct how code is written, the agent's brief (`templates/guardrails.md`) has it
+  propose a rule at the strongest layer it can enforce. cockpit's own are in its `.cockpit/`.
+
 ## C and C++ projects
 
 A repo with a `CMakeLists.txt` at the top or in a top-level folder (and no `Cargo.toml`) is read
