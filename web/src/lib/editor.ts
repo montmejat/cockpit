@@ -96,7 +96,7 @@ export const look: Extension = [
     "&.cm-focused": { outline: "none" },
     ".cm-scroller": { fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace', lineHeight: "1.55" },
     ".cm-content": { caretColor: "var(--fg)" },
-    ".cm-gutters": { backgroundColor: "var(--card)", color: "var(--muted)", borderRight: "1px solid var(--line)" },
+    ".cm-gutters": { backgroundColor: "var(--card)", color: "var(--muted)", borderRight: "1px solid var(--line)", position: "relative" },
     ".cm-lineNumbers .cm-gutterElement": { padding: "0 8px 0 10px", opacity: ".8" },
     ".cm-activeLine": { backgroundColor: "color-mix(in oklab, var(--fg) 4%, transparent)" },
     ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--fg)", fontWeight: "700" },

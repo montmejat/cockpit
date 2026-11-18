@@ -7,7 +7,7 @@
   //   overwrites a newer version without asking.
   //   One buffer per file, kept while you switch tabs (undo history included).
   import { onMount } from "svelte";
-  import { EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, drawSelection } from "@codemirror/view";
+  import { EditorView, gutters, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter, highlightSpecialChars, drawSelection } from "@codemirror/view";
   import { Compartment, EditorState, Text } from "@codemirror/state";
   import { bracketMatching, indentOnInput, indentUnit } from "@codemirror/language";
   import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
@@ -57,7 +57,7 @@
       doc: text,
       extensions: [
         vimSlot.of(vimOn ? vim({ status: true }) : []),
-        lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(),
+        gutters({ fixed: false }), lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(),
         indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
         indentUnit.of(indentOf(text)), EditorState.tabSize.of(4),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
@@ -299,6 +299,14 @@
     (window as any).__cockpitEditor = api_;
     view.scrollDOM.addEventListener("scroll", () => { if (hoverLine) { hoverLine = 0; dispatchHover(0); } reportView(); }, { passive: true });
     const unwheel = smoothWheel(view.scrollDOM); // wheel clicks glide instead of surging (lib/smoothwheel.ts)
+    // The gutters scroll with the text (gutters({ fixed: false })), not as CodeMirror's
+    // position: sticky, which WebKit moves on its own and which shook beside the gliding text at
+    // 120Hz. Sideways they stay put: shifted back by the horizontal scroll, which is rare.
+    const pinGutters = () => {
+      const x = view!.scrollDOM.scrollLeft, t = x ? `translateX(${x}px)` : "";
+      for (const g of view!.scrollDOM.querySelectorAll<HTMLElement>(".cm-gutters")) if (g.style.transform !== t) g.style.transform = t;
+    };
+    view.scrollDOM.addEventListener("scroll", pinGutters, { passive: true });
     if (data && data.path === path && data.text != null) show(path, data);
     return () => { unwheel(); view?.destroy(); view = null; if ((window as any).__cockpitEditor === api_) (window as any).__cockpitEditor = null; };
   });
