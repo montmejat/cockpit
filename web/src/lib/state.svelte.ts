@@ -52,6 +52,21 @@ export const S: Live = (() => {
   return o;
 })();
 export const desktopInfo = boot.desktop;
+// The projects whose state has arrived (the first one's came with the page).
+export const loaded = new SvelteSet<string>([boot.project]);
+// Any project's live state, read like S (for the files tree, which shows every project at once).
+// Read it only once loaded.has(project); connectLive(project) gets it.
+const views = new Map<string, Live>();
+export function liveOf(project: string): Live {
+  let v = views.get(project);
+  if (!v) {
+    v = {} as Live;
+    for (const k of Object.keys(boot).filter((k) => !NOT_STATE.has(k)))
+      Object.defineProperty(v, k, { get: () => (loaded.has(project) ? lives.get(project)?.[k]?.get() : undefined), enumerable: true });
+    views.set(project, v);
+  }
+  return v;
+}
 
 // A list patched by key: changed and new entries replace or join, removed ones go; when the
 // membership changed the server sends the new order of keys.
@@ -62,40 +77,48 @@ function merge<T>(list: T[], p: { set: T[]; del: string[]; keys?: string[] }, ke
   return p.keys ? p.keys.map((k) => by.get(k)!).filter(Boolean) : list.filter((x) => by.has(key(x))).map((x) => by.get(key(x))!);
 }
 
-// Each project's live state, from its event stream; connected the first time it is shown (the
-// page's first project at once), and kept connected after that. Resolves once its state is in.
-const conns = new Map<string, Promise<void>>();
+// Each project's live state, connected the first time it is wanted (the page's first project at
+// once) and kept after that. All of them come on one event stream (src/serve.ts, /api/live), opened
+// again when a project joins: a browser keeps only 6 connections to a server, and a stream per
+// project would take them all. connectLive resolves once the project's state is in.
+const wanted = new Map<string, { promise: Promise<void>; ready: () => void }>();
+let stream: EventSource | null = null, reopen = false;
+function openStream() {
+  reopen = false;
+  stream?.close();
+  stream = new EventSource("/api/live?" + [...wanted.keys()].map((p) => "p=" + encodeURIComponent(p)).join("&"));
+  stream.onmessage = (m) => { const e = JSON.parse(m.data); if (e.project) apply(e.project, e); };
+  // EventSource reconnects by itself; the server starts again with each project's whole state.
+}
 export function connectLive(project = P.active): Promise<void> {
-  let c = conns.get(project);
-  if (c) return c;
-  c = new Promise((ready) => {
-    const es = new EventSource(apiUrl("api/events", project));
-    es.onmessage = (m) => {
-      const e = JSON.parse(m.data);
-      const parts = e.type === "full" ? e.state : e.patch;
-      const known = lives.get(project);
-      // The whole state comes on (re)connecting, usually the same as the page's (it just loaded
-      // with it): unchanged parts are left alone, so nothing is redrawn or fetched again for them.
-      const fresh: Record<string, unknown> = {};
-      for (const k of Object.keys(parts)) if (e.type !== "full" || !known?.[k] || JSON.stringify(known[k].get()) !== JSON.stringify(parts[k])) fresh[k] = parts[k];
-      const cs = cellsOf(project, fresh);
-      // Big lists come as their changed entries (src/project.ts, listPatch).
-      const l = e.lists ?? {};
-      const get = <T,>(k: string) => cs[k].get() as T;
-      if (l.modules) cs.modules.set(merge(get<Live["modules"]>("modules"), l.modules, (m) => m.id));
-      if (l["tests.unit"] || l["tests.integration"]) {
-        const t = get<Live["tests"]>("tests");
-        cs.tests.set({
-          unit: l["tests.unit"] ? merge(t.unit, l["tests.unit"], (u) => u.module + "\0" + u.file) : t.unit,
-          integration: l["tests.integration"] ? merge(t.integration, l["tests.integration"], (x) => x.file) : t.integration,
-        });
-      }
-      ready();
-    };
-    // EventSource reconnects by itself; the server starts again with the whole state.
-  });
-  conns.set(project, c);
-  return c;
+  let w = wanted.get(project);
+  if (w) return w.promise;
+  let ready!: () => void;
+  wanted.set(project, (w = { promise: new Promise<void>((ok) => (ready = ok)), ready }));
+  // Projects asked for together (the palette asks for all) join in one go.
+  if (!reopen) { reopen = true; queueMicrotask(openStream); }
+  return w.promise;
+}
+function apply(project: string, e: any) {
+  const parts = e.type === "full" ? e.state : e.patch ?? {};
+  const known = lives.get(project);
+  // The whole state comes on (re)connecting, usually the same as the page's (it just loaded
+  // with it): unchanged parts are left alone, so nothing is redrawn or fetched again for them.
+  const fresh: Record<string, unknown> = {};
+  for (const k of Object.keys(parts)) if (e.type !== "full" || !known?.[k] || JSON.stringify(known[k].get()) !== JSON.stringify(parts[k])) fresh[k] = parts[k];
+  const cs = cellsOf(project, fresh);
+  // Big lists come as their changed entries (src/project.ts, listPatch).
+  const l = e.lists ?? {};
+  const get = <T,>(k: string) => cs[k].get() as T;
+  if (l.modules) cs.modules.set(merge(get<Live["modules"]>("modules"), l.modules, (m) => m.id));
+  if (l["tests.unit"] || l["tests.integration"]) {
+    const t = get<Live["tests"]>("tests");
+    cs.tests.set({
+      unit: l["tests.unit"] ? merge(t.unit, l["tests.unit"], (u) => u.module + "\0" + u.file) : t.unit,
+      integration: l["tests.integration"] ? merge(t.integration, l["tests.integration"], (x) => x.file) : t.integration,
+    });
+  }
+  if (e.type === "full") { loaded.add(project); wanted.get(project)?.ready(); }
 }
 
 // ---- small helpers -------------------------------------------------------
@@ -125,8 +148,8 @@ class Changes {
 }
 export const C = new Changes();
 
-export function statusOf(path: string): "A" | "D" | "M" | null {
-  const s = S.status.find((x) => x.path === path);
+export function statusOf(path: string, live: Live = S): "A" | "D" | "M" | null {
+  const s = live.status?.find((x) => x.path === path);
   if (!s) return null;
   return s.x === "?" || s.x === "A" ? "A" : s.x === "D" || s.y === "D" ? "D" : "M";
 }
@@ -218,18 +241,20 @@ export async function pickTab(i: number) {
   saveTabs();
 }
 // Open (or focus) a tab next to the current one, in the window's project unless it names
-// another one (the window switches to it). Old file tabs make room past 14.
+// another one: the tab goes in first, then the window switches to its project and shows it in one
+// step (never the old tab under the new project). Old file tabs make room past 14.
 export async function openTab(spec: Tab) {
   if (spec.kind !== "map") spec.project ??= P.active;
-  if (spec.kind !== "map" && spec.project !== P.active) await setActive(spec.project!, spec);
   let i = ui.tabs.findIndex((t) => sameTab(t, spec));
   if (i < 0) {
     i = Math.min(ui.active + 1, ui.tabs.length);
     ui.tabs.splice(i, 0, spec);
-    if (ui.tabs.length > 14) { const drop = ui.tabs.findIndex((t, k) => k !== i && t.kind !== "map"); if (drop >= 0) { ui.tabs.splice(drop, 1); if (drop < i) i--; } }
+    if (ui.tabs.length > 14) { const drop = ui.tabs.findIndex((t, k) => k !== i && k !== ui.active && t.kind !== "map"); if (drop >= 0) { ui.tabs.splice(drop, 1); if (drop < i) i--; } }
   } else Object.assign(ui.tabs[i], spec);
-  ui.active = i;
-  if (spec.kind === "file") revealFile(spec.path);
+  const t = ui.tabs[i];
+  if (tabProject(t) !== P.active) await setActive(tabProject(t), t);
+  ui.active = ui.tabs.indexOf(t);
+  if (t.kind === "file") revealFile(tabProject(t), t.path);
   saveTabs();
 }
 // `at` makes a repeat request for the same line scroll there again.
@@ -276,18 +301,37 @@ export function toggleInsp(which: Exclude<Insp, null>) { ui.insp = ui.insp === w
 
 // ---- the files tree: which folders are open -------------------------------------
 // Folders with changes, and the folders of the file you open, open by themselves until you open
-// or close them yourself; "collapse all" closes everything.
+// or close them yourself; "collapse all" closes everything. Per project: in a workspace the tree
+// shows every project, each under its own root, which you open and close too.
 
 const savedFolders = (project: string): Record<string, boolean> => { try { return JSON.parse(store.get("cockpit-folders-" + project, "{}")); } catch { return {}; } };
-export const folders: Record<string, boolean> = $state(savedFolders(P.active));
-const saveFolders = () => store.set("cockpit-folders-" + P.active, JSON.stringify(folders));
-export function setFolder(dir: string, open: boolean) { folders[dir] = open; saveFolders(); }
-export function revealFile(path: string) {
-  const parts = path.split("/");
-  for (let i = 1; i < parts.length; i++) folders[parts.slice(0, i).join("/") + "/"] = true;
-  saveFolders();
+// Each project's set is a reactive proxy, made the first time it is read (a plain Map: making
+// one while the tree renders must not count as changing state).
+const folderSets = new Map<string, Record<string, boolean>>();
+const proxied = (o: Record<string, boolean>) => { const p = $state(o); return p; };
+export function foldersOf(project: string): Record<string, boolean> {
+  let f = folderSets.get(project);
+  if (!f) folderSets.set(project, (f = proxied(savedFolders(project))));
+  return f;
 }
-export function collapseAll(dirs: string[]) { for (const d of dirs) folders[d] = false; saveFolders(); }
+const saveFolders = (project: string) => store.set("cockpit-folders-" + project, JSON.stringify(foldersOf(project)));
+export function setFolder(project: string, dir: string, open: boolean) { foldersOf(project)[dir] = open; saveFolders(project); }
+export function revealFile(project: string, path: string) {
+  const f = foldersOf(project), parts = path.split("/");
+  for (let i = 1; i < parts.length; i++) f[parts.slice(0, i).join("/") + "/"] = true;
+  saveFolders(project);
+  if (!roots[project]) setRoot(project, true);
+}
+export function collapseAll(project: string, dirs: string[]) { const f = foldersOf(project); for (const d of dirs) f[d] = false; saveFolders(project); }
+// Which projects' roots are open in the tree (the one the page opened on, at first).
+const savedRoots = (): Record<string, boolean> => { try { return JSON.parse(store.get("cockpit-roots-" + opened, "null")) ?? { [boot.project]: true }; } catch { return { [boot.project]: true }; } };
+export const roots: Record<string, boolean> = $state(savedRoots());
+export function setRoot(project: string, open: boolean) {
+  roots[project] = open;
+  store.set("cockpit-roots-" + opened, JSON.stringify(roots));
+  if (open) void connectLive(project);
+}
+for (const [p, open] of Object.entries(roots)) if (open && projectNames.includes(p) && p !== boot.project) void connectLive(p);
 
 // ---- switching projects ------------------------------------------------------------
 // The window shows another project of the workspace: its diagrams, files, git, chat and
@@ -307,8 +351,6 @@ export async function setActive(project: string, then?: Tab) {
   P.active = project;
   m.id = mapAt[project] ?? home(); m.code = null;
   ui.picked = null;
-  for (const k of Object.keys(folders)) delete folders[k];
-  Object.assign(folders, savedFolders(project));
   if (then && ui.tabs.includes(then)) ui.active = ui.tabs.indexOf(then);
   else if (!then && tabProject(cur()) !== project) ui.active = 0;
   document.title = project + " · cockpit";

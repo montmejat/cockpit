@@ -1,12 +1,16 @@
 <script lang="ts">
   // Ctrl+P opens a file by name (letters in order, not necessarily together: "srvts" finds
   // src/serve.ts); Ctrl+Shift+F searches the whole project (ripgrep), as text or as a regex.
-  // ↑ ↓ choose, Enter opens, Esc closes.
+  // In a workspace both cover every project: another project's files show (and match) with its
+  // name in front, and open in it. ↑ ↓ choose, Enter opens, Esc closes.
   import { tick } from "svelte";
   import { api, esc } from "../lib/code";
-  import { openFile, S, store, tabProject, ui } from "../lib/state.svelte";
+  import { connectLive, liveOf, loaded, openTab, P, projectNames, store, tabProject, ui } from "../lib/state.svelte";
 
-  type Hit = { path: string; line: number; col: number; text: string };
+  type Hit = { project: string; path: string; line: number; col: number; text: string };
+  const multi = projectNames.length > 1;
+  // How a file is shown and matched: another project's with its name in front.
+  const label = (project: string, path: string) => (multi && project !== P.active ? project + "/" + path : path);
   let mode: "files" | "search" | null = $state(null);
   let q = $state("");
   let sel = $state(0);
@@ -17,9 +21,11 @@
   let hits: Hit[] = $state([]);
   let searching = $state(false);
   let searched = $state("");
+  let searchError = $state(""); // the search couldn't run (no ripgrep, say)
 
   export async function open(m: "files" | "search") {
     mode = m; q = m === "search" ? searched : ""; sel = 0;
+    for (const p of projectNames) void connectLive(p); // their file lists
     // A word selected in the editor is what you search for.
     const sel_ = m === "search" ? editor()?.selected() : "";
     if (sel_) q = sel_;
@@ -45,13 +51,19 @@
     }
     return { s: s - path.length * 0.01, at };
   }
-  const openPaths = $derived(new Set(ui.tabs.flatMap((t) => (t.kind === "file" && tabProject(t) === S.project ? [t.path] : []))));
-  const fileRows = $derived.by(() => {
+  type Row = { project: string; path: string; label: string; at: number[]; s: number };
+  // Every file of every project loaded so far, the shown project's first.
+  const allFiles = $derived(projectNames.filter((p) => loaded.has(p)).sort((a, b) => (a === P.active ? -1 : b === P.active ? 1 : 0))
+    .flatMap((project) => (liveOf(project).files ?? []).map((path) => ({ project, path, label: label(project, path) }))));
+  const openKeys = $derived(new Set(ui.tabs.flatMap((t) => (t.kind === "file" ? [tabProject(t) + "\0" + t.path] : []))));
+  const fileRows = $derived.by((): Row[] => {
     if (mode !== "files") return [];
     const query = q.toLowerCase().replace(/\s+/g, "");
-    if (!query) return [...openPaths, ...S.files.filter((f) => !openPaths.has(f))].slice(0, 50).map((path) => ({ path, at: [] as number[] }));
-    const out: { path: string; at: number[]; s: number }[] = [];
-    for (const f of S.files) { const r = score(f, query); if (r) out.push({ path: f, at: r.at, s: r.s + (openPaths.has(f) ? 0.5 : 0) }); }
+    const isOpen = (f: { project: string; path: string }) => openKeys.has(f.project + "\0" + f.path);
+    if (!query) return [...allFiles.filter(isOpen), ...allFiles.filter((f) => !isOpen(f))].slice(0, 50).map((f) => ({ ...f, at: [], s: 0 }));
+    const out: Row[] = [];
+    // The shown project's files win ties, then open tabs.
+    for (const f of allFiles) { const r = score(f.label, query); if (r) out.push({ ...f, at: r.at, s: r.s + (isOpen(f) ? 0.5 : 0) + (f.project === P.active ? 0.25 : 0) }); }
     return out.sort((a, b) => b.s - a.s).slice(0, 50);
   });
   const marked = (path: string, at: number[]) => { const set = new Set(at); return [...path].map((c, i) => (set.has(i) ? "<b>" + esc(c) + "</b>" : esc(c))).join(""); };
@@ -66,16 +78,21 @@
     timer = setTimeout(async () => {
       searching = true;
       try {
-        const r = await api.get<Hit[]>(`api/search?q=${encodeURIComponent(query)}&case=${caseSens ? 1 : 0}&regex=${regex ? 1 : 0}`);
-        if (n === seq) { hits = Array.isArray(r) ? r : []; searched = query; sel = 0; }
+        // Every project of the workspace, at once; the shown project's hits first.
+        const url = `api/search?q=${encodeURIComponent(query)}&case=${caseSens ? 1 : 0}&regex=${regex ? 1 : 0}`;
+        const order = [P.active, ...projectNames.filter((p) => p !== P.active)];
+        let err = "";
+        const each = await Promise.all(order.map((project) => api.get<Omit<Hit, "project">[] | { error: string }>(url, project)
+          .then((r) => { if (!Array.isArray(r)) { err ||= r.error; return []; } return r.map((h) => ({ ...h, project })); }).catch(() => [] as Hit[])));
+        if (n === seq) { hits = each.flat().slice(0, 1000); searched = query; sel = 0; searchError = err; }
       } finally { if (n === seq) searching = false; }
     }, 180);
   }
   const rows = $derived(mode === "files" ? fileRows.length : hits.length);
 
   function pick(i: number) {
-    if (mode === "files") { const r = fileRows[i]; if (r) { mode = null; openFile(r.path); } }
-    else { const h = hits[i]; if (h) { mode = null; openFile(h.path, h.line); } }
+    if (mode === "files") { const r = fileRows[i]; if (r) { mode = null; void openTab({ kind: "file", project: r.project, path: r.path }); } }
+    else { const h = hits[i]; if (h) { mode = null; void openTab({ kind: "file", project: h.project, path: h.path, line: h.line, at: Date.now() }); } }
   }
   async function keys(e: KeyboardEvent) {
     if (e.key === "Escape") { e.preventDefault(); close(); }
@@ -94,7 +111,7 @@
     <div class="pbox">
       <div class="pin">
         <input type="text" bind:this={input} bind:value={q} onkeydown={keys} spellcheck="false"
-          placeholder={mode === "files" ? "Open a file by name…" : "Search the project…"} oninput={() => { sel = 0; if (mode === "search") run(); }}>
+          placeholder={mode === "files" ? "Open a file by name…" : multi ? "Search every project of the workspace…" : "Search the project…"} oninput={() => { sel = 0; if (mode === "search") run(); }}>
         {#if mode === "search"}
           {#if searching}<span class="muted">…</span>{/if}
           <label title="Match case"><input type="checkbox" bind:checked={caseSens} onchange={() => { store.set("cockpit-search-case", caseSens ? "1" : "0"); run(); }}>Aa</label>
@@ -103,16 +120,16 @@
       </div>
       <div class="plist" bind:this={list}>
         {#if mode === "files"}
-          {#each fileRows as r, i (r.path)}
-            <button class="prow" class:on={i === sel} onmousemove={() => (sel = i)} onclick={() => pick(i)}><span class="pp">{@html marked(r.path, r.at)}</span></button>
+          {#each fileRows as r, i (r.project + "\0" + r.path)}
+            <button class="prow" class:on={i === sel} onmousemove={() => (sel = i)} onclick={() => pick(i)}><span class="pp">{@html marked(r.label, r.at)}</span></button>
           {:else}<p class="pnote">no file matches</p>{/each}
         {:else}
-          {#each hits as h, i (h.path + ":" + h.line + ":" + h.col)}
+          {#each hits as h, i (h.project + ":" + h.path + ":" + h.line + ":" + h.col)}
             <button class="prow" class:on={i === sel} onmousemove={() => (sel = i)} onclick={() => pick(i)}>
-              <span class="pp">{h.path}</span><span class="pl">{h.line}</span><span class="pt">{h.text.trim()}</span>
+              <span class="pp">{label(h.project, h.path)}</span><span class="pl">{h.line}</span><span class="pt">{h.text.trim()}</span>
             </button>
-          {:else}<p class="pnote">{q.trim() && searched === q && !searching ? "no match" : "type to search; Enter opens the hit"}</p>{/each}
-          {#if hits.length >= 500}<p class="pnote">first 500 hits</p>{/if}
+          {:else}<p class="pnote" class:bad={!!searchError}>{searchError || (q.trim() && searched === q && !searching ? "no match" : "type to search; Enter opens the hit")}</p>{/each}
+          {#if hits.length >= 500}<p class="pnote">first {hits.length >= 1000 ? 1000 : 500} hits{multi ? " (at most 500 per project)" : ""}</p>{/if}
         {/if}
       </div>
     </div>

@@ -116,6 +116,12 @@ index, chat and terminals; the workspace tells each one about the others.
   the project shown; tabs of every project stay open (another project's are prefixed with its
   name, and picking one shows that project), and so do unsaved edits, the agents and terminals.
   A jump to a definition in another project of the workspace opens it there.
+- **Every project in one editor**, like a multi-root workspace: the files tree holds each project
+  under a root you open and close, Ctrl+P finds files in all of them (another project's with its
+  name in front: `neura_types/…`), and Ctrl+Shift+F searches them all (ripgrep, `rg`, must be
+  installed). Opening a file from another project shows that project with it.
+- The page gets every project's live state on one event stream (`/api/live`): a browser keeps
+  only 6 connections to a server, and one stream per project would leave none for anything else.
 - When the C++ index runs in a build image, the other projects are mounted there too, read-only,
   for builds that compile another project's headers or sources from its checkout.
 - A change to the workspace reaches the chat from its next conversation.

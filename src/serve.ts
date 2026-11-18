@@ -15,7 +15,7 @@ import { basename, extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 import { COCKPIT } from "./turns.ts";
 import { workspaceOf } from "./workspace.ts";
-import { createProject, post, type Handler, type Project } from "./project.ts";
+import { createProject, events, post, type Handler, type Project } from "./project.ts";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : undefined);
@@ -71,6 +71,17 @@ const TYPES: Record<string, string> = { ".js": "text/javascript", ".css": "text/
 
 // Routes of the server itself, not of a project.
 const routes: Record<string, Handler> = {
+  // Several projects' live state on one event stream (?p=<name>&p=<name>…), each event tagged with
+  // its project: a browser keeps at most 6 connections to a server, and one stream per project
+  // (plus the chat's) would take them all, leaving every other request waiting.
+  "GET /api/live": (req, res, url) => {
+    const ps = url.searchParams.getAll("p").map(project).filter((p): p is Project => !!p);
+    events(req, res, { type: "hello", projects: ps.map((p) => p.name) }, (send) => {
+      for (const p of ps) send({ type: "full", project: p.name, state: p.state() });
+      const offs = ps.map((p) => p.subscribe((e) => send({ ...(e as object), project: p.name })));
+      return () => { for (const off of offs) off(); };
+    });
+  },
   "GET /": (_req, res, url) => res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(page(project(url.searchParams.get("project") ?? "") ?? main)),
   // A web link (from the chat, say) in your browser: the desktop app's window can't open one itself.
   "POST /api/open-url": post(({ url }) => {

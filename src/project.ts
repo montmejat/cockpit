@@ -450,7 +450,10 @@ export function createProject(root: string, name: string) {
     if (!regex) a.push("--fixed-strings");
     let out = "";
     try { out = execFileSync("rg", [...a, "--", q, "."], { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"] }); }
-    catch (e: any) { out = String(e.stdout ?? ""); } // exit 1 = no match
+    catch (e: any) {
+      if (e.code === "ENOENT") throw new Error("ripgrep (rg) isn't installed, so the project can't be searched: install it (apt install ripgrep) and search again");
+      out = String(e.stdout ?? ""); // exit 1 = no match
+    }
     const hits: { path: string; line: number; col: number; text: string }[] = [];
     for (const l of out.split("\n")) {
       if (hits.length >= 500) break;
@@ -493,7 +496,7 @@ export function createProject(root: string, name: string) {
         c.on("spawn", () => { c.unref(); done({ ok: true }); });
       });
     }),
-    "GET /api/search": (_req, res, url) => json(res, search(q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")),
+    "GET /api/search": (_req, res, url) => { try { json(res, search(q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")); } catch (e: any) { json(res, { error: String(e?.message ?? e) }); } },
     "POST /api/file/save": post(({ path, text, hash, force }) => saveSource(path, text, hash, !!force)),
     "POST /api/diagram-layout": post(({ id, positions }) => {
       if (typeof id !== "string" || (positions !== null && typeof positions !== "object")) throw new Error("expected {id, positions}");
@@ -600,6 +603,8 @@ export function createProject(root: string, name: string) {
   return {
     name, root, routes,
     state: () => current,
+    // What changes, as the page's event streams get it (serve.ts sends several projects' on one).
+    subscribe(send: (e: unknown) => void) { pages.add(send); return () => { pages.delete(send); }; },
     terminals: () => terms.list(),
     // A WebSocket for this project: a terminal, or a language server.
     upgrade(path: string, url: URL, ws: WebSocket) {

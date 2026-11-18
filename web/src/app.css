@@ -551,3 +551,9 @@ button.gall{font-size:11px;padding:0 6px;color:var(--muted);background:none}butt
 #side .projects button:hover{color:var(--fg);border-color:var(--accent)}
 #side .projects button.on{color:var(--fg);border-color:var(--accent);background:var(--sel)}
 .ctab.other{opacity:.72}.ctab .tproj{color:var(--muted);font-size:.92em}
+/* the workspace's projects as roots of the files tree (Sidebar.svelte) */
+#sidebody > button.root{display:flex;align-items:center;gap:6px;width:100%;padding:4px 10px;border:0;border-radius:0;background:none;font-size:11.5px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;position:sticky;top:0;z-index:1;background:var(--side,var(--bg))}
+#sidebody > button.root:hover{color:var(--fg)}#sidebody > button.root.here{color:var(--fg)}
+#sidebody > button.root .chev{display:inline-block;width:1.4ch}#sidebody > button.root .rname{flex:1;overflow:hidden;text-overflow:ellipsis}
+#sidebody > button.root .agentdot{color:var(--hot);font-size:10px}#sidebody > button.root .rchg{font-weight:400;color:var(--warn)}
+#sidebody .rbody .tree{padding:0 0 8px}#sidebody .rload{padding:2px 12px;font-size:11px}

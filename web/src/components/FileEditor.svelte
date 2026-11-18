@@ -119,7 +119,9 @@
     if (fresh) view.dispatch({ effects: setHunks.of(d.hunks) });
     else arrived(d);
     view.dispatch({ effects: toggleRemoved.of({ all: showAll }) });
-    requestAnimationFrame(() => { if (view && shown === k) { view.scrollDOM.scrollTop = b!.scroll; reportView(); } });
+    // A kept buffer goes back to where you were; a new one stays where an asked-for line (a search
+    // hit, a diagram link) put it, instead of being sent back to the top a frame later.
+    requestAnimationFrame(() => { if (view && shown === k) { if (!fresh) view.scrollDOM.scrollTop = b!.scroll; reportView(); } });
     if (bufs.size > 24) for (const [x] of bufs) { if (x !== k && !dirtyFiles.has(x)) { bufs.delete(x); break; } }
   }
 
