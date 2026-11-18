@@ -20,6 +20,7 @@ import swift from "highlight.js/lib/languages/swift";
 import nix from "highlight.js/lib/languages/nix";
 import objectivec from "highlight.js/lib/languages/objectivec";
 import zig from "./lang/zig";
+import { apiUrl } from "./state.svelte";
 
 for (const [n, l] of Object.entries({ rust, typescript, javascript, json, ini, markdown, yaml, bash, python, css, xml, c, cpp, cmake, glsl, swift, nix, objectivec, zig })) hljs.registerLanguage(n, l);
 
@@ -208,6 +209,7 @@ export function mdGrowing(key: string, src: string, resolve?: (name: string) => 
 }
 
 export const api = {
-  get: <T = any>(path: string): Promise<T> => fetch(path).then((r) => r.json()),
-  post: <T = any>(path: string, body: unknown = {}): Promise<T> => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()),
+  // The window's project's API (or another project's), under /p/<name>/ (src/serve.ts).
+  get: <T = any>(path: string, project?: string): Promise<T> => fetch(apiUrl(path, project)).then((r) => r.json()),
+  post: <T = any>(path: string, body: unknown = {}, project?: string): Promise<T> => fetch(apiUrl(path, project), { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()),
 };

@@ -5,7 +5,7 @@
   // conversation is, and hovering it, how much of your plan's limits you've used.
   import { onMount, tick } from "svelte";
   import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
-  import { openFile, S } from "../lib/state.svelte";
+  import { apiUrl, openFile, S } from "../lib/state.svelte";
   import type { ChatItem, ChatSession, Usage } from "../lib/types";
 
   let { hidden, onactivity }: { hidden: boolean; onactivity: (ask: boolean) => void } = $props();
@@ -54,7 +54,7 @@
   const stick = async (force = false) => { await tick(); if (msgs && (force || near)) msgs.scrollTop = msgs.scrollHeight; };
 
   onMount(() => {
-    const es = new EventSource("api/chat/events");
+    const es = new EventSource(apiUrl("api/chat/events"));
     es.onmessage = (m) => {
       const e = JSON.parse(m.data);
       if (e.type === "init") {

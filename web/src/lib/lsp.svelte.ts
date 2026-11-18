@@ -1,6 +1,6 @@
 // Language servers for the editor: definitions, references, rename, format, hover, completion and
-// diagnostics. One client per language, over a WebSocket to the cockpit server, which runs the
-// server in the project folder (src/serve.ts). Started the first time a file of that language
+// diagnostics. One client per project and language, over a WebSocket to the cockpit server, which
+// runs the server in the project folder (src/project.ts), in its dev container if it has one. Started the first time a file of that language
 // opens; a server that isn't installed leaves the editor as it is.
 //   Keys: F12 / gd definition, Shift+F12 / gr references, F2 / <Space>rn rename,
 //   Shift+Alt+F / <Space>f format.
@@ -8,6 +8,7 @@
 import type { Extension, Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { LSPClient, LSPPlugin, Workspace, languageServerExtensions, type Transport, type WorkspaceFile } from "@codemirror/lsp-client";
+import { wsUrl } from "./state.svelte";
 
 const ext = (path: string) => path.split(".").pop()?.toLowerCase() ?? "";
 // Which language server, and the LSP language id, for a file.
@@ -74,14 +75,17 @@ export const setDisplayFile = (fn: typeof display) => { display = fn; };
 
 type Server = { client: LSPClient; ready: boolean; plugins: Map<string, Extension> };
 const servers = new Map<string, Server>();
+// A language server of a project, as one key: servers, lspStatus.
+export const lspKey = (project: string, server: string) => project + "|" + server;
 // Each language server's state, for the editor's header.
 export const lspStatus: Record<string, "starting" | "ready" | "missing" | "down"> = $state({});
 let onReady: (server: string) => void = () => {};
 // Called when a server comes up or goes away: the file on screen reconnects.
 export const onLsp = (fn: (server: string) => void) => { onReady = fn; };
 
-function connect(name: string, s: Server) {
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/lsp?lang=" + name);
+function connect(project: string, server: string, s: Server) {
+  const name = lspKey(project, server);
+  const ws = new WebSocket(wsUrl("api/lsp?lang=" + server, project));
   const handlers = new Set<(v: string) => void>();
   const transport: Transport = {
     send(m) { if (ws.readyState !== WebSocket.OPEN) throw new Error("language server connection closed"); ws.send(m); },
@@ -101,22 +105,23 @@ function connect(name: string, s: Server) {
     if (e.code === 4404) { lspStatus[name] = "missing"; return; }
     lspStatus[name] = "down";
     if (was) onReady(name);
-    setTimeout(() => connect(name, s), 5000);
+    setTimeout(() => connect(project, server, s), 5000);
   };
 }
 
 // The extension that connects a file's editor to its language server: [] until the server is up.
 // The same extension object for the same file, so reconfiguring with it is a no-op.
-export function lspFor(root: string | undefined, path: string): Extension {
+export function lspFor(project: string, root: string | undefined, path: string): Extension {
   const which = serverOf(path);
   if (!which || !root) return [];
-  let s = servers.get(which.server);
+  const key = lspKey(project, which.server);
+  let s = servers.get(key);
   if (!s) {
     const client = new LSPClient({ rootUri: "file://" + encodeURI(root), timeout: 10_000, extensions: languageServerExtensions(), workspace: (c) => new CockpitWorkspace(c) });
     s = { client, ready: false, plugins: new Map() };
-    servers.set(which.server, s);
-    lspStatus[which.server] = "starting";
-    connect(which.server, s);
+    servers.set(key, s);
+    lspStatus[key] = "starting";
+    connect(project, which.server, s);
   }
   if (!s.ready) return [];
   const uri = fileUri(root, path);

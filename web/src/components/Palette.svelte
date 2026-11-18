@@ -4,7 +4,7 @@
   // ↑ ↓ choose, Enter opens, Esc closes.
   import { tick } from "svelte";
   import { api, esc } from "../lib/code";
-  import { openFile, S, store, ui } from "../lib/state.svelte";
+  import { openFile, S, store, tabProject, ui } from "../lib/state.svelte";
 
   type Hit = { path: string; line: number; col: number; text: string };
   let mode: "files" | "search" | null = $state(null);
@@ -45,7 +45,7 @@
     }
     return { s: s - path.length * 0.01, at };
   }
-  const openPaths = $derived(new Set(ui.tabs.flatMap((t) => (t.kind === "file" ? [t.path] : []))));
+  const openPaths = $derived(new Set(ui.tabs.flatMap((t) => (t.kind === "file" && tabProject(t) === S.project ? [t.path] : []))));
   const fileRows = $derived.by(() => {
     if (mode !== "files") return [];
     const query = q.toLowerCase().replace(/\s+/g, "");

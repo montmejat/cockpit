@@ -6,7 +6,7 @@
   import { Terminal as XTerm } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { api } from "../lib/code";
-  import { initialTerminals, S, store } from "../lib/state.svelte";
+  import { initialProject, initialTerminals, S, store, wsUrl } from "../lib/state.svelte";
   import type { TermMeta } from "../lib/types";
 
   type View = { id: string; meta: TermMeta; el: HTMLElement; term: XTerm; fit: FitAddon; ws: WebSocket; opened: boolean; size: string };
@@ -34,7 +34,7 @@
     const term = new XTerm({ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, theme: theme(), allowProposedApi: true });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/term/ws?id=" + encodeURIComponent(meta.id));
+    const ws = new WebSocket(wsUrl("api/term/ws?id=" + encodeURIComponent(meta.id)));
     const v: View = { id: meta.id, meta, el, term, fit, ws, opened: false, size: "" };
     // Ctrl+Shift+C copies; Ctrl+Shift+V is left to the browser, which pastes into the terminal.
     term.attachCustomKeyEventHandler((e) => {
@@ -91,10 +91,16 @@
   }
   export function toggle() { show(!open); }
 
-  onMount(() => {
-    for (const m of initialTerminals) view(m);
-    active = initialTerminals.at(-1)?.id ?? null;
+  // The window's project's terminals (this drawer is made again when the window switches project):
+  // the page came with the first project's, another one's are asked for.
+  async function attachAll() {
+    const list: TermMeta[] = S.project === initialProject ? initialTerminals : await api.get<TermMeta[]>("api/term/list").catch(() => []);
+    for (const m of list) view(m);
+    active = list.at(-1)?.id ?? null;
     if (store.get("cockpit-term-open-" + S.project, "0") === "1") show(true);
+  }
+  onMount(() => {
+    void attachAll();
     const ro = new ResizeObserver(() => fitView(views.get(active ?? "")));
     ro.observe(tbody);
     const mq = matchMedia("(prefers-color-scheme: dark)"), recolor = () => { for (const v of views.values()) v.term.options.theme = theme(); };

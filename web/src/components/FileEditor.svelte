@@ -18,10 +18,12 @@
   import { changeBars, changeStarts, languageFor, lineMarks, look, setHunks, toggleRemoved } from "../lib/editor";
   import { api } from "../lib/code";
   import { smoothWheel } from "../lib/smoothwheel";
-  import { closeTab, dirtyFiles, openFile, S, ui } from "../lib/state.svelte";
+  import { closeTab, dirtyFiles, fkey, openTab, S, tabProject, ui } from "../lib/state.svelte";
   import type { Hunk } from "../lib/types";
 
-  type FileData = { path: string; text: string | null; hash?: string; hunks: Hunk[] };
+  // `project`: the workspace project the file is in (CodeView tags it); buffers and unsaved
+  // edits are kept per project and path (fkey), since the window switches between projects.
+  type FileData = { project?: string; path: string; text: string | null; hash?: string; hunks: Hunk[] };
   let { path, data, want, boxLines, showAll, vimOn, onview, oncursor, onhover, onchanges }: {
     path: string; data: FileData | null; want: { line?: number; end?: number; at?: number };
     boxLines: [number, number][]; showAll: boolean; vimOn: boolean;
@@ -35,7 +37,8 @@
   const bufs = new Map<string, Buf>();
   let el: HTMLElement;
   let view: EditorView | null = null;
-  let shown: string | null = null; // the path the view shows
+  let shown: string | null = null; // the file the view shows, as fkey(project, path)
+  let at = { project: "", root: "", path: "" }; // the same, its parts (and the project's folder)
   let conflict: { text: string; hash: string } | null = $state(null);
   let saving = $state(false), error = $state("");
   const vimSlot = new Compartment(), lspSlot = new Compartment();
@@ -61,7 +64,7 @@
         indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
         indentUnit.of(indentOf(text)), EditorState.tabSize.of(4),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
-        languageFor(p), lspSlot.of(lspFor(S.root, p)), look, changeBars(), wantMarks.field, boxMarks.field,
+        languageFor(p), lspSlot.of(lspFor(S.project, S.root, p)), look, changeBars(), wantMarks.field, boxMarks.field,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) markDirty();
           if (u.selectionSet || u.docChanged) reportChanges();
@@ -101,12 +104,13 @@
   function show(p: string, d: FileData) {
     if (!view) return;
     if (shown && bufs.has(shown)) { const b = bufs.get(shown)!; b.state = view.state; b.scroll = view.scrollDOM.scrollTop; }
-    let b = bufs.get(p);
+    const k = fkey(d.project ?? S.project, p);
+    let b = bufs.get(k);
     // A buffer whose unsaved changes were thrown away (tab closed and confirmed): start again.
-    if (b && b.state.doc.toString() !== b.saved && !dirtyFiles.has(p)) { bufs.delete(p); b = undefined; }
+    if (b && b.state.doc.toString() !== b.saved && !dirtyFiles.has(k)) { bufs.delete(k); b = undefined; }
     const fresh = !b;
-    if (!b) { b = { state: newState(p, d.text ?? ""), saved: d.text ?? "", hash: d.hash ?? "", scroll: 0 }; bufs.set(p, b); }
-    shown = p;
+    if (!b) { b = { state: newState(p, d.text ?? ""), saved: d.text ?? "", hash: d.hash ?? "", scroll: 0 }; bufs.set(k, b); }
+    shown = k; at = { project: d.project ?? S.project, root: S.root ?? "", path: p };
     view.setState(b.state);
     connectLsp();
     conflict = b.disk ?? null;
@@ -115,34 +119,39 @@
     if (fresh) view.dispatch({ effects: setHunks.of(d.hunks) });
     else arrived(d);
     view.dispatch({ effects: toggleRemoved.of({ all: showAll }) });
-    requestAnimationFrame(() => { if (view && shown === p) { view.scrollDOM.scrollTop = b!.scroll; reportView(); } });
-    if (bufs.size > 24) for (const [k] of bufs) { if (k !== p && !dirtyFiles.has(k)) { bufs.delete(k); break; } }
+    requestAnimationFrame(() => { if (view && shown === k) { view.scrollDOM.scrollTop = b!.scroll; reportView(); } });
+    if (bufs.size > 24) for (const [x] of bufs) { if (x !== k && !dirtyFiles.has(x)) { bufs.delete(x); break; } }
   }
 
   // The shown file's language server, once it's up (lsp.svelte.ts); a jump to another file waits
   // for that file to show.
   function connectLsp() {
     if (!view || !shown) return;
-    const l = lspFor(S.root, shown);
+    const l = lspFor(at.project, at.root, at.path);
     if (lspSlot.get(view.state) !== l) view.dispatch({ effects: lspSlot.reconfigure(l) });
     for (const ok of waiting.get(shown) ?? []) ok(view);
     waiting.delete(shown);
   }
   const waiting = new Map<string, ((v: EditorView) => void)[]>();
   onLsp(() => connectLsp());
+  // A jump (definition, references) to a file: in this project, or in another project of the
+  // workspace, which the window then shows.
   setDisplayFile((uri) => {
-    const p = S.root ? pathOfUri(S.root, uri) : null;
-    if (!p || !S.files.includes(p)) return Promise.resolve(null);
-    if (p === shown && view) return Promise.resolve(view);
-    return new Promise((ok) => { (waiting.get(p) ?? waiting.set(p, []).get(p)!).push(ok); openFile(p); });
+    let project = S.project, p = S.root ? pathOfUri(S.root, uri) : null;
+    if (p && !S.files.includes(p)) return Promise.resolve(null);
+    if (!p) for (const w of S.workspace?.projects ?? []) { const q = pathOfUri(w.path, uri); if (q) { project = w.name; p = q; break; } }
+    if (!p) return Promise.resolve(null);
+    const k = fkey(project, p);
+    if (k === shown && view) return Promise.resolve(view);
+    return new Promise((ok) => { (waiting.get(k) ?? waiting.set(k, []).get(k)!).push(ok); void openTab({ kind: "file", project, path: p! }); });
   });
 
   // A newer version of the shown file arrived (from disk).
   function arrived(d: FileData) {
-    const b = bufs.get(d.path);
+    const b = bufs.get(fkey(d.project ?? S.project, d.path));
     if (!view || !b || d.text == null) return;
     if (d.hash && b.before?.hash === d.hash && Date.now() - b.before.at < 5000) return; // older than your last save, arriving late
-    const dirty = dirtyFiles.has(d.path);
+    const dirty = dirtyFiles.has(fkey(d.project ?? S.project, d.path));
     if (d.text === view.state.doc.toString()) { b.saved = d.text; b.hash = d.hash ?? b.hash; b.disk = undefined; conflict = null; markDirty(); }
     else if (d.text === b.saved) { b.hash = d.hash ?? b.hash; return; } // your edits stand; their bars already follow them
     else if (!dirty) { replaceDoc(d.text); b.saved = d.text; b.hash = d.hash ?? ""; markDirty(); }
@@ -152,23 +161,23 @@
 
   $effect(() => {
     const d = data, p = path;
-    if (!view || !d || d.path !== p || d.text == null) return;
-    if (shown !== p) show(p, d); else arrived(d);
+    if (!view || !d || d.path !== p || d.text == null || (d.project && d.project !== S.project)) return;
+    if (shown !== fkey(d.project ?? S.project, p)) show(p, d); else arrived(d);
   });
 
   // ---- saving -------------------------------------------------------------------------
   async function save(force = false): Promise<boolean> {
     if (!view || !shown) return false;
-    const p = shown, b = bufs.get(p)!, text = view.state.doc.toString();
+    const k = shown, { project, path: p } = at, b = bufs.get(k)!, text = view.state.doc.toString();
     if (!force && text === b.saved) return true;
     saving = true; error = "";
     try {
-      const r = await api.post<{ ok?: boolean; hash?: string; conflict?: boolean; text?: string; error?: string }>("api/file/save", { path: p, text, hash: b.hash, force });
+      const r = await api.post<{ ok?: boolean; hash?: string; conflict?: boolean; text?: string; error?: string }>("api/file/save", { path: p, text, hash: b.hash, force }, project);
       if (r.error) { error = r.error; return false; }
-      if (r.conflict) { b.disk = { text: r.text!, hash: r.hash! }; if (shown === p) conflict = b.disk; return false; }
+      if (r.conflict) { b.disk = { text: r.text!, hash: r.hash! }; if (shown === k) conflict = b.disk; return false; }
       if (b.hash && b.hash !== r.hash) b.before = { hash: b.hash, at: Date.now() };
       b.saved = text; b.hash = r.hash!; b.disk = undefined;
-      if (shown === p) { conflict = null; markDirty(); }
+      if (shown === k) { conflict = null; markDirty(); }
       return true;
     } catch (e) { error = String(e); return false; }
     finally { saving = false; }
@@ -183,7 +192,7 @@
   }
 
   // vim's :w, :q, :wq, :x act on whichever editor is showing (there's one).
-  const closeShown = () => { const i = ui.tabs.findIndex((t) => t.kind === "file" && t.path === shown); if (i > 0) closeTab(i); };
+  const closeShown = () => { const i = ui.tabs.findIndex((t) => t.kind === "file" && fkey(tabProject(t), t.path) === shown); if (i > 0) closeTab(i); };
   // What's selected (one line, short), for the project search to start from.
   const selected = () => { const r = view?.state.selection.main; return view && r && !r.empty && r.to - r.from < 200 ? view.state.sliceDoc(r.from, r.to).split("\n")[0] : ""; };
   const api_ = { save, closeShown, jump: (d: 1 | -1) => jump(d), selected, focus: () => view?.focus() };
@@ -267,7 +276,7 @@
   let placed = "";
   $effect(() => {
     const w = want, p = path, ready = !!data && data.path === p;
-    if (!view || !ready || shown !== p) return;
+    if (!view || !ready || shown !== fkey(S.project, p)) return;
     const key = p + ":" + (w.line ?? "") + ":" + (w.at ?? "");
     if (placed === key) return;
     placed = key;

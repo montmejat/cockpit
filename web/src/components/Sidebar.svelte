@@ -2,7 +2,7 @@
   import FileTree from "./FileTree.svelte";
   import GitPane from "./GitPane.svelte";
   import Grip, { savedWidth } from "./Grip.svelte";
-  import { collapseAll, S, store, ui } from "../lib/state.svelte";
+  import { collapseAll, P, projectNames, S, setActive, store, ui } from "../lib/state.svelte";
 
   $effect(() => store.set("cockpit-tab", ui.side));
 
@@ -18,6 +18,14 @@
 
 <nav id="side" style:width="{width}px">
   <Grip bind:width def={280} key="cockpit-side-width" edge="right" />
+  <!-- the workspace's projects (src/serve.ts hosts them all): one click shows another one -->
+  {#if projectNames.length > 1}
+    <div class="projects" role="tablist" aria-label="Projects of the workspace">
+      {#each projectNames as name (name)}
+        <button class:on={name === P.active} role="tab" aria-selected={name === P.active} title="Show {name} in this window" onclick={() => setActive(name)}>{name}</button>
+      {/each}
+    </div>
+  {/if}
   <div class="tabs">
     <button class:on={ui.side === "files"} onclick={() => (ui.side = "files")}>files</button>
     <button class:on={ui.side === "git"} onclick={() => (ui.side = "git")}>git</button>

@@ -544,3 +544,10 @@ button.gall{font-size:11px;padding:0 6px;color:var(--muted);background:none}butt
 .grow-row{gap:2px}
 .grow-row .ref{display:inline-block;max-width:11ch;overflow:hidden;text-overflow:ellipsis;vertical-align:-3px;white-space:nowrap}
 .ref.synced::after{content:" ⇅";opacity:.7}.ref.more{border-color:var(--line);color:var(--muted)}
+
+/* the workspace's projects, over the sidebar (Sidebar.svelte), and a tab of another project (TabBar.svelte) */
+#side .projects{display:flex;flex-wrap:wrap;gap:3px;padding:6px 8px 4px;border-bottom:1px solid var(--line)}
+#side .projects button{font-size:11.5px;padding:1px 8px;border-radius:10px;border:1px solid var(--line);background:none;color:var(--muted)}
+#side .projects button:hover{color:var(--fg);border-color:var(--accent)}
+#side .projects button.on{color:var(--fg);border-color:var(--accent);background:var(--sel)}
+.ctab.other{opacity:.72}.ctab .tproj{color:var(--muted);font-size:.92em}

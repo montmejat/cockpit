@@ -12,7 +12,7 @@
   import Palette from "./components/Palette.svelte";
   import Chat from "./components/Chat.svelte";
   import Inspector from "./components/Inspector.svelte";
-  import { byId, openCommit, openDiagram, openFile, showRight, ui, cur, mapTab, S, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
+  import { byId, openCommit, openDiagram, openFile, opened, P, showRight, ui, cur, mapTab, S, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
   import Grip, { savedWidth } from "./components/Grip.svelte";
   import { api } from "./lib/code";
 
@@ -37,7 +37,8 @@
   $effect(() => {
     const t = cur();
     const hash = t.kind === "map" ? (t.id ?? "") : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
-    history.replaceState(null, "", location.pathname + (hash ? "#" + encodeURIComponent(hash) : ""));
+    const q = P.active !== opened ? "?project=" + encodeURIComponent(P.active) : "";
+    history.replaceState(null, "", location.pathname + q + (hash ? "#" + encodeURIComponent(hash) : ""));
   });
   // A diagram that disappeared from .cockpit/: the map goes back home.
   $effect(() => { const t = mapTab(); if (S.diagrams.length && !byId(t.id)) { t.id = S.diagrams.find((d) => d.kind === "loop")?.id ?? S.diagrams[0].id; t.code = null; saveTabs(); } });
@@ -80,10 +81,11 @@
   <section id="center">
     <TabBar />
     <div id="work">
-      <MapView hidden={cur().kind !== "map"} />
-      {#if cur().kind !== "map"}<CodeView />{/if}
+      {#key P.active}<MapView hidden={cur().kind !== "map"} />{/key}
+      <CodeView hidden={cur().kind === "map"} />
     </div>
-    <Terminal bind:this={term} />
+    <!-- the window's project's terminals and chat: made again when it switches project -->
+    {#key P.active}<Terminal bind:this={term} />{/key}
   </section>
   <!-- kept mounted when closed, so the chat keeps following the agent -->
   <aside id="right" class:hide={!ui.right} style:width="{rightWidth}px">
@@ -92,7 +94,7 @@
       <button class:on={ui.rtab === "chat"} onclick={() => { showRight("chat"); unread = false; }}>chat{#if unread}<span class="unread"></span>{/if}</button>
       <button class:on={ui.rtab === "details"} onclick={() => showRight("details")}>details</button>
     </div>
-    <Chat hidden={ui.rtab !== "chat"} onactivity={(ask) => { if (ask) showRight("chat"); else if (ui.rtab !== "chat" || !ui.right) unread = true; }} />
+    {#key P.active}<Chat hidden={ui.rtab !== "chat"} onactivity={(ask) => { if (ask) showRight("chat"); else if (ui.rtab !== "chat" || !ui.right) unread = true; }} />{/key}
     {#if ui.rtab === "details"}<Inspector />{/if}
   </aside>
 </main>

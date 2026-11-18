@@ -109,11 +109,13 @@ index, chat and terminals; the workspace tells each one about the others.
   your yes, on an Allow/Deny card, even in auto mode.
 - `SYSTEM.md` says which project owns what, who calls whom and through what, and how they are built
   together. The agents write it the first time it matters and keep it true; you can edit it too.
-- The header shows the workspace before the project's name; its menu lists the projects. In the
-  desktop app "open" switches the window to that project and ↗ opens it in a window of its own.
-  A project you switch away from keeps its server running, with its terminals and agent, so
-  switching back is instant; they all stop when the window closes. In a browser, "open" starts
-  the desktop app on it.
+- **One window for the whole workspace.** The server hosts every project of the workspace (each
+  under `/p/<name>/`, started the first time you look at it), and the window switches between
+  them: the strip over the sidebar, or the workspace menu in the header ("show"; ↗ opens one in a
+  window of its own in the desktop app). The map, files, git, chat, terminals and details follow
+  the project shown; tabs of every project stay open (another project's are prefixed with its
+  name, and picking one shows that project), and so do unsaved edits, the agents and terminals.
+  A jump to a definition in another project of the workspace opens it there.
 - When the C++ index runs in a build image, the other projects are mounted there too, read-only,
   for builds that compile another project's headers or sources from its checkout.
 - A change to the workspace reaches the chat from its next conversation.

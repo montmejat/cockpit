@@ -8,13 +8,18 @@
   import MiniMap from "./MiniMap.svelte";
   import FileEditor from "./FileEditor.svelte";
   import { api, parsePatch } from "../lib/code";
-  import { cur, openFile, S, statusOf, store, dirtyFiles } from "../lib/state.svelte";
-  import { lspStatus, serverOf } from "../lib/lsp.svelte";
+  import { cur, fkey, openFile, S, statusOf, store, dirtyFiles } from "../lib/state.svelte";
+  import { lspKey, lspStatus, serverOf } from "../lib/lsp.svelte";
   import type { Hunk } from "../lib/types";
 
-  type FileData = { path: string; text: string | null; hash?: string; note?: string; error?: string; hunks: Hunk[] };
-  type CommitData = { sha: string; subject: string; author: string; date: string; body: string; patch: string; error?: string };
+  // `project`: whose file or commit it is (the window switches between the workspace's projects,
+  // and two of them can have a file at the same path).
+  type FileData = { project?: string; path: string; text: string | null; hash?: string; note?: string; error?: string; hunks: Hunk[] };
+  type CommitData = { project?: string; sha: string; subject: string; author: string; date: string; body: string; patch: string; error?: string };
 
+  // Kept mounted while the map shows (hidden), so the editor keeps its buffers: unsaved edits
+  // survive a look at the map, a commit, or another project of the workspace.
+  let { hidden = false }: { hidden?: boolean } = $props();
   const tab = $derived(cur());
   const path = $derived(tab.kind === "file" ? tab.path : null);
   const sha = $derived(tab.kind === "commit" ? tab.sha : null);
@@ -22,17 +27,17 @@
   const dtab = $derived(tab.kind === "diff" ? tab : null);
   type DiffData = { path: string; staged: boolean; patch: string; note?: string };
   let diff: DiffData | null = $state(null);
-  const dkey = $derived(dtab ? dtab.path + "@" + dtab.staged + "@" + (S.fileRevs[dtab.path] ?? 0) + "@" + S.git.head + "@" + JSON.stringify(S.status.find((x) => x.path === dtab.path) ?? null) : "");
+  const dkey = $derived(dtab ? S.project + ":" + dtab.path + "@" + dtab.staged + "@" + (S.fileRevs[dtab.path] ?? 0) + "@" + S.git.head + "@" + JSON.stringify(S.status.find((x) => x.path === dtab.path) ?? null) : "");
   $effect(() => {
     if (!dtab) return;
     const k = dkey, d = dtab;
-    if (diff && (diff.path !== d.path || diff.staged !== d.staged)) diff = null;
+    if (diff && (diff.path !== d.path || diff.staged !== d.staged || !k.startsWith(S.project + ":"))) diff = null;
     api.get<DiffData>(`api/git/diff?path=${encodeURIComponent(d.path)}&staged=${d.staged ? 1 : 0}`).then((r) => { if (dkey === k) diff = r; }).catch(() => {});
   });
   const dfiles = $derived(diff?.patch ? parsePatch(diff.patch) : []);
   // The file is loaded again when it changes on disk, when HEAD moves, or when a review starts or
   // ends (in review mode its changes are against the review's target, not the last commit).
-  const rev = $derived(path ? (S.fileRevs[path] ?? 0) + "@" + S.git.head + "@" + (statusOf(path) ?? "") + "@" + (S.review?.base ?? "") : "");
+  const rev = $derived(path ? S.project + "@" + (S.fileRevs[path] ?? 0) + "@" + S.git.head + "@" + (statusOf(path) ?? "") + "@" + (S.review?.base ?? "") : "");
 
   // Recent files, so switching tabs shows them at once; the last version stays on screen while
   // a new one loads.
@@ -42,23 +47,24 @@
 
   $effect(() => {
     if (!path) return;
-    const p = path, r = rev, hit = files.get(p);
+    const p = path, r = rev, proj = S.project, hit = files.get(proj + ":" + p);
     // The cached copy only when switching files: for the same file it is older than what the
     // editor has (just saved, say), and showing it would bring the old text back until the new one loads.
-    if (file?.path !== p) file = hit?.data ?? null;
+    if (file?.path !== p || file.project !== proj) file = hit?.data ?? null;
     if (hit?.rev === r) return;
-    api.get<FileData>("api/file?path=" + encodeURIComponent(p) + (S.review?.base ? "&review=1" : "")).then((data) => {
-      files.set(p, { rev: r, data });
+    api.get<FileData>("api/file?path=" + encodeURIComponent(p) + (S.review?.base ? "&review=1" : ""), proj).then((data) => {
+      data.project = proj;
+      files.set(proj + ":" + p, { rev: r, data });
       if (files.size > 12) files.delete(files.keys().next().value!);
-      if (path === p) file = data;
+      if (path === p && S.project === proj) file = data;
     }).catch(() => {});
   });
   $effect(() => {
     if (!sha) return;
-    const s = sha;
-    if (commit?.sha.startsWith(s)) return;
+    const s = sha, proj = S.project;
+    if (commit?.sha.startsWith(s) && commit.project === proj) return;
     commit = null;
-    api.get<CommitData>("api/git/commit?sha=" + encodeURIComponent(s)).then((c) => { if (sha === s) commit = c; });
+    api.get<CommitData>("api/git/commit?sha=" + encodeURIComponent(s), proj).then((c) => { c.project = proj; if (sha === s && S.project === proj) commit = c; });
   });
 
   // ---- the file: an editor (FileEditor.svelte) ------------------------------------------
@@ -68,7 +74,7 @@
   // The file's language server, in the header: ready, starting, or not installed.
   const LSPCMD: Record<string, string> = { rust: "rust-analyzer", typescript: "typescript-language-server", python: "pyright", zig: "zls", c: "clangd" };
   const srv = $derived(path ? serverOf(path)?.server ?? null : null);
-  const lsp = $derived(srv ? lspStatus[srv] ?? "starting" : null);
+  const lsp = $derived(srv ? lspStatus[lspKey(S.project, srv)] ?? "starting" : null);
   let vimOn = $state(store.get("cockpit-vim", "1") === "1");
   let changes = $state(0), changeAt = $state(0);
   // Requested lines (from a diagram link or a test) are highlighted and scrolled to.
@@ -85,12 +91,12 @@
   const files_ = $derived(commit ? parsePatch(commit.patch) : []);
 </script>
 
-<section id="codeview">
+<section id="codeview" class:hide={hidden}>
   {#if path}
     <div class="dhead">
       <span class="path">{path}</span>
       {#if statusOf(path)}<span class="mark {statusOf(path)}">{statusOf(path)}</span>{/if}
-      {#if dirtyFiles.has(path)}<button class="esave" title="Save (Ctrl+S, or :w in vim)" onclick={() => editor?.saveNow()}>● save</button>{/if}
+      {#if dirtyFiles.has(fkey(S.project, path))}<button class="esave" title="Save (Ctrl+S, or :w in vim)" onclick={() => editor?.saveNow()}>● save</button>{/if}
       <span class="grow"></span>
       {#if srv && lsp}<span class="lsp {lsp}" title={lsp === "ready" ? `${srv} language server: hover, completion, diagnostics; F12 / gd definition, Shift+F12 / gr references, F2 / Space rn rename, Shift+Alt+F / Space f format` : lsp === "missing" ? `No ${srv} language server installed (${LSPCMD[srv] ?? srv})` : `${srv} language server ${lsp}`}>{srv}{lsp === "ready" ? "" : lsp === "missing" ? " ×" : " …"}</span>{/if}
       <button class="vimtoggle" class:on={vimOn} title={vimOn ? "Vim keys on: :w saves, :q closes, :wq both. Click to turn off." : "Vim keys off. Click to turn on."}
@@ -104,10 +110,13 @@
     {#if !file}<div class="dbody"><p class="dnote">loading…</p></div>
     {:else if file.path === path && (file.error || file.text == null)}<div class="dbody"><p class="dnote">{file.error ?? file.note}</p></div>
     {/if}
-    <div class="ewrap" hidden={!file || (file.path === path && file.text == null)}>
-      <FileEditor bind:this={editor} {path} data={file} {want} {boxLines} {showAll} {vimOn}
-        onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n, at) => { changes = n; changeAt = at; }} />
-    </div>
+  {/if}
+  <!-- the editor stays, hidden, whatever the tab: it holds the open files' buffers -->
+  <div class="ewrap" hidden={!path || !file || (file.path === path && file.text == null)}>
+    <FileEditor bind:this={editor} path={path ?? ""} data={file} {want} {boxLines} {showAll} {vimOn}
+      onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n, at) => { changes = n; changeAt = at; }} />
+  </div>
+  {#if path}
     <MiniMap {path} {view} {cursor} onlines={(ls) => (boxLines = ls)} onjump={(n) => editor?.scrollToLine(n)} />
   {:else if dtab}
     <div class="dhead">

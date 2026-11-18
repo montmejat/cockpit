@@ -1,7 +1,7 @@
 <script lang="ts">
   // The top bar: project, branch, size and health at a glance (each opens its explanation), the
   // running agent, the terminal and chat toggles (with the hints on). In the desktop app it is also the window's title bar.
-  import { S, dirtyFiles, plural, showRight, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
+  import { S, dirtyFiles, P, plural, projectNames, setActive, showRight, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
 
@@ -36,15 +36,13 @@
     const s = Math.max(0, (now - Date.parse(iso)) / 1000);
     return s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
   }
+  // "show" switches this window to that project (lib/state, setActive: the server hosts the
+  // whole workspace, src/serve.ts); ↗ opens it in a window of its own (the desktop app).
   let wsOpen = $state(false), wsNote = $state("");
-  async function openProject(path: string, newWindow = false) {
+  async function openProject(p: { name: string; path: string }, newWindow = false) {
     wsNote = "";
-    if (tauri && !newWindow) {
-      if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Switch to ${path.split("/").pop()} anyway?`)) return;
-      try { await tauri.core.invoke("open_project", { path }); wsOpen = false; } catch (e) { wsNote = String(e); }
-      return;
-    }
-    const r = await api.post<{ error?: string }>("api/workspace/open", { path });
+    if (!newWindow && projectNames.includes(p.name)) { await setActive(p.name); wsOpen = false; return; }
+    const r = await api.post<{ error?: string }>("api/workspace/open", { path: p.path });
     if (r.error) wsNote = r.error; else wsOpen = false;
   }
   // The dev container (src/devcontainer.ts): its state, and a way to retry or rebuild it.
@@ -116,8 +114,9 @@
     <div class="wsmenu">
       <div class="muted wshead">workspace <b>{S.workspace.name}</b>: the agent reads these projects too</div>
       {#each S.workspace.projects as p (p.path)}
-        <div class="wsrow" class:here={p.here}>
-          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · this window</span>{:else}<button title={tauri ? "Show it in this window" : "Open it in the desktop app"} onclick={() => openProject(p.path)}>open</button>{#if tauri}<button title="Open it in a window of its own" onclick={() => openProject(p.path, true)}>↗</button>{/if}{/if}</div>
+        {@const shown = p.name === P.active}
+        <div class="wsrow" class:here={shown}>
+          <div class="wsname"><b>{p.name}</b>{#if shown}<span class="muted"> · shown</span>{:else}<button title="Show it in this window" onclick={() => openProject(p)}>show</button>{/if}{#if tauri && !shown}<button title="Open it in a window of its own" onclick={() => openProject(p, true)}>↗</button>{/if}</div>
           {#if p.summary}<div class="muted wssum">{p.summary}</div>{/if}
         </div>
       {/each}

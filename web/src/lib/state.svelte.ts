@@ -4,10 +4,23 @@
 import { SvelteSet } from "svelte/reactivity";
 import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 
-declare global { interface Window { INIT: Live & { terminals: TermMeta[] }; __TAURI__?: any } }
+type Boot = Live & { terminals: TermMeta[]; desktop?: Live["desktop"]; opened?: string; projects?: string[] };
+declare global { interface Window { INIT: Boot; __TAURI__?: any } }
 
 const boot = window.INIT;
 export const initialTerminals: TermMeta[] = boot.terminals ?? [];
+export const initialProject = boot.project; // the project the page first showed
+// The server hosts the project it was opened on and the other projects of its workspace
+// (src/serve.ts): the window shows one at a time (P.active) and switches between them, keeping
+// every project's tabs, unsaved edits, terminals and chat.
+export const opened = boot.opened ?? boot.project;
+export const projectNames: string[] = boot.projects ?? [boot.project];
+export const P = $state({ active: boot.project });
+// A project's API, under /p/<name>/ (src/serve.ts), and its WebSockets.
+export const apiUrl = (path: string, project = P.active) => "/p/" + encodeURIComponent(project) + "/" + path.replace(/^\//, "");
+export const wsUrl = (path: string, project = P.active) => (location.protocol === "https:" ? "wss://" : "ws://") + location.host + apiUrl(path, project);
+// A file of a project, as one key (unsaved edits, editor buffers).
+export const fkey = (project: string, path: string) => project + "\u0000" + path;
 
 // Live data. The server sends it whole once, then only the parts that changed (src/serve.ts).
 // Each part is reactive as a whole and never deeply: parts are only ever replaced, and some are
@@ -17,14 +30,28 @@ function cell<T>(v: T) {
   let x = $state.raw(v);
   return { get: () => x, set: (n: T) => { x = n; } };
 }
+// Each project's parts, as cells; S reads the active project's.
+const NOT_STATE = new Set(["terminals", "desktop", "opened", "projects"]);
+const lives = new Map<string, Record<string, ReturnType<typeof cell<unknown>>>>();
+function cellsOf(project: string, parts: Record<string, unknown>) {
+  let c = lives.get(project);
+  if (!c) lives.set(project, (c = {}));
+  for (const [k, v] of Object.entries(parts)) if (!NOT_STATE.has(k)) { if (c[k]) c[k].set(v); else c[k] = cell(v); }
+  return c;
+}
+cellsOf(boot.project, boot as unknown as Record<string, unknown>);
 export const S: Live = (() => {
   const o = {} as Live;
-  for (const k of Object.keys(boot) as (keyof Live)[]) {
-    const c = cell(boot[k]);
-    Object.defineProperty(o, k, { get: c.get, set: c.set as (v: unknown) => void, enumerable: true });
+  for (const k of Object.keys(boot).filter((k) => !NOT_STATE.has(k))) {
+    Object.defineProperty(o, k, {
+      get: () => lives.get(P.active)?.[k]?.get(),
+      set: (v: unknown) => { const c = lives.get(P.active)!; if (c[k]) c[k].set(v); else c[k] = cell(v); },
+      enumerable: true,
+    });
   }
   return o;
 })();
+export const desktopInfo = boot.desktop;
 
 // A list patched by key: changed and new entries replace or join, removed ones go; when the
 // membership changed the server sends the new order of keys.
@@ -35,23 +62,40 @@ function merge<T>(list: T[], p: { set: T[]; del: string[]; keys?: string[] }, ke
   return p.keys ? p.keys.map((k) => by.get(k)!).filter(Boolean) : list.filter((x) => by.has(key(x))).map((x) => by.get(key(x))!);
 }
 
-export function connectLive() {
-  const es = new EventSource("api/events");
-  es.onmessage = (m) => {
-    const e = JSON.parse(m.data);
-    const parts = e.type === "full" ? e.state : e.patch;
-    // The whole state comes on (re)connecting, usually the same as the page's (it just loaded
-    // with it): unchanged parts are left alone, so nothing is redrawn or fetched again for them.
-    for (const k of Object.keys(parts)) if (e.type !== "full" || JSON.stringify((S as any)[k]) !== JSON.stringify(parts[k])) (S as any)[k] = parts[k];
-    // Big lists come as their changed entries (src/serve.ts, listPatch).
-    const l = e.lists ?? {};
-    if (l.modules) S.modules = merge(S.modules, l.modules, (m) => m.id);
-    if (l["tests.unit"] || l["tests.integration"]) S.tests = {
-      unit: l["tests.unit"] ? merge(S.tests.unit, l["tests.unit"], (u) => u.module + "\0" + u.file) : S.tests.unit,
-      integration: l["tests.integration"] ? merge(S.tests.integration, l["tests.integration"], (t) => t.file) : S.tests.integration,
+// Each project's live state, from its event stream; connected the first time it is shown (the
+// page's first project at once), and kept connected after that. Resolves once its state is in.
+const conns = new Map<string, Promise<void>>();
+export function connectLive(project = P.active): Promise<void> {
+  let c = conns.get(project);
+  if (c) return c;
+  c = new Promise((ready) => {
+    const es = new EventSource(apiUrl("api/events", project));
+    es.onmessage = (m) => {
+      const e = JSON.parse(m.data);
+      const parts = e.type === "full" ? e.state : e.patch;
+      const known = lives.get(project);
+      // The whole state comes on (re)connecting, usually the same as the page's (it just loaded
+      // with it): unchanged parts are left alone, so nothing is redrawn or fetched again for them.
+      const fresh: Record<string, unknown> = {};
+      for (const k of Object.keys(parts)) if (e.type !== "full" || !known?.[k] || JSON.stringify(known[k].get()) !== JSON.stringify(parts[k])) fresh[k] = parts[k];
+      const cs = cellsOf(project, fresh);
+      // Big lists come as their changed entries (src/project.ts, listPatch).
+      const l = e.lists ?? {};
+      const get = <T,>(k: string) => cs[k].get() as T;
+      if (l.modules) cs.modules.set(merge(get<Live["modules"]>("modules"), l.modules, (m) => m.id));
+      if (l["tests.unit"] || l["tests.integration"]) {
+        const t = get<Live["tests"]>("tests");
+        cs.tests.set({
+          unit: l["tests.unit"] ? merge(t.unit, l["tests.unit"], (u) => u.module + "\0" + u.file) : t.unit,
+          integration: l["tests.integration"] ? merge(t.integration, l["tests.integration"], (x) => x.file) : t.integration,
+        });
+      }
+      ready();
     };
-  };
-  // EventSource reconnects by itself; the server starts again with the whole state.
+    // EventSource reconnects by itself; the server starts again with the whole state.
+  });
+  conns.set(project, c);
+  return c;
 }
 
 // ---- small helpers -------------------------------------------------------
@@ -124,15 +168,21 @@ export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map
 // ---- what is open ----------------------------------------------------------
 
 type Insp = "features" | "tests" | "problems" | null;
+// The window's tabs, of every project (kept under the project the server was opened on); a tab
+// saved before tabs had a project is that one's.
 const saved = (): Tab[] => {
-  try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff")); } catch { return []; }
+  try {
+    return (JSON.parse(store.get("cockpit-tabs-" + opened, "[]")) as Tab[])
+      .filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff") && projectNames.includes(t.project ?? opened))
+      .map((t) => ({ ...t, project: (t as { project?: string }).project ?? opened }) as Tab);
+  } catch { return []; }
 };
 const sideTab = store.get("cockpit-tab", "files");
 
 export const ui = $state({
   side: (sideTab === "git" ? "git" : "files") as "files" | "git",
   tabs: [{ kind: "map", id: home(), code: null } as Tab, ...saved()],
-  active: Math.max(0, +store.get("cockpit-active-" + S.project, "0") || 0),
+  active: Math.max(0, +store.get("cockpit-active-" + opened, "0") || 0),
   picked: null as string | null, // the box clicked on the map
   insp: null as Insp, // the right panel shows features, tests or problems instead
   rtab: (store.get("cockpit-right", "chat") === "details" ? "details" : "chat") as "chat" | "details",
@@ -147,16 +197,31 @@ export const cur = () => ui.tabs[ui.active];
 export const mapTab = () => ui.tabs[0] as Extract<Tab, { kind: "map" }>;
 
 export function saveTabs() {
-  store.set("cockpit-tabs-" + S.project, JSON.stringify(ui.tabs.slice(1).map((t) => (t.kind === "file" ? { kind: "file", path: t.path } : t))));
-  store.set("cockpit-active-" + S.project, String(ui.active));
+  store.set("cockpit-tabs-" + opened, JSON.stringify(ui.tabs.slice(1).map((t) => (t.kind === "file" ? { kind: "file", project: t.project, path: t.path } : t))));
+  store.set("cockpit-active-" + opened, String(ui.active));
 }
 
-const sameTab = (a: Tab, b: Tab) => a.kind === b.kind && (a.kind === "file" ? a.path === (b as any).path : a.kind === "commit" ? a.sha === (b as any).sha
+// The project a tab belongs to: the map follows the window's project.
+export const tabProject = (t: Tab | undefined) => (!t || t.kind === "map" ? P.active : t.project ?? opened);
+// The tab to show first must be of the project shown first.
+if (tabProject(ui.tabs[ui.active]) !== P.active) ui.active = 0;
+const sameTab = (a: Tab, b: Tab) => a.kind === b.kind && tabProject(a) === tabProject(b) && (a.kind === "file" ? a.path === (b as any).path : a.kind === "commit" ? a.sha === (b as any).sha
   : a.kind === "diff" ? a.path === (b as any).path && a.staged === (b as any).staged : true);
 // A tab's key and label, for the tab bar and the address.
-export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + t.sha : (t.staged ? "s:" : "d:") + t.path);
-// Open (or focus) a tab next to the current one. Old file tabs make room past 14.
-export function openTab(spec: Tab) {
+export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : tabProject(t) + ":" + (t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + t.sha : (t.staged ? "s:" : "d:") + t.path));
+// Show a tab: the window switches to its project first.
+export async function pickTab(i: number) {
+  const t = ui.tabs[i];
+  if (!t) return;
+  await setActive(tabProject(t), t);
+  ui.active = ui.tabs.indexOf(t); ui.picked = null;
+  saveTabs();
+}
+// Open (or focus) a tab next to the current one, in the window's project unless it names
+// another one (the window switches to it). Old file tabs make room past 14.
+export async function openTab(spec: Tab) {
+  if (spec.kind !== "map") spec.project ??= P.active;
+  if (spec.kind !== "map" && spec.project !== P.active) await setActive(spec.project!, spec);
   let i = ui.tabs.findIndex((t) => sameTab(t, spec));
   if (i < 0) {
     i = Math.min(ui.active + 1, ui.tabs.length);
@@ -172,18 +237,20 @@ export const openFile = (path: string, line?: number, end?: number) => openTab({
 export const openCommit = (sha: string) => openTab({ kind: "commit", sha });
 // A changed file's diff: staged (index against HEAD) or not (working tree against the index).
 export const openDiff = (path: string, staged: boolean) => openTab({ kind: "diff", path, staged });
-// Files with unsaved changes in the editor (FileEditor.svelte keeps the buffers).
+// Files with unsaved changes in the editor (FileEditor.svelte keeps the buffers), as fkey()s.
 export const dirtyFiles = new SvelteSet<string>();
 
 export function closeTab(i: number) {
   if (i === 0) return; // the map stays
   const t = ui.tabs[i];
-  if (t?.kind === "file" && dirtyFiles.has(t.path)) {
+  if (t?.kind === "file" && dirtyFiles.has(fkey(tabProject(t), t.path))) {
     if (!confirm(`${t.path} has unsaved changes. Close it and lose them?`)) return;
-    dirtyFiles.delete(t.path); // the editor drops the buffer when it sees it's no longer dirty
+    dirtyFiles.delete(fkey(tabProject(t), t.path)); // the editor drops the buffer when it sees it's no longer dirty
   }
   ui.tabs.splice(i, 1);
   if (i < ui.active || ui.active >= ui.tabs.length) ui.active = Math.max(0, ui.active - 1);
+  // The tab now shown may be another project's: the window follows it.
+  if (tabProject(cur()) !== P.active) void pickTab(ui.active);
   saveTabs();
 }
 // Going to a diagram moves the map there.
@@ -211,10 +278,9 @@ export function toggleInsp(which: Exclude<Insp, null>) { ui.insp = ui.insp === w
 // Folders with changes, and the folders of the file you open, open by themselves until you open
 // or close them yourself; "collapse all" closes everything.
 
-let folderSaved: Record<string, boolean> = {};
-try { folderSaved = JSON.parse(store.get("cockpit-folders-" + S.project, "{}")); } catch {}
-export const folders: Record<string, boolean> = $state(folderSaved);
-const saveFolders = () => store.set("cockpit-folders-" + S.project, JSON.stringify(folders));
+const savedFolders = (project: string): Record<string, boolean> => { try { return JSON.parse(store.get("cockpit-folders-" + project, "{}")); } catch { return {}; } };
+export const folders: Record<string, boolean> = $state(savedFolders(P.active));
+const saveFolders = () => store.set("cockpit-folders-" + P.active, JSON.stringify(folders));
 export function setFolder(dir: string, open: boolean) { folders[dir] = open; saveFolders(); }
 export function revealFile(path: string) {
   const parts = path.split("/");
@@ -222,3 +288,29 @@ export function revealFile(path: string) {
   saveFolders();
 }
 export function collapseAll(dirs: string[]) { for (const d of dirs) folders[d] = false; saveFolders(); }
+
+// ---- switching projects ------------------------------------------------------------
+// The window shows another project of the workspace: its diagrams, files, git, chat and
+// terminals. Tabs of every project stay open; the map goes back to where it was in that project.
+const mapAt: Record<string, string | null> = {};
+let switching: Promise<void> | null = null;
+// `then`: the tab to show with it (picked, or about to be opened by the caller), so the window
+// goes straight there instead of through the map.
+export async function setActive(project: string, then?: Tab) {
+  if (project === P.active || !projectNames.includes(project)) return;
+  await (switching ?? Promise.resolve());
+  await (switching = connectLive(project));
+  switching = null;
+  if (project === P.active) return;
+  const m = mapTab();
+  mapAt[P.active] = m.id;
+  P.active = project;
+  m.id = mapAt[project] ?? home(); m.code = null;
+  ui.picked = null;
+  for (const k of Object.keys(folders)) delete folders[k];
+  Object.assign(folders, savedFolders(project));
+  if (then && ui.tabs.includes(then)) ui.active = ui.tabs.indexOf(then);
+  else if (!then && tabProject(cur()) !== project) ui.active = 0;
+  document.title = project + " · cockpit";
+  saveTabs();
+}

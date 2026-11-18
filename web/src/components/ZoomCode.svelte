@@ -11,12 +11,12 @@
   // Load each file once, and again when it changes on disk.
   $effect(() => {
     for (const { w } of parts) {
-      const rev = S.fileRevs[w.file] ?? S.git.head, key = w.file + "@" + rev;
+      const rev = S.fileRevs[w.file] ?? S.git.head, key = S.project + ":" + w.file + "@" + rev;
       if (key in texts) continue;
       api.get("api/file?path=" + encodeURIComponent(w.file)).then((r) => (texts[key] = r.text ?? "")).catch(() => (texts[key] = ""));
     }
   });
-  const textOf = (file: string) => texts[file + "@" + (S.fileRevs[file] ?? S.git.head)];
+  const textOf = (file: string) => texts[S.project + ":" + file + "@" + (S.fileRevs[file] ?? S.git.head)];
   const slice = (file: string, line?: number, end?: number) => {
     const lines = hlLines((textOf(file) ?? "").replace(/\n$/, ""), langOf(file));
     const from = line ? Math.max(1, line) : 1, to = line ? Math.min(lines.length, end ?? line) : Math.min(lines.length, 40);
