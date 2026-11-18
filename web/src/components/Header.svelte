@@ -1,7 +1,7 @@
 <script lang="ts">
   // The top bar: project, branch, size and health at a glance (each opens its explanation), the
   // running agent, the terminal and chat toggles (with the hints on). In the desktop app it is also the window's title bar.
-  import { S, dirtyFiles, plural, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
+  import { S, dirtyFiles, plural, showRight, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
 
@@ -21,10 +21,27 @@
     addEventListener("resize", sync);
     sync();
   }
-  // The workspace (src/workspace.ts): the other projects, each opened in its own window.
+  // The workspace (src/workspace.ts): the other projects. In the desktop app "open" switches this
+  // window to one (each project keeps its own server, so its terminals and agents go on meanwhile);
+  // ↗ opens it in a window of its own.
+  // How long the running agent has been at it ("40 s", "12 min", "2 h").
+  let now = $state(Date.now());
+  setInterval(() => (now = Date.now()), 15_000);
+  function since(iso: string) {
+    const s = Math.max(0, (now - Date.parse(iso)) / 1000);
+    return s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
+  }
   let wsOpen = $state(false), wsNote = $state("");
-  async function openProject(path: string) {
+  async function openProject(path: string, newWindow = false) {
     wsNote = "";
+    if (win && !newWindow) {
+      if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Switch to ${path.split("/").pop()} anyway?`)) return;
+      try {
+        const r = await win.openProject(path);
+        if (r === true) wsOpen = false; else if (r) wsNote = r.error;
+      } catch (e) { wsNote = String(e); }
+      return;
+    }
     const r = await api.post<{ error?: string }>("api/workspace/open", { path });
     if (r.error) wsNote = r.error; else wsOpen = false;
   }
@@ -105,7 +122,7 @@
       <div class="muted wshead">workspace <b>{S.workspace.name}</b>: the agent reads these projects too</div>
       {#each S.workspace.projects as p (p.path)}
         <div class="wsrow" class:here={p.here}>
-          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · this window</span>{:else}<button onclick={() => openProject(p.path)}>open</button>{/if}</div>
+          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · this window</span>{:else}<button title={win ? "Show it in this window" : "Open it in the desktop app"} onclick={() => openProject(p.path)}>open</button>{#if win}<button title="Open it in a window of its own" onclick={() => openProject(p.path, true)}>↗</button>{/if}{/if}</div>
           {#if p.summary}<div class="muted wssum">{p.summary}</div>{/if}
         </div>
       {/each}
@@ -148,7 +165,12 @@
     <button class="mlink bad" class:on={ui.insp === "problems"} title="The agents’ description in .cockpit/ no longer matches the code" onclick={() => toggleInsp("problems")}>⚠ {S.problems.length} out of date</button>
   {/if}
   <span class="grow"></span>
-  {#if S.live}<span class="livepill" title={S.live.prompt}>◉ agent working · {plural(S.live.touched.length, "file")}</span>{/if}
+  {#if S.live}
+    {@const who = S.live.chat ? "chat agent" : "Claude Code (terminal)"}
+    {@const tip = `${S.live.chat ? "The chat's agent" : "A Claude Code session outside cockpit"} is working, for ${since(S.live.startedAt)}, on:\n${S.live.prompt.slice(0, 300)}${S.live.touched.length ? "\n\nChanged so far: " + S.live.touched.join(", ") : ""}`}
+    {#if S.live.chat}<button class="livepill" title={tip} onclick={() => showRight("chat")}>◉ {who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</button>
+    {:else}<span class="livepill" title={tip}>◉ {who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</span>{/if}
+  {/if}
   <!-- Ctrl+` opens the terminal; the button only shows with the hints on (F1) -->
   {#if ui.help}<button onclick={ontoggleterm} title="Terminal  (Ctrl+`)">▭ terminal <span class="muted">Ctrl+`</span></button>
     <button onclick={toggleChat} title="Chat  (Ctrl+L)">◧ chat <span class="muted">Ctrl+L</span></button>{/if}

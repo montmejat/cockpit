@@ -1,5 +1,7 @@
 // cockpit as a desktop app: a GTK 4 window around the same local server as `npm run serve`.
 // It picks a project, starts the server on a free port, shows the page, and stops the server on exit.
+// Open Folder and the workspace menu switch the window to another project: its own server, started
+// the first time and kept running while you are elsewhere.
 //   cockpit [project dir]
 // Without a directory it reopens the last project, or asks for one; --pick always asks.
 //
@@ -18,7 +20,7 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use adw::prelude::*;
@@ -26,8 +28,15 @@ use gtk::{gdk, gio, glib};
 use webkit6::prelude::*;
 use webkit6::javascriptcore;
 
-/// Process id of the running server, 0 when none.
-static SERVER: AtomicI32 = AtomicI32::new(0);
+/// The running servers, one per project opened in this window.
+struct Server { project: PathBuf, port: u16, pid: i32, ready: bool }
+static SERVERS: Mutex<Vec<Server>> = Mutex::new(Vec::new());
+/// The project the window shows (or is starting).
+static CURRENT: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+fn is_current(project: &Path) -> bool {
+    CURRENT.lock().unwrap().as_deref() == Some(project)
+}
 
 /// The page shown while the server starts, and where errors are told.
 const LOADING: &str = include_str!("../loading/index.html");
@@ -123,11 +132,15 @@ fn free_port() -> std::io::Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 
-fn stop_server() {
-    let pid = SERVER.swap(0, Ordering::SeqCst);
-    if pid > 0 {
-        unsafe { libc::kill(pid, libc::SIGTERM) };
+/// Stops every server (when the window closes).
+fn stop_servers() {
+    for s in SERVERS.lock().unwrap().drain(..) {
+        unsafe { libc::kill(s.pid, libc::SIGTERM) };
     }
+}
+
+fn title_of(project: &Path) -> String {
+    project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 // ---- The window, on GTK's thread --------------------------------------------------------------
@@ -183,22 +196,28 @@ fn show_message(ui: &Ui, text: &str) {
     }
 }
 
-/// Switch the window to a project: stop the current server, start one for it.
+/// Show `project` in the window: its server if one is running, else a new one started on its own
+/// thread. The servers of the projects you switch away from keep running (their terminals and
+/// agents too), so switching back is instant; they all stop with the window.
 fn open(project: PathBuf) {
-    stop_server();
+    remember(&project);
+    *CURRENT.lock().unwrap() = Some(project.clone());
+    let name = title_of(&project);
+    let running = SERVERS.lock().unwrap().iter().find(|s| s.project == project).map(|s| (s.port, s.ready));
     if let Some(ui) = ui() {
-        show_loading(&ui);
-        let name = project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         ui.win.set_title(Some(&format!("{name} · cockpit")));
-        show_message(&ui, &format!("starting cockpit for {name}…"));
+        match running {
+            Some((port, true)) => return ui.view.load_uri(&format!("http://127.0.0.1:{port}/")),
+            _ => { show_loading(&ui); show_message(&ui, &format!("starting cockpit for {name}…")); }
+        }
     }
+    if running.is_some() { return; } // still starting: its thread shows it once it answers
     std::thread::spawn(move || {
         if let Err(e) = run(&project) {
             eprintln!("cockpit: {e}");
-            on_ui(move |ui| {
-                show_loading(ui);
-                show_message(ui, &e);
-            });
+            if is_current(&project) {
+                on_ui(move |ui| { show_loading(ui); show_message(ui, &e); });
+            }
         }
     });
 }
@@ -215,7 +234,6 @@ fn pick_folder(done: impl FnOnce(Option<PathBuf>) + 'static) {
 /// Runs on its own thread for the life of the server: the server is tied to this thread
 /// (it gets SIGTERM if the thread or the app dies), and the thread reports if the server stops.
 fn run(project: &Path) -> Result<(), String> {
-    remember(project);
     let home = cockpit_home();
     let port = free_port().map_err(|e| format!("no free port: {e}"))?;
     // `node --import tsx` keeps it to one process, so stopping it leaves nothing behind.
@@ -245,16 +263,24 @@ fn run(project: &Path) -> Result<(), String> {
     }
     .map_err(|e| format!("could not start node in {}: {e}", home.display()))?;
     let pid = child.id() as i32;
-    SERVER.store(pid, Ordering::SeqCst);
+    SERVERS.lock().unwrap().push(Server { project: project.to_path_buf(), port, pid, ready: false });
+    // Whether it was still listed, so not stopped by us (stop_servers).
+    let forget = || {
+        let mut all = SERVERS.lock().unwrap();
+        let ours = all.iter().position(|s| s.pid == pid);
+        ours.map(|i| all.remove(i)).is_some()
+    };
+    let name = title_of(project);
 
     // Pass the server's output through, and keep the last lines in case it fails.
     let tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     for out in [child.stdout.take().map(|o| Box::new(o) as Box<dyn std::io::Read + Send>),
                 child.stderr.take().map(|e| Box::new(e) as Box<dyn std::io::Read + Send>)].into_iter().flatten() {
         let tail = tail.clone();
+        let name = name.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
-                eprintln!("[server] {line}");
+                eprintln!("[{name}] {line}");
                 let mut t = tail.lock().unwrap();
                 t.push(line);
                 if t.len() > 12 { t.remove(0); }
@@ -265,22 +291,27 @@ fn run(project: &Path) -> Result<(), String> {
     let started = Instant::now();
     loop {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            return Err(format!("the server stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
+            forget();
+            return Err(format!("the server for {name} stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
         }
         if TcpStream::connect(("127.0.0.1", port)).is_ok() { break; }
-        if SERVER.load(Ordering::SeqCst) != pid { return Ok(()); } // switched to another project meanwhile
         if started.elapsed() > Duration::from_secs(60) {
-            return Err("the server did not answer within a minute".into());
+            forget();
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            return Err(format!("the server for {name} did not answer within a minute"));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let url = format!("http://127.0.0.1:{port}/");
-    on_ui(move |ui| ui.view.load_uri(&url));
+    if let Some(s) = SERVERS.lock().unwrap().iter_mut().find(|s| s.pid == pid) { s.ready = true; }
+    // Only if you haven't switched to another project while it started.
+    if is_current(project) {
+        let url = format!("http://127.0.0.1:{port}/");
+        on_ui(move |ui| ui.view.load_uri(&url));
+    }
 
     let status = child.wait().map_err(|e| e.to_string())?;
-    // Still the current server, so not stopped by us (stop_server, or a switch to another project).
-    if SERVER.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-        return Err(format!("the server stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
+    if forget() {
+        return Err(format!("the server for {name} stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
     }
     Ok(())
 }
@@ -448,7 +479,7 @@ fn build(app: &adw::Application) {
 
     win.connect_close_request(|w| {
         geometry::save(w);
-        stop_server();
+        stop_servers();
         glib::Propagation::Proceed
     });
     win.connect_maximized_notify(geometry::save);
@@ -477,7 +508,7 @@ fn main() -> glib::ExitCode {
         .flags(gio::ApplicationFlags::NON_UNIQUE)
         .build();
     app.connect_activate(build);
-    app.connect_shutdown(|_| stop_server());
+    app.connect_shutdown(|_| stop_servers());
     // The arguments are ours (project_from_args), not GApplication's.
     app.run_with_args::<&str>(&[])
 }

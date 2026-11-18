@@ -13,7 +13,7 @@ import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
 import { createChat } from "./chat.ts";
 import { createIndex } from "./codeindex.ts";
 import { itemKey, type Skeleton } from "./skeleton.ts";
-import { COCKPIT, turnsDir, type Turn } from "./turns.ts";
+import { COCKPIT, outDir, turnsDir, type Turn } from "./turns.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview } from "./review.ts";
@@ -191,20 +191,36 @@ function changedLines(status: ReturnType<typeof gitStatus>, against = "HEAD"): R
 }
 
 // The running agent turn, if any, and the files it touched so far. Only the turns sessions point
-// to as current are read, not the whole history.
+// to as current are read, not the whole history. A turn can stay open after its agent is gone
+// (the server stopped mid-reply, a terminal closed), so one whose session hasn't written to its
+// transcript for a while doesn't count. `chat`: it is cockpit's own chat, not a Claude Code
+// session in a terminal.
+const STALE_MS = 10 * 60_000;
 function liveTurn() {
   const d = turnsDir(name);
   if (!existsSync(d)) return null;
+  let live: (Turn & { last: number }) | null = null;
   for (const f of readdirSync(d).filter((x) => x.startsWith(".current-"))) {
     try {
       const id = readFileSync(join(d, f), "utf8").trim();
       const t: Turn = JSON.parse(readFileSync(join(d, `${id}.json`), "utf8"));
-      if (t.status === "running")
-        return { id: t.id, prompt: t.prompt, startedAt: t.startedAt, touched: [...new Set(t.touched.map((x) => (x.file.startsWith(root) ? x.file.slice(root.length + 1) : x.file)))] };
+      if (t.status !== "running") continue;
+      let last = Date.parse(t.startedAt);
+      try { last = Math.max(last, statSync(t.transcript).mtimeMs); } catch {}
+      for (const x of t.touched) last = Math.max(last, Date.parse(x.at));
+      if (Date.now() - last > STALE_MS) continue;
+      if (!live || t.startedAt > live.startedAt) live = { ...t, last };
     } catch {}
   }
-  return null;
+  if (!live) return null;
+  return {
+    id: live.id, prompt: live.prompt, startedAt: live.startedAt,
+    chat: existsSync(join(outDir(name), "chats", `${live.session}.json`)),
+    touched: [...new Set(live.touched.map((x) => (x.file.startsWith(root) ? x.file.slice(root.length + 1) : x.file)))],
+  };
 }
+// Nothing gets written when an agent dies, so look again now and then while one shows as working.
+setInterval(() => { if (current?.live) changed(); }, 60_000).unref();
 
 // Where you placed the boxes of each diagram: { diagramId: { nodeId: {x, y} } }. Kept in the
 // project, so the arrangement travels with the repo.
