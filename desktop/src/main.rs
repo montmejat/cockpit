@@ -1,5 +1,7 @@
 // cockpit as a desktop app. For now it is a window around the same local server as `npm run serve`:
 // it picks a project, starts the server on a free port, shows the page, and stops the server on exit.
+// Open Folder and the workspace menu switch the window to another project: its own server, started
+// the first time and kept running while you are elsewhere.
 //   cockpit [project dir]
 // Without a directory it reopens the last project, or asks for one; --pick always asks.
 
@@ -8,14 +10,17 @@ use std::net::{TcpListener, TcpStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use tauri::{Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_dialog::DialogExt;
 
-/// Process id of the running server, 0 when none.
-static SERVER: AtomicI32 = AtomicI32::new(0);
+/// The running servers, one per project opened in this window.
+struct Server { project: PathBuf, port: u16, pid: i32, ready: bool }
+static SERVERS: Mutex<Vec<Server>> = Mutex::new(Vec::new());
+/// The project the window shows (or is starting).
+static CURRENT: Mutex<Option<PathBuf>> = Mutex::new(None);
 
 /// Where the cockpit sources live (src/serve.ts, node_modules). Defaults to the checkout this was built from.
 fn cockpit_home() -> PathBuf {
@@ -93,8 +98,8 @@ fn remember(project: &Path) {
     }
 }
 
-/// The page's "Open Folder…" (and its recent projects): a folder to open, or a dialog to pick one.
-/// The window switches to it: the current server stops, one for the new project starts.
+/// The page's "Open Folder…", its recent projects and the workspace menu: a folder to open, or a
+/// dialog to pick one. The window switches to it (show_project); the project it leaves keeps its server.
 #[tauri::command]
 async fn open_project(app: tauri::AppHandle, path: Option<String>) -> Result<bool, String> {
     let project = match path {
@@ -106,15 +111,7 @@ async fn open_project(app: tauri::AppHandle, path: Option<String>) -> Result<boo
     };
     if !project.is_dir() { return Err(format!("{} is not a folder", project.display())); }
     let win = app.get_webview_window("main").ok_or("no window")?;
-    stop_server();
-    let _ = win.navigate("tauri://localhost/".parse().unwrap());
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        if let Err(e) = run(handle, win.clone(), Some(project)) {
-            eprintln!("cockpit: {e}");
-            show_message(&win, &e);
-        }
-    });
+    show_project(&win, project);
     Ok(true)
 }
 
@@ -122,30 +119,53 @@ fn free_port() -> std::io::Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
 
-fn show_message(win: &WebviewWindow, text: &str) {
-    let js = format!(
-        "document.getElementById('msg').textContent = {}; document.querySelector('.dot').style.animation = 'none';",
-        serde_json::to_string(text).unwrap()
-    );
-    let _ = win.eval(&js);
+/// Stops every server (when the app exits).
+fn stop_servers() {
+    for s in SERVERS.lock().unwrap().drain(..) {
+        unsafe { libc::kill(s.pid, libc::SIGTERM) };
+    }
 }
 
-fn stop_server() {
-    let pid = SERVER.swap(0, Ordering::SeqCst);
-    if pid > 0 {
-        unsafe { libc::kill(pid, libc::SIGTERM) };
+fn title_of(project: &Path) -> String {
+    project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
+}
+
+/// The loading page (desktop/loading), saying `msg`.
+fn loading_url(msg: &str) -> Url {
+    let mut u: Url = "tauri://localhost/index.html".parse().unwrap();
+    u.query_pairs_mut().append_pair("msg", msg);
+    u
+}
+
+/// Shows `project` in the window: its server if one is running, else a new one started on its own thread.
+/// The servers of the projects you switch away from keep running (their terminals and agents too),
+/// so switching back is instant; they all stop with the app.
+fn show_project(win: &WebviewWindow, project: PathBuf) {
+    remember(&project);
+    *CURRENT.lock().unwrap() = Some(project.clone());
+    let name = title_of(&project);
+    let _ = win.set_title(&format!("{name} · cockpit"));
+    let running = SERVERS.lock().unwrap().iter().find(|s| s.project == project).map(|s| (s.port, s.ready));
+    let starting = loading_url(&format!("starting cockpit for {name}…"));
+    match running {
+        Some((port, true)) => { let _ = win.navigate(format!("http://127.0.0.1:{port}/").parse().unwrap()); return; }
+        Some((_, false)) => { let _ = win.navigate(starting); return; } // its thread shows it once it answers
+        None => { let _ = win.navigate(starting); }
     }
+    let win = win.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = serve(&win, &project) {
+            eprintln!("cockpit: {e}");
+            if CURRENT.lock().unwrap().as_ref() == Some(&project) {
+                let _ = win.navigate(loading_url(&e));
+            }
+        }
+    });
 }
 
 /// Runs on its own thread for the life of the server: the server is tied to this thread
 /// (it gets SIGTERM if the thread or the app dies), and the thread reports if the server stops.
-fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Result<(), String> {
-    let project = chosen.or_else(|| pick_project(&app)).ok_or("no project chosen")?;
-    remember(&project);
-    let name = project.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let _ = win.set_title(&format!("{name} · cockpit"));
-    show_message(&win, &format!("starting cockpit for {name}…"));
-
+fn serve(win: &WebviewWindow, project: &Path) -> Result<(), String> {
     let home = cockpit_home();
     let port = free_port().map_err(|e| format!("no free port: {e}"))?;
     // `node --import tsx` keeps it to one process, so stopping it leaves nothing behind.
@@ -161,7 +181,7 @@ fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Re
         cmd
             .current_dir(&home)
             .args(["--import", "tsx", "src/serve.ts"])
-            .arg(&project)
+            .arg(project)
             .args(["--port", &port.to_string()])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -173,16 +193,23 @@ fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Re
     }
     .map_err(|e| format!("could not start node in {}: {e}", home.display()))?;
     let pid = child.id() as i32;
-    SERVER.store(pid, Ordering::SeqCst);
+    SERVERS.lock().unwrap().push(Server { project: project.to_path_buf(), port, pid, ready: false });
+    let forget = || {
+        let mut all = SERVERS.lock().unwrap();
+        let ours = all.iter().position(|s| s.pid == pid);
+        ours.map(|i| all.remove(i)).is_some()
+    };
 
     // Pass the server's output through, and keep the last lines in case it fails.
+    let name = title_of(project);
     let tail = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
     for out in [child.stdout.take().map(|o| Box::new(o) as Box<dyn std::io::Read + Send>),
                 child.stderr.take().map(|e| Box::new(e) as Box<dyn std::io::Read + Send>)].into_iter().flatten() {
         let tail = tail.clone();
+        let name = name.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
-                eprintln!("[server] {line}");
+                eprintln!("[{name}] {line}");
                 let mut t = tail.lock().unwrap();
                 t.push(line);
                 if t.len() > 12 { t.remove(0); }
@@ -193,24 +220,27 @@ fn run(app: tauri::AppHandle, win: WebviewWindow, chosen: Option<PathBuf>) -> Re
     let started = Instant::now();
     loop {
         if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            return Err(format!("the server stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
+            forget();
+            return Err(format!("the server for {name} stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
         }
         if TcpStream::connect(("127.0.0.1", port)).is_ok() { break; }
         if started.elapsed() > Duration::from_secs(60) {
-            return Err("the server did not answer within a minute".into());
+            forget();
+            unsafe { libc::kill(pid, libc::SIGTERM) };
+            return Err(format!("the server for {name} did not answer within a minute"));
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    let url: Url = format!("http://127.0.0.1:{port}/").parse().unwrap();
-    win.navigate(url).map_err(|e| e.to_string())?;
+    if let Some(s) = SERVERS.lock().unwrap().iter_mut().find(|s| s.pid == pid) { s.ready = true; }
+    // Only if you haven't switched to another project while it started.
+    if CURRENT.lock().unwrap().as_deref() == Some(project) {
+        win.navigate(format!("http://127.0.0.1:{port}/").parse().unwrap()).map_err(|e| e.to_string())?;
+    }
 
     let status = child.wait().map_err(|e| e.to_string())?;
-    // Still the current server, so not stopped by us (stop_server, or a switch to another project).
-    if SERVER.compare_exchange(pid, 0, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
-        // Not stopped by us: go back to the loading page and say why.
-        let _ = win.navigate("tauri://localhost/".parse().unwrap());
-        std::thread::sleep(Duration::from_millis(500));
-        return Err(format!("the server stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
+    if forget() {
+        // Not stopped by us: say why (on the loading page, if it is the project on screen).
+        return Err(format!("the server for {name} stopped ({status}):\n{}", tail.lock().unwrap().join("\n")));
     }
     Ok(())
 }
@@ -395,11 +425,10 @@ fn main() {
             geometry::restore_and_follow(&win); // the size you left it at (fn geometry)
             full_frame_rate(&win);
             let handle = app.handle().clone();
-            std::thread::spawn(move || {
-                if let Err(e) = run(handle.clone(), win.clone(), None) {
-                    eprintln!("cockpit: {e}");
-                    show_message(&win, &e);
-                }
+            // The folder dialog blocks, so not on the main thread.
+            std::thread::spawn(move || match pick_project(&handle) {
+                Some(project) => show_project(&win, project),
+                None => { let _ = win.navigate(loading_url("no project chosen")); }
             });
             Ok(())
         })
@@ -408,7 +437,7 @@ fn main() {
         .run(|_, event| {
             if let RunEvent::Exit = event {
                 geometry::save();
-                stop_server();
+                stop_servers();
             }
         });
 }
