@@ -18,6 +18,7 @@ import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview } from "./review.ts";
 import { workspaceOf } from "./workspace.ts";
+import { createDevcontainer } from "./devcontainer.ts";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : undefined);
@@ -29,10 +30,11 @@ if (!dir) {
 const root = resolve(dir);
 const name = opt("name") ?? basename(root);
 const WEB = join(COCKPIT, "web", "dist");
+const dev = createDevcontainer(root, name); // the project's dev container, where its shells run (if it has one)
 const index = createIndex(root, name); // the code index (rust-analyzer or scip-clang), rebuilt when code changes
-const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
+const terms = createTerminals(root, name, dev); // shells in the bottom drawer, readable by the agent
 const ask = createAsk(root); // the terminal's ask line: words → a command
-const chat = createChat(root, name, terms, index); // the agent, run by cockpit itself
+const chat = createChat(root, name, terms, index, dev); // the agent, run by cockpit itself
 const review = createReview(root, name); // reviewing a merge request against its target
 
 // No optional locks: `git status` must not rewrite .git/index, which the watcher below follows.
@@ -344,6 +346,7 @@ function state() {
     summary: arch?.summary ?? "",
     review: reviewState(sk, status, arch?.diagrams ?? []),
     workspace: workspaceState(),
+    devcontainer: dev.status(),
   };
 }
 type State = ReturnType<typeof state>;
@@ -415,6 +418,8 @@ function syncWatchers() {
 }
 syncWatchers();
 index.onChange(() => changed());
+dev.onChange(() => changed());
+void dev.start();
 void index.refresh();
 setInterval(() => changed(), 20_000); // in case a watcher missed something
 
@@ -550,7 +555,7 @@ const routes: Record<string, Handler> = {
   "GET /api/chat/events": (req, res) => events(req, res, { type: "init", ...chat.snapshot() }, chat.subscribe),
   "GET /api/chat/sessions": async (_req, res) => json(res, await chat.sessions()),
   "GET /api/chat/usage": async (_req, res) => json(res, await chat.usage()),
-  "POST /api/chat/send": post(({ text }) => { if (typeof text !== "string") throw new Error("expected text"); chat.send(text); }),
+  "POST /api/chat/send": post(({ text }) => { if (typeof text !== "string") throw new Error("expected text"); void chat.send(text); }),
   "POST /api/chat/answer": post(({ id, allow }) => chat.answer(String(id), !!allow)),
   "POST /api/chat/stop": post(() => chat.stop()),
   "POST /api/chat/model": post(({ model }) => chat.setModel(String(model))),
@@ -559,7 +564,8 @@ const routes: Record<string, Handler> = {
 
   // terminals
   "GET /api/term/list": (_req, res) => json(res, terms.list()),
-  "POST /api/term/new": post(({ cols, rows }) => ({ id: terms.open(cols, rows) })),
+  "POST /api/term/new": post(async ({ cols, rows, host }) => ({ id: await terms.open(cols, rows, !!host) })),
+  "POST /api/devcontainer/retry": post(({ rebuild }) => dev.retry(!!rebuild)),
   "POST /api/term/close": post(({ id }) => terms.close(String(id))),
   "POST /api/term/ask": post(async ({ id, text }) => {
     if (typeof text !== "string" || !text.trim()) throw new Error("expected text");
@@ -598,10 +604,31 @@ const LSP: Record<string, string[]> = {
   c: ["clangd"],
 };
 const lspProcs = new Set<ReturnType<typeof spawn>>();
-function lsp(ws: import("ws").WebSocket, lang: string) {
-  const cmd = LSP[lang];
-  if (!cmd) { ws.close(4404, "no language server for " + lang); return; }
-  const p = spawn(cmd[0], cmd.slice(1), { cwd: root, stdio: ["pipe", "pipe", "ignore"] });
+// In the dev container when there is one and the project is at the same path there (the editor
+// and the server exchange file paths), with the config's own clangd settings (clangd.path,
+// clangd.arguments, as VS Code would use them); else on the host.
+async function lspCommand(lang: string): Promise<{ cmd: string; args: string[]; where: string } | null> {
+  let cmd = LSP[lang];
+  if (!cmd) return null;
+  const c = await dev.ready();
+  if (!c || !dev.samePath(c, root)) return { cmd: cmd[0], args: cmd.slice(1), where: "host" };
+  const st = c.settings;
+  if (lang === "c") cmd = [typeof st["clangd.path"] === "string" ? st["clangd.path"] : "clangd", ...(Array.isArray(st["clangd.arguments"]) ? st["clangd.arguments"].map(String) : [])];
+  const x = dev.exec(c, root, cmd, { stdin: true });
+  return { cmd: x.cmd, args: x.args, where: c.name };
+}
+async function lsp(ws: import("ws").WebSocket, lang: string) {
+  // The page starts talking at once; the container may take a moment: hold its messages till then.
+  const early: string[] = [];
+  let send = (body: string) => { early.push(body); };
+  ws.on("message", (raw) => send(String(raw)));
+  let alive = true;
+  ws.on("close", () => { alive = false; });
+  const run = await lspCommand(lang);
+  if (!run) { ws.close(4404, "no language server for " + lang); return; }
+  if (!alive) return;
+  const what = run.where === "host" ? run.cmd : `${LSP[lang][0]} in ${run.where}`;
+  const p = spawn(run.cmd, run.args, { cwd: root, stdio: ["pipe", "pipe", "ignore"] });
   lspProcs.add(p);
   let buf = Buffer.alloc(0);
   p.stdout!.on("data", (chunk: Buffer) => {
@@ -618,19 +645,20 @@ function lsp(ws: import("ws").WebSocket, lang: string) {
       if (ws.readyState === ws.OPEN) ws.send(body);
     }
   });
-  p.on("error", () => { lspProcs.delete(p); ws.close(4404, cmd[0] + " not found"); });
-  p.on("exit", () => { lspProcs.delete(p); if (ws.readyState === ws.OPEN) ws.close(4000, cmd[0] + " exited"); });
+  p.on("error", () => { lspProcs.delete(p); ws.close(4404, what + " not found"); });
+  p.on("exit", () => { lspProcs.delete(p); if (ws.readyState === ws.OPEN) ws.close(4000, what + " exited"); });
   p.stdin!.on("error", () => {});
-  ws.on("message", (raw) => {
-    const body = Buffer.from(String(raw), "utf8");
+  send = (text) => {
+    const body = Buffer.from(text, "utf8");
     if (p.stdin!.writable) p.stdin!.write(`Content-Length: ${body.length}\r\n\r\n`), p.stdin!.write(body);
-  });
+  };
+  for (const m of early.splice(0)) send(m);
   ws.on("close", () => { p.kill(); });
 }
 server.on("upgrade", (req, sock, head) => {
   const url = new URL(req.url ?? "/", "http://x");
   if (!["/api/term/ws", "/api/lsp"].includes(url.pathname) || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
-  wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? lsp(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
+  wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? void lsp(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
 });
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); for (const p of lspProcs) p.kill(); process.exit(0); });
 server.listen(Number(opt("port") ?? 4173), opt("host") ?? "127.0.0.1", () =>

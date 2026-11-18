@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# One command in a dev container (src/devcontainer.ts): the agent's shell commands, the terminals
+# and the editor's language servers go through here.
+#
+#   dc-exec [-t] [-i] [-e K=V]... <container> <user> <workdir> <env file> <command> [args...]
+#
+# -t: a terminal (docker exec -it); -i: keep stdin open (a language server). Stopping this script
+# (the agent's timeout, a closed terminal or editor) stops the command inside the container too:
+# docker exec alone would leave it running there. Without -t the command gets a session of its
+# own, so all it started stops with it; with -t it is an interactive shell, which hangs up its jobs.
+set -u
+tty=0 stdin=0 envs=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -t) tty=1; shift ;;
+    -i) stdin=1; shift ;;
+    -e) envs+=(-e "$2"); shift 2 ;;
+    *) break ;;
+  esac
+done
+cid=$1 user=$2 dir=$3 envf=$4
+shift 4
+tag="cockpit-$$-$RANDOM"
+pidf="/tmp/$tag.pid"
+
+if [ $tty = 1 ]; then
+  docker exec -it -u "$user" -w "$dir" --env-file "$envf" "${envs[@]}" "$cid" \
+    bash -c 'echo $$ > "$0"; exec "$@"' "$pidf" "$@" <&0 &
+  sig=HUP target='$(cat "$1")'
+else
+  opts=()
+  [ $stdin = 1 ] && opts+=(-i)
+  docker exec "${opts[@]}" -u "$user" -w "$dir" --env-file "$envf" "${envs[@]}" "$cid" \
+    setsid -w bash -c 'echo $$ > "$0"; "$@"; r=$?; rm -f "$0"; exit $r' "$pidf" "$@" <&0 &
+  sig=TERM target='-$(cat "$1")'
+fi
+child=$!
+
+stop() {
+  docker exec "$cid" bash -c "kill -$sig -- $target 2>/dev/null; rm -f \"\$1\"" _ "$pidf" >/dev/null 2>&1
+  wait "$child" 2>/dev/null
+  exit 143
+}
+trap stop TERM INT HUP
+
+wait "$child"
+r=$?
+[ $tty = 1 ] && docker exec "$cid" rm -f "$pidf" >/dev/null 2>&1 &
+exit $r

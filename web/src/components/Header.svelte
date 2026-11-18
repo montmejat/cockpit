@@ -47,9 +47,13 @@
     const r = await api.post<{ error?: string }>("api/workspace/open", { path });
     if (r.error) wsNote = r.error; else wsOpen = false;
   }
+  // The dev container (src/devcontainer.ts): its state, and a way to retry or rebuild it.
+  let dcOpen = $state(false);
+  const home = (p?: string) => (p ?? "").replace(/^\/home\/[^/]+/, "~");
   function outside(e: MouseEvent) {
     if (wsOpen && !(e.target as HTMLElement).closest(".wsmenu,.wsbtn")) wsOpen = false;
     if (projOpen && !(e.target as HTMLElement).closest(".projmenu,.projbtn")) projOpen = false;
+    if (dcOpen && !(e.target as HTMLElement).closest(".dcmenu,.dcpill")) dcOpen = false;
   }
 
   // Open Folder (desktop app): the project name opens a menu, another folder or a recent one;
@@ -66,7 +70,7 @@
     catch (e) { projNote = String(e); projOpen = true; }
   }
   function keys(e: KeyboardEvent) {
-    if (e.key === "Escape") { wsOpen = false; projOpen = false; }
+    if (e.key === "Escape") { wsOpen = false; projOpen = false; dcOpen = false; }
     else if (win && e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !(e.target as HTMLElement).closest?.(".cm-editor,.xterm")) { e.preventDefault(); openFolder(); }
   }
   function drag(e: MouseEvent) {
@@ -127,6 +131,27 @@
     {#if S.git.ahead}<span class="ahead"> ↑{S.git.ahead}</span>{/if}
     {#if S.git.behind}<span class="ahead"> ↓{S.git.behind}</span>{/if}
   </button>
+  {#if S.devcontainer && S.devcontainer.state !== "none"}
+    {@const d = S.devcontainer}
+    <button class="pill dcpill {d.state}" class:on={dcOpen} aria-expanded={dcOpen} onclick={() => (dcOpen = !dcOpen)}
+      title={d.state === "up" ? `Shells run in the dev container ${d.name}` : d.state === "starting" ? `Starting the dev container: ${d.progress ?? ""}` : `The dev container didn't come up: shells run on the host\n${d.error ?? ""}`}>
+      ⬡ {d.name ?? "dev container"}{#if d.state === "starting"}<span class="muted"> · starting…</span>{:else if d.state === "failed"}<span class="bad"> · failed</span>{/if}
+    </button>
+    {#if dcOpen}
+      <div class="wsmenu dcmenu">
+        <div class="muted wshead">dev container{#if d.shared}, shared by workspace <b>{d.shared}</b>{/if}: terminals, the agent's commands and the language server run in it</div>
+        <div class="dcrow"><span class="muted">config</span><span title={d.config}>{home(d.config)}</span></div>
+        {#if d.container}<div class="dcrow"><span class="muted">container</span><span>{d.container.slice(0, 12)} · as {d.user}</span></div>{/if}
+        {#if d.state === "starting"}<div class="dcrow"><span class="muted">now</span><span>{d.progress ?? "starting"}</span></div>{/if}
+        {#if d.error}<pre class="dcerr bad">{d.error}</pre>{/if}
+        {#if d.log}<div class="dcrow"><span class="muted">log</span><span title={d.log}>{home(d.log)}</span></div>{/if}
+        <div class="wsfoot dcact">
+          {#if d.state === "failed"}<button onclick={() => api.post("api/devcontainer/retry", {})}>retry</button>{/if}
+          <button disabled={d.state === "starting"} title="Remove the container and make it again from the config (open terminals in it close)" onclick={() => api.post("api/devcontainer/retry", { rebuild: true })}>rebuild</button>
+        </div>
+      </div>
+    {/if}
+  {/if}
   {#if S.review}
     {@const r = S.review}
     <span class="revpill" title={(r.mr ? r.mr.ref + " " + r.mr.title + "\n" : "") + r.branch + " → " + r.target + (r.base ? " (from " + r.base + ")" : "")}>

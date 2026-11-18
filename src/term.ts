@@ -2,16 +2,20 @@
 // WebSocket) and readable by the agent. A small bash hook marks each command's start, text, folder
 // and exit code (the OSC 133/633 marks VS Code uses), so cockpit knows commands, not just bytes.
 // They live as long as the server: reloading the page reattaches and replays the screen.
+// With a dev container (devcontainer.ts) they open in it, unless asked for on the host.
 
 import { mkdirSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { spawn as ptySpawn, type IPty } from "node-pty";
 import type { WebSocket } from "ws";
 import { outDir } from "./turns.ts";
+import type { Devcontainer } from "./devcontainer.ts";
 
 export type Cmd = { n: number; cmd: string; cwd: string; start: string; end?: string; exit?: number; out: string };
 type Term = {
   id: string; n: number; pty: IPty; cwd: string; exited: number | null;
+  where: string | null; // the dev container's name, or null on the host
+  toHost: (p: string) => string; // its folders (OSC 7) as host paths
   screen: string; // raw output, for replay
   cmds: Cmd[]; cur: Cmd | null; pend: string; nextCmd: string;
   clients: Set<WebSocket>;
@@ -40,7 +44,7 @@ export function plain(s: string) {
     .join("\n");
 }
 
-export function createTerminals(root: string, project: string) {
+export function createTerminals(root: string, project: string, dev?: Devcontainer) {
   const terms = new Map<string, Term>();
   let count = 0;
   const rcFile = join(outDir(project), "bashrc");
@@ -56,7 +60,7 @@ export function createTerminals(root: string, project: string) {
     return e;
   };
   const send = (t: Term, msg: string) => { for (const c of t.clients) if (c.readyState === 1) c.send(msg); };
-  const meta = (t: Term) => ({ id: t.id, n: t.n, cwd: t.cwd, running: t.cur?.cmd ?? null, exited: t.exited, last: t.cmds.at(-1) ? { cmd: t.cmds.at(-1)!.cmd, exit: t.cmds.at(-1)!.exit } : null });
+  const meta = (t: Term) => ({ id: t.id, n: t.n, cwd: t.cwd, where: t.where, running: t.cur?.cmd ?? null, exited: t.exited, last: t.cmds.at(-1) ? { cmd: t.cmds.at(-1)!.cmd, exit: t.cmds.at(-1)!.exit } : null });
 
   // Follow the marks in the output. Data can split a mark in two, so an unfinished one waits.
   function scan(t: Term, data: string) {
@@ -80,7 +84,7 @@ export function createTerminals(root: string, project: string) {
         }
       } else if (code === "7") {
         const p = arg.replace(/^file:\/\/[^/]*/, "");
-        if (p) { t.cwd = decodeURIComponent(p); changed = true; }
+        if (p) { t.cwd = t.toHost(decodeURIComponent(p)); changed = true; }
       }
     }
     let rest = s.slice(at);
@@ -90,10 +94,22 @@ export function createTerminals(root: string, project: string) {
     if (changed) send(t, "m" + JSON.stringify(meta(t)));
   }
 
-  function open(cols = 100, rows = 24) {
+  // A shell in the project's dev container (waiting for it to come up), else on the host.
+  async function open(cols = 100, rows = 24, host = false) {
+    const c = host ? null : await dev?.ready() ?? null;
     const n = ++count, id = "t" + n;
-    const pty = ptySpawn("bash", ["--rcfile", rcFile, "-i"], { name: "xterm-256color", cols, rows, cwd: root, env: env() });
-    const t: Term = { id, n, pty, cwd: root, exited: null, screen: "", cmds: [], cur: null, pend: "", nextCmd: "", clients: new Set() };
+    let pty: IPty;
+    if (c) {
+      // The rc file has to be in the container: written to a temp file there, removed once read.
+      const boot = 'f=$(mktemp); printf "%s" "$1" > "$f"; CK_RC="$f" exec bash --rcfile "$f" -i';
+      const x = dev!.exec(c, root, ["bash", "-c", boot, "_", '[ -n "$CK_RC" ] && rm -f "$CK_RC"; unset CK_RC\n' + RC],
+        { tty: true, env: { TERM: "xterm-256color", COLORTERM: "truecolor", COCKPIT: "1" } });
+      pty = ptySpawn(x.cmd, x.args, { name: "xterm-256color", cols, rows, cwd: root, env: env() });
+    } else pty = ptySpawn("bash", ["--rcfile", rcFile, "-i"], { name: "xterm-256color", cols, rows, cwd: root, env: env() });
+    const t: Term = {
+      id, n, pty, cwd: root, exited: null, where: c ? c.name : null, toHost: c ? (p) => dev!.toHost(c, p) : (p) => p,
+      screen: "", cmds: [], cur: null, pend: "", nextCmd: "", clients: new Set(),
+    };
     pty.onData((d) => {
       t.screen += d;
       if (t.screen.length > SCREEN_MAX) t.screen = t.screen.slice(-SCREEN_MAX * 0.75);
@@ -130,7 +146,7 @@ export function createTerminals(root: string, project: string) {
     if (!list.length) return id ? `No terminal ${id}.` : "The owner has no terminal open in cockpit.";
     const tail = (s: string, max = 6000) => { const p = plain(s).trimEnd(); return p.length > max ? "…" + p.slice(-max) : p; };
     return list.map((t) => {
-      const lines = [`## terminal ${t.id} (cwd ${t.cwd})`];
+      const lines = [`## terminal ${t.id} (cwd ${t.cwd}${t.where ? `, in the dev container ${t.where}` : dev?.current() ? ", on the host" : ""})`];
       for (const c of t.cmds.slice(-last)) lines.push(`$ ${c.cmd}    [exit ${c.exit}, ${c.start.slice(11, 19)} → ${c.end?.slice(11, 19)}, in ${c.cwd}]`, tail(c.out) || "(no output)");
       if (t.cur) lines.push(`$ ${t.cur.cmd}    [still running since ${t.cur.start.slice(11, 19)}]`, tail(t.cur.out) || "(no output yet)");
       if (!t.cmds.length && !t.cur) lines.push("(no commands yet)");

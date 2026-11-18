@@ -37,6 +37,13 @@ export interface Live {
   summary: string;
   review: Review | null;
   workspace: Workspace | null;
+  devcontainer: DevStatus;
+}
+// The project's dev container (src/devcontainer.ts), where its shells run.
+export interface DevStatus {
+  state: "none" | "starting" | "up" | "failed";
+  name?: string; config?: string; shared?: string | null; container?: string; image?: string; user?: string;
+  progress?: string; error?: string; log?: string;
 }
 // The workspace this project is in (src/workspace.ts): projects that work together.
 export interface Workspace { name: string; system: string | null; projects: { name: string; path: string; summary: string | null; here: boolean }[] }
@@ -51,7 +58,7 @@ export interface Review {
   diagrams: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }>;
   removedDiagrams: { id: string; question: string }[];
 }
-export interface TermMeta { id: string; n: number; cwd: string; running: string | null; exited?: number | null; last: { cmd: string; exit?: number } | null }
+export interface TermMeta { id: string; n: number; cwd: string; where?: string | null; running: string | null; exited?: number | null; last: { cmd: string; exit?: number } | null }
 
 // Center tabs. The map is always the first one; files and commits open next to the active tab.
 export type Tab =

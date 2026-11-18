@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# The chat agent's shell when its project has a dev container (src/devcontainer.ts): Claude Code
+# runs every shell command through CLAUDE_CODE_SHELL, so pointing it here runs them in the
+# container, exactly as the agent wrote them (auto mode reviews what actually runs). Claude Code's
+# temp folder (CLAUDE_CODE_TMPDIR, where it keeps the shell's cwd and background output) is
+# mounted in the container at the same path, so `cd` carries over and background commands work.
+#
+# $COCKPIT_DC/exec names the container: id, user, env file, its folder, the host folder, and the
+# other host folders mounted at their own paths (":"-separated). Read on
+# every command, so a rebuilt container is picked up. Some commands stay on the host, where the
+# owner's keys and credentials are: git and its forges, ssh and copies over it, cockpit's own tools,
+# and any command whose first line is "# on host".
+real=/bin/bash
+f="${COCKPIT_DC:-}/exec"
+[ -n "${COCKPIT_DC:-}" ] && [ -r "$f" ] || exec "$real" "$@"
+mapfile -t x < "$f" # 0 id, 1 user, 2 env file, 3 folder, 4 host folder, 5 other mounts
+cmd="${!#}"
+# Claude Code's own setup calls (reading the environment, the shell snapshot under ~/.claude) stay
+# on the host: the snapshot isn't in the container, where sourcing it is skipped quietly.
+[ $# -le 2 ] && [ "$cmd" = env ] && exec "$real" "$@"
+[[ $cmd == SNAPSHOT_FILE=* ]] && exec "$real" "$@"
+
+# Claude Code runs the agent's command as: … && eval '<command>' < /dev/null && pwd -P >| <cwd file>
+re_tools="&& eval '?(cd [^&]*&& *)?(git|gh|glab|ssh|scp|sftp|rsync)([ ']|$)"
+re_host="&& eval '?# *on host"
+if [[ $cmd =~ $re_tools || $cmd =~ $re_host || ( -n "${COCKPIT_HOME:-}" && $cmd == *"$COCKPIT_HOME"* ) ]]; then
+  exec "$real" "$@"
+fi
+
+# The folder to run in: where the host folder is in the container, else the same path when it is
+# mounted there, else the container's workspace folder.
+dir=$PWD
+case "$dir" in
+  "${x[4]}" | "${x[4]}"/*) dir="${x[3]}${dir#"${x[4]}"}" ;;
+  *) inside=0
+     IFS=: read -ra mounts <<< "${x[5]:-}"
+     for m in "${mounts[@]}"; do case "$dir" in "$m" | "$m"/*) inside=1 ;; esac; done
+     [ $inside = 1 ] || dir="${x[3]}" ;;
+esac
+exec "$(dirname "$0")/../dc-exec" "${x[0]}" "${x[1]}" "$dir" "${x[2]}" bash "$@"

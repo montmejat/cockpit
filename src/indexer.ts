@@ -8,7 +8,8 @@
 // databases the build already writes (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON). When those
 // paths only exist inside a build container, set "image" in the project's index.json (in
 // ~/.config/cockpit/projects/<project>/, see dataDir in turns.ts) and scip-clang runs in that
-// image, with the repo mounted at the same path:
+// image, with the repo mounted at the same path. Without one, a project with a dev container
+// (devcontainer.ts) uses that container's image:
 //
 //   { "image": "my-build-image:latest",                   // optional: run scip-clang in this image
 //     "compdb": ["engine/build/compile_commands.json"] }   // optional: else found by looking
@@ -20,7 +21,7 @@ import { homedir } from "node:os";
 import { buildSkeleton, type Lang, type Skeleton } from "./skeleton.ts";
 import { buildCppSkeleton, CXX_SOURCE } from "./skeleton-cpp.ts";
 import { buildZigSkeleton, ZIG_SOURCE } from "./skeleton-zig.ts";
-import { dataDir } from "./turns.ts";
+import { dataDir, outDir } from "./turns.ts";
 import { workspaceOf } from "./workspace.ts";
 
 export interface IndexConfig { image?: string; compdb?: string[] }
@@ -29,6 +30,8 @@ export function readIndexConfig(project: string): IndexConfig {
   const p = join(dataDir(project), "index.json");
   const cfg: IndexConfig = existsSync(p) ? JSON.parse(readFileSync(p, "utf8")) : {};
   if (!cfg.image && process.env.COCKPIT_CXX_IMAGE) cfg.image = process.env.COCKPIT_CXX_IMAGE;
+  // Else the image of the project's dev container, once cockpit has brought it up (devcontainer.ts).
+  if (!cfg.image) try { cfg.image = JSON.parse(readFileSync(join(outDir(project), "devcontainer.json"), "utf8")).image; } catch {}
   return cfg;
 }
 

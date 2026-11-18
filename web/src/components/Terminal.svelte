@@ -77,8 +77,9 @@
     if (v && !v.opened) { v.term.open(v.el); v.opened = true; }
     requestAnimationFrame(() => { fitView(v); if (open) v?.term.focus(); });
   }
-  async function newTerm() {
-    const { id } = await api.post("/api/term/new", { cols: 100, rows: 20 });
+  // In the dev container when the project has one; `host` opens it on the host instead.
+  async function newTerm(host = false) {
+    const { id } = await api.post("/api/term/new", { cols: 100, rows: 20, host });
     view({ id, n: 0, cwd: "", running: null, last: null });
     showView(id);
   }
@@ -159,14 +160,15 @@
   <div class="ttabs">
     <span id="tlist">
       {#each metas as m (m.id)}
-        <span class="ttab" class:on={m.id === active} title={m.running ?? m.cwd} role="tab" tabindex="0" aria-selected={m.id === active} onclick={() => showView(m.id)} onkeydown={(e) => e.key === "Enter" && showView(m.id)}>
+        <span class="ttab" class:on={m.id === active} title={(m.running ?? m.cwd) + (m.where ? `\nin the dev container ${m.where}` : "")} role="tab" tabindex="0" aria-selected={m.id === active} onclick={() => showView(m.id)} onkeydown={(e) => e.key === "Enter" && showView(m.id)}>
           {#if m.running}<span class="trun" title="running">●</span>{:else if m.last && m.last.exit !== 0 && m.last.exit !== undefined}<span class="tbad" title="last command failed (exit {m.last.exit})">✕</span>{/if}
-          {label(m)}
+          {#if S.devcontainer && S.devcontainer.state !== "none" && !m.where}<span class="muted" title="on the host, outside the dev container">host:</span>{/if}{label(m)}
           <button class="tx" title="Close this terminal" onclick={(e) => { e.stopPropagation(); api.post("/api/term/close", { id: m.id }); }}>×</button>
         </span>
       {/each}
     </span>
-    <button title="New terminal" onclick={newTerm}>+</button>
+    <button title={S.devcontainer?.state === "up" || S.devcontainer?.state === "starting" ? `New terminal in the dev container ${S.devcontainer.name ?? ""}` : "New terminal"} onclick={() => newTerm()}>+</button>
+    {#if S.devcontainer && S.devcontainer.state !== "none"}<button title="New terminal on the host, outside the dev container" onclick={() => newTerm(true)}>+ host</button>{/if}
     <span class="grow"></span>
     <button title="Ask for a command  (Ctrl+K)" onclick={openAsk}>✦ ask</button>
     <button title="Hide  (Ctrl+`)" onclick={() => show(false)}>hide</button>

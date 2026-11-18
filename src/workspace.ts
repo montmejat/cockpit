@@ -6,6 +6,8 @@
 // A workspace is a folder in your settings, outside every repo (and outside this one):
 //   ~/.config/cockpit/workspaces/<name>/workspace.json   { "projects": ["~/src/engine", "~/src/tools"] }
 //   ~/.config/cockpit/workspaces/<name>/SYSTEM.md        how the projects fit together
+// "devcontainer": "~/src/engine" in workspace.json makes that project's dev container the one
+// all the projects' shells run in, with each project mounted at its own path (devcontainer.ts).
 // Paths are absolute or start with ~. A project may be in several workspaces; the first one
 // (by name) wins.
 
@@ -15,7 +17,7 @@ import { basename, join, resolve } from "node:path";
 import { ARCH_DIR } from "./arch.ts";
 
 export interface WorkspaceProject { name: string; path: string; summary: string | null; here: boolean }
-export interface Workspace { name: string; dir: string; system: string; projects: WorkspaceProject[] }
+export interface Workspace { name: string; dir: string; system: string; projects: WorkspaceProject[]; devcontainer: string | null }
 
 export const WORKSPACES = join(process.env.XDG_CONFIG_HOME || join(homedir(), ".config"), "cockpit", "workspaces");
 
@@ -40,11 +42,12 @@ export function workspaceOf(root: string): Workspace | null {
   const me = real(root);
   for (const name of readdirSync(WORKSPACES).sort()) {
     const dir = join(WORKSPACES, name);
-    let paths: string[];
-    try { paths = (JSON.parse(readFileSync(join(dir, "workspace.json"), "utf8")).projects ?? []).map(String).map(expand); } catch { continue; }
+    let paths: string[], dc: unknown;
+    try { const j = JSON.parse(readFileSync(join(dir, "workspace.json"), "utf8")); paths = (j.projects ?? []).map(String).map(expand); dc = j.devcontainer; } catch { continue; }
     if (!paths.includes(me)) continue;
     return {
       name, dir, system: join(dir, "SYSTEM.md"),
+      devcontainer: typeof dc === "string" && dc ? expand(dc) : null,
       projects: paths.map((p) => ({ name: basename(p), path: p, summary: summaryOf(p), here: p === me })),
     };
   }

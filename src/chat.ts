@@ -23,6 +23,7 @@ import { turnEnd, turnStart, turnTool, type HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
 import type { Terminals } from "./term.ts";
 import { workspaceBrief, workspaceOf } from "./workspace.ts";
+import type { Container, Devcontainer } from "./devcontainer.ts";
 
 export type Item = { id: string; kind: string; at: string; [k: string]: unknown };
 type Context = { used: number; max: number } | null;
@@ -49,6 +50,17 @@ function inbox() {
   };
 }
 async function* never(): AsyncGenerator<SDKUserMessage> { await new Promise(() => {}); }
+
+// What the agent is told about the dev container its shell commands run in (devcontainer.ts).
+function containerBrief(c: Container, root: string) {
+  return [
+    `Your shell commands (the Bash tool) run inside the dev container "${c.name}"${c.shared ? `, shared by the workspace ${c.shared}` : ""}, as ${c.user}: the project's toolchain and environment are there, not on the host.` +
+      (c.folder === c.hostFolder ? ` The project is at the same path there (${root}).` : ` The project ${c.hostFolder} is at ${c.folder} there.`) +
+      (c.mounted.length ? ` The workspace's other projects are mounted at their own paths too.` : ""),
+    "Your file tools (Read, Edit, Write, Grep, Glob) work on the host, on the same files.",
+    "Commands that start with git, gh, glab, ssh, scp, sftp or rsync, and cockpit's own tools, run on the host, where the owner's keys and credentials are. To run any other command on the host, make `# on host` its first line.",
+  ].join(" ");
+}
 
 // The brief added to Claude Code's own system prompt.
 function brief(root: string) {
@@ -127,7 +139,7 @@ function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSe
   return items;
 }
 
-export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>) {
+export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, dev?: Devcontainer) {
   const dir = join(outDir(project), "chats");
   mkdirSync(dir, { recursive: true });
   const fileOf = (id: string) => join(dir, `${id}.json`);
@@ -150,6 +162,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
   if (session && existsSync(fileOf(session))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(session), "utf8")) });
 
   let busy = false;
+  let warming: Promise<void> | null = null; // waiting for the dev container before a conversation starts
   let q: Query | null = null;
   let box: ReturnType<typeof inbox> | null = null;
   let abort: AbortController | null = null;
@@ -216,6 +229,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
 
   function start() {
     const ws = workspaceOf(root);
+    const box0 = dev?.current() ?? null;
     box = inbox();
     abort = new AbortController();
     q = query({
@@ -232,8 +246,10 @@ export function createChat(root: string, project: string, terms: Terminals, inde
         // workspace's SYSTEM.md; the brief says what each project is. Read when a conversation
         // starts, so a change to the workspace shows from the next one.
         ...(ws ? { additionalDirectories: [...ws.projects.filter((p) => !p.here).map((p) => p.path), ws.dir] } : {}),
-        systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) + (ws ? "\n\n" + workspaceBrief(ws, COCKPIT) : "") },
+        systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) + (ws ? "\n\n" + workspaceBrief(ws, COCKPIT) : "") + (box0 ? "\n\n" + containerBrief(box0, root) : "") },
         disallowedTools: ["AskUserQuestion"], // the agent asks in the chat instead
+        // In the dev container: Claude Code's shell is cockpit's, which runs commands there.
+        ...(box0 && dev ? { env: { ...process.env, ...dev.agentEnv() } } : {}),
         mcpServers: { cockpit: cockpitTools(terms) },
         allowedTools: ["mcp__cockpit__terminals"],
         ...(session ? { resume: session } : {}),
@@ -251,7 +267,12 @@ export function createChat(root: string, project: string, terms: Terminals, inde
         hooks: {
           // Edits in the workspace's other projects need the owner's yes (an Allow/Deny card),
           // even in auto mode; the workspace's own notes (SYSTEM.md) don't.
-          PreToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
+          PreToolUse: [{ matcher: "Bash", hooks: [async () => {
+            // Its shell runs in the dev container (src/shell/bash): one stopped meanwhile is
+            // started again first. The command itself is left as the agent wrote it.
+            if (box0) await dev?.ready();
+            return {};
+          }] }, { matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
             const f = i.tool_input?.file_path ?? i.tool_input?.notebook_path;
             if (!ws || typeof f !== "string") return {};
             const abs = isAbsolute(f) ? f : resolve(root, f);
@@ -386,13 +407,20 @@ export function createChat(root: string, project: string, terms: Terminals, inde
   return {
     snapshot,
     subscribe(l: (e: Event) => void) { listeners.add(l); return () => { listeners.delete(l); }; },
-    send(text: string) {
+    async send(text: string) {
       if (!text.trim()) return;
       put({ id: "u-" + Date.now(), kind: "user", at: now(), text });
-      if (!q) start();
-      box!.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null } as SDKUserMessage);
       busy = true;
       state();
+      // A new conversation is told where its commands run: wait for the dev container first.
+      if (!q && dev?.status().state === "starting") await (warming ??= (async () => {
+        const id = "note-dc-" + Date.now();
+        put({ id, kind: "note", at: now(), text: "Waiting for the dev container to come up…" });
+        await dev.ready();
+        put({ ...get(id)!, text: dev.current() ? "The dev container is up." : "The dev container didn't come up: commands run on the host." });
+      })().finally(() => { warming = null; }));
+      if (!q) start();
+      box!.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null } as SDKUserMessage);
     },
     answer(id: string, allow: boolean) { waiting.get(id)?.(allow); },
     async stop() { for (const r of waiting.values()) r(false); await q?.interrupt().catch(() => {}); },

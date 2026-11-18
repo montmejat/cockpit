@@ -117,6 +117,33 @@ index, chat and terminals; the workspace tells each one about the others.
 - When the C++ index runs in a build image, the other projects are mounted there too, read-only,
   for builds that compile another project's headers or sources from its checkout.
 - A change to the workspace reaches the chat from its next conversation.
+- `"devcontainer": "~/src/engine"` in `workspace.json` gives the whole workspace one dev
+  container: that project's config, with every project of the workspace mounted at its own path
+  (below).
+
+### Dev containers
+
+A project with a `devcontainer.json` (`.devcontainer/devcontainer.json`, `.devcontainer.json`,
+or `.devcontainer/<name>/devcontainer.json`) gets its shells run in that container:
+
+- **terminals** open in it (`+`); `+ host` opens one on the host, marked `host:` in its tab;
+- **the agent's shell commands** run in it, as the config's `remoteUser`, with its `remoteEnv`:
+  Claude Code's shell is cockpit's (`src/shell/bash`, through `CLAUDE_CODE_SHELL`), so auto mode
+  reviews the command as written, and `cd` and background commands work as usual (Claude Code's
+  temp folder is mounted there). Its file tools still work on the host, on the same files.
+  Commands starting with `git`, `gh`, `glab`, `ssh`, `scp`, `sftp` or `rsync` stay on the host,
+  where your keys and credentials are, and so does any command whose first line is `# on host`;
+- **the editor's language server** runs in it when the project is at the same path there (clangd
+  with the config's `clangd.path` and `clangd.arguments` from `customizations.vscode.settings`);
+- **the C++ index** runs in the container's image, unless `index.json` names another one.
+
+Cockpit starts it with the Dev Containers CLI (`@devcontainers/cli`), so the config means what it
+means in VS Code (build, features, mounts, `runArgs`, lifecycle commands). The container has a
+label of cockpit's own, so it is never VS Code's container for the same folder, and it keeps
+running when cockpit stops. The header's ⬡ pill shows its state, the CLI's log, and rebuilds it.
+`{ "devcontainer": false }` in `~/.config/cockpit/projects/<project>/settings.json` keeps a
+project's shells on the host. A config whose `workspaceFolder` isn't the project's own path works for terminals and
+commands, but the language server and the agent's `cd` then stay on the host side of the mapping.
 
 A Claude Code session outside cockpit can be recorded too, with hooks in the project's
 `.claude/settings.local.json` that call `src/hook.ts start|tool|stop`.
