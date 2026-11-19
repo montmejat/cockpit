@@ -2,7 +2,7 @@
   // The right panel's details: a short line first, more on click. It explains the box you picked
   // on the map, the diagram on screen, or the features, tests and problems from the header.
   import { api } from "../lib/code";
-  import { anchorChanged, byId, cur, mapTab, nameOf, nodeState, openDiagram, openFile, plural, S, showRight, tldr, ui, where } from "../lib/state.svelte";
+  import { anchorChanged, byId, explainChanges, cur, mapTab, nameOf, nodeState, openDiagram, openFile, plural, S, showRight, tldr, ui, where } from "../lib/state.svelte";
 
   const ORDER = ["broken", "partial", "working", "planned"] as const;
   const fileOfModule = (id: string) => S.modules.find((m) => m.id === id)?.file;
@@ -108,6 +108,7 @@
       <p class="lead">{tldr(n, n.explain)}</p>
       {#if ns.live}<p class="agentbox">◉ the agent is changing it now</p>{:else if ns.unc}<p class="notebox">changed, not committed</p>{/if}
       {#if ns.added}<p class="revbox add">new in this review</p>{:else if ns.rev}<p class="revbox">changed in this review</p>{/if}
+      {#if ns.rev || (!S.review && ns.unc)}<p><button class="zexplain" onclick={() => explainChanges(n, d.id)}>explain the changes</button> <span class="hint">double-click the box for its code, changes marked</span></p>{/if}
       {#if (n.anchors ?? []).length}<div class="chips">{#each n.anchors ?? [] as a}{@render chip(a)}{/each}</div>{/if}
       <details class="more"><summary>more</summary>
         {#if n.tldr || tldr(n, n.explain) !== n.explain}<p>{n.explain}</p>{/if}

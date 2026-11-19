@@ -141,6 +141,11 @@ body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 .node{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}
 a.code{display:block;font-size:11.5px;padding:2px 0;word-break:break-all}
 a.code .chg{color:var(--warn)}
+.zfile .rev{color:var(--rev)}
+.zstat{margin-left:8px;font-variant-numeric:tabular-nums}.zstat .a{color:var(--add)}.zstat .d{color:var(--del);margin-left:5px}
+.zhead{display:flex;align-items:baseline;gap:0}.zhead .muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+button.zexplain{margin-left:10px;flex-shrink:0;font-size:11.5px;padding:1px 9px;color:var(--rev);border:1px solid color-mix(in oklab,var(--rev) 45%,var(--line));background:none;border-radius:10px}
+button.zexplain:hover{background:color-mix(in oklab,var(--rev) 10%,transparent)}
 .io{font-size:12px;padding:2px 0}.dv{color:var(--accent)}
 .agentbox{border-left:2px solid var(--hot);padding-left:8px;color:var(--hot)}
 .notebox{border-left:2px solid var(--warn);padding-left:8px;color:var(--muted)}

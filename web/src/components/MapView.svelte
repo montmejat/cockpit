@@ -292,7 +292,7 @@
   {/if}
   {#if codeNode && d}
     <div id="zcode" bind:this={zcodeEl}>
-      <ZoomCode node={codeNode} />
+      <ZoomCode node={codeNode} diagram={d?.id} />
     </div>
   {/if}
 </section>

@@ -2,6 +2,7 @@
 // part asks of them (what changed, where a diagram link points).
 
 import { SvelteSet } from "svelte/reactivity";
+import { api } from "./code";
 import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 
 // The desktop app's window (desktop/src/main.rs, BRIDGE), absent in a browser tab.
@@ -130,6 +131,19 @@ export function nodeState(n: DiagramNode, diagram?: string) {
 export function reviewCount(d: { id: string; nodes: DiagramNode[] }) {
   if (!S.review) return 0;
   return d.nodes.filter((n) => { const s = nodeState(n, d.id); return s.rev || s.added; }).length;
+}
+// "Explain the changes": asks the chat's agent what the review (or, outside one, the uncommitted
+// edits) changes in a box's code, with where that code is and the git command that shows it.
+export function explainChanges(n: DiagramNode, diagram?: string) {
+  const r = S.review, parts = (n.anchors ?? []).map((a) => { const w = where(a); return w ? `- ${a} (${w.file}${w.line ? ":" + w.line + (w.end ? "-" + w.end : "") : ""})` : `- ${a}`; });
+  const files = filesOfNode(n).join(" ");
+  const what = r?.base
+    ? `I'm reviewing ${r.mr ? `merge request ${r.mr.ref} "${r.mr.title}" (${r.branch})` : r.branch} against ${r.target}. The diff starts at ${r.base}: \`git diff ${r.base} -- ${files}\` (uncommitted edits included).`
+    : `These are uncommitted changes: \`git diff HEAD -- ${files}\`.`;
+  const text = `${what}\n\nIn the diagram "${nameOf(byId(diagram))}", the box "${n.label}" (${n.explain}) is this code:\n${parts.join("\n")}\n\n` +
+    `Explain what changed in that code only: what it did before, what it does now, why it likely changed, and anything that looks wrong, risky or worth a second look. Point to the lines. Don't change the code.`;
+  api.post("api/chat/send", { text });
+  showRight("chat");
 }
 export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map(where).filter((w) => !!w).map((w) => w!.file))];
 
