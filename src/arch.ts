@@ -54,9 +54,10 @@ export interface Architecture { summary: string; features: Feature[]; diagrams: 
 export interface ArchProblem { where: string; problem: string }
 
 // Read .cockpit/ from the working tree, or from a commit (rev) for turn snapshots.
-export function loadArch(repo: string, rev?: string): { arch: Architecture | null; problems: ArchProblem[] } {
-  // A rev is a turn snapshot: read it from cockpit's snapshot store when it is there.
-  const gitDir = rev ? snapGitDir(repo, rev) : undefined;
+export function loadArch(repo: string, rev?: string, store?: string): { arch: Architecture | null; problems: ArchProblem[] } {
+  // A rev is a turn snapshot: read it from cockpit's snapshot store when it is there (or from
+  // another store of cockpit's, like the private descriptions').
+  const gitDir = store ?? (rev ? snapGitDir(repo, rev) : undefined);
   const git = (...a: string[]) => {
     try { return execFileSync("git", gitDir ? ["--git-dir", gitDir, ...a] : a, { cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }); } catch { return null; }
   };

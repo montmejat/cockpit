@@ -38,6 +38,8 @@ export interface Live {
   review: Review | null;
   workspace: Workspace | null;
   guardrails: Guardrails;
+  // .cockpit/ kept out of the project's git, following its branches, synced (src/private.ts)
+  private: { mode: "none" | "committed" | "off" | "on"; host: string | null; remote: string | null; synced: number | null; busy: string | null; error: string | null; note: string | null };
 }
 // Guardrails (src/guardrails.ts): checks and rules in .cockpit/guardrails.json, by layer.
 export type Layer = "design" | "static" | "verification" | "prose";

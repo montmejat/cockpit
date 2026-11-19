@@ -17,6 +17,7 @@ import { COCKPIT, outDir, turnsDir, type Turn } from "./turns.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview } from "./review.ts";
+import { createPrivate } from "./private.ts";
 import { workspaceOf } from "./workspace.ts";
 import { instructions, lastResults, loadGuardrails, runChecks, runningChecks } from "./guardrails.ts";
 
@@ -35,6 +36,8 @@ const terms = createTerminals(root, name); // shells in the bottom drawer, reada
 const ask = createAsk(root); // the terminal's ask line: words → a command
 const chat = createChat(root, name, terms, index, () => changed()); // the agent, run by cockpit itself
 const review = createReview(root, name); // reviewing a merge request against its target
+// .cockpit/ kept out of the project's git, following its branches, synced between your machines
+const priv = createPrivate(root, () => changed());
 
 // No optional locks: `git status` must not rewrite .git/index, which the watcher below follows.
 const tryGit = (...a: string[]) => {
@@ -52,7 +55,11 @@ const runGit = (args: string[], input?: string) => {
 
 // ---- files ---------------------------------------------------------------
 
-const listFiles = () => tryGit("ls-files", "--cached", "--others", "--exclude-standard").split("\n").filter(Boolean).sort();
+// .cockpit/ is listed even when it is kept out of git (private.ts).
+const listFiles = () => [...new Set([
+  ...tryGit("ls-files", "--cached", "--others", "--exclude-standard").split("\n"),
+  ...tryGit("ls-files", "--others", "--ignored", "--exclude-standard", "--", ARCH_DIR).split("\n").filter((f) => !f.includes("/node_modules/")),
+])].filter(Boolean).sort();
 const isProjectFile = (path: string) => {
   const full = resolve(root, path);
   return full.startsWith(root + sep) && listFiles().includes(path);
@@ -127,6 +134,25 @@ function stagePaths(paths: unknown, stage: boolean) {
   if (stage) runGit(["add", "-A", "--", ...(paths as string[])]);
   else if (tryGit("rev-parse", "-q", "--verify", "HEAD")) runGit(["restore", "--staged", "--", ...(paths as string[])]);
   else runGit(["rm", "-r", "-q", "--cached", "--", ...(paths as string[])]); // no commit yet
+}
+// Switching from the history's right-click menu: to a branch (a remote one gets a local branch
+// tracking it), or to a commit, detached. Only refs git lists; git itself refuses when local
+// changes would be overwritten.
+function switchTo({ ref, sha }: { ref?: unknown; sha?: unknown }) {
+  if (typeof sha === "string") {
+    if (!/^[0-9a-f]{4,40}$/i.test(sha)) throw new Error("not a commit");
+    runGit(["switch", "-q", "--detach", sha]);
+    return {};
+  }
+  if (typeof ref !== "string") throw new Error("expected a branch");
+  const local = tryGit("for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n");
+  if (local.includes(ref)) { runGit(["switch", "-q", ref]); return {}; }
+  const remote = tryGit("for-each-ref", "--format=%(refname:short)", "refs/remotes").split("\n");
+  if (!remote.includes(ref) || !ref.includes("/")) throw new Error(`no branch ${ref}`);
+  const name = ref.slice(ref.indexOf("/") + 1);
+  if (local.includes(name)) throw new Error(`a local ${name} exists already, at another commit: switch to it, then pull`);
+  runGit(["switch", "-q", "-c", name, "--track", ref]);
+  return { note: `new local branch ${name}, tracking ${ref}` };
 }
 function commitStaged(message: unknown) {
   if (typeof message !== "string" || !message.trim()) throw new Error("write a commit message");
@@ -278,11 +304,14 @@ const reviewBase = () => { const r = review.current(); return r ? tryGit("merge-
 // null when the target has no .cockpit/ (not committed, or kept out of git): nothing to compare.
 const baseDiagrams = new Map<string, Map<string, { question: string; nodes: Map<string, string> }> | null>();
 function diagramsAt(base: string) {
-  if (!baseDiagrams.has(base)) {
-    const arch = loadArch(root, base).arch;
-    baseDiagrams.set(base, arch ? new Map(arch.diagrams.map((d) => [d.id, { question: d.question, nodes: new Map(d.nodes.map((n) => [n.id, n.label])) }])) : null);
+  // .cockpit/ kept private: the description saved at (or nearest before) the base, from the store.
+  const kept = tryGit("cat-file", "-t", `${base}:${ARCH_DIR}/project.json`) === "blob" ? null : priv.at(base);
+  const key = kept ? base + "@" + kept : base;
+  if (!baseDiagrams.has(key)) {
+    const arch = kept ? loadArch(root, kept, priv.store).arch : loadArch(root, base).arch;
+    baseDiagrams.set(key, arch ? new Map(arch.diagrams.map((d) => [d.id, { question: d.question, nodes: new Map(d.nodes.map((n) => [n.id, n.label])) }])) : null);
   }
-  return baseDiagrams.get(base)!;
+  return baseDiagrams.get(key)!;
 }
 
 // What the review changes: files and items (committed on the branch or not), and the diagrams'
@@ -359,12 +388,14 @@ function state() {
     review: reviewState(sk, status, arch?.diagrams ?? []),
     workspace: workspaceState(),
     guardrails: guardrailsState(),
+    private: priv.state(),
   };
 }
 type State = ReturnType<typeof state>;
 
 // ---- live: watch the project, push the parts that changed ----------------------------
 
+priv.tick();
 let current: State = state();
 let currentJson: Record<string, string> = Object.fromEntries(Object.entries(current).map(([k, v]) => [k, JSON.stringify(v)]));
 const pages = new Set<(e: unknown) => void>();
@@ -404,7 +435,7 @@ let debounce: NodeJS.Timeout | null = null;
 function changed(code = false) {
   if (code) void index.refresh();
   if (debounce) clearTimeout(debounce);
-  debounce = setTimeout(() => { debounce = null; try { recompute(); syncWatchers(); } catch (e) { console.error("state:", e); } }, 150);
+  debounce = setTimeout(() => { debounce = null; try { priv.tick(); recompute(); syncWatchers(); } catch (e) { console.error("state:", e); } }, 150);
 }
 function syncWatchers() {
   const want = new Map<string, (f: string) => void>();
@@ -530,6 +561,7 @@ const routes: Record<string, Handler> = {
   }),
   "POST /api/git/stage": post(({ paths }) => { stagePaths(paths, true); recompute(); }),
   "POST /api/git/unstage": post(({ paths }) => { stagePaths(paths, false); recompute(); }),
+  "POST /api/git/switch": post((body) => { const r = switchTo(body ?? {}); recompute(); return r; }),
   "POST /api/git/commit": post(({ message }) => { const r = commitStaged(message); recompute(); return r; }),
   "GET /api/git/diff": (_req, res, url) => json(res, fileDiff(q(url, "path"), q(url, "staged") === "1")),
   "GET /api/git/commit": (_req, res, url) => (/^[0-9a-f]{4,40}$/.test(q(url, "sha")) ? json(res, commitPatch(q(url, "sha"))) : json(res, { error: "bad sha" }, 400)),
@@ -566,6 +598,10 @@ const routes: Record<string, Handler> = {
   "GET /api/git/mr": async (_req, res, url) => { const h = gitHead(); json(res, h.branch ? await review.branchMr(h.branch + "@" + h.head, q(url, "fresh") === "1") : { mr: null }); },
   "GET /api/review/branches": async (_req, res) => json(res, await review.branches()),
   "POST /api/review/start": post(async (body) => { const r = await review.start(body ?? {}); recompute(); return r; }),
+  // .cockpit/ kept private and synced (private.ts)
+  "POST /api/private/enable": post(async () => { await priv.enable(); recompute(); }),
+  "POST /api/private/disable": post(() => { priv.disable(); recompute(); }),
+  "POST /api/private/sync": post(async () => { await priv.sync(); recompute(); }),
   "POST /api/review/stop": post(async ({ back }) => { await review.stop(!!back); recompute(); }),
 
   // the agent chat

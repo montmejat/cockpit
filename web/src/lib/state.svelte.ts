@@ -223,9 +223,12 @@ export function openDiagram(id: string, node?: string) {
 export function showRight(which: "chat" | "details") { ui.rtab = which; store.set("cockpit-right", which); setRight(true); }
 export function setRight(open: boolean) { ui.right = open; store.set("cockpit-right-open", open ? "1" : "0"); }
 // Ctrl+L, like Cursor: open the chat with the cursor in the message box, or close the panel.
-export function toggleChat() {
-  if (ui.right && ui.rtab === "chat") {
-    if ((document.activeElement as HTMLElement | null)?.closest?.("#right")) (document.activeElement as HTMLElement).blur();
+// Ctrl+L: open the chat and go to it; when it's open but you're elsewhere (the terminal, the
+// editor), go to it; close it only when you're in it already. A button (`plain`) just shows or hides it.
+export function toggleChat(plain = false) {
+  const inside = (document.activeElement as HTMLElement | null)?.closest?.("#right");
+  if (ui.right && ui.rtab === "chat" && (plain || inside)) {
+    if (inside) (document.activeElement as HTMLElement).blur();
     setRight(false);
   } else {
     showRight("chat");

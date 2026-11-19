@@ -44,14 +44,14 @@
   // A diagram that disappeared from .cockpit/: the map goes back home.
   $effect(() => { const t = mapTab(); if (S.diagrams.length && !byId(t.id)) { t.id = S.diagrams.find((d) => d.kind === "loop")?.id ?? S.diagrams[0].id; t.code = null; saveTabs(); } });
 
-  // Ctrl+` toggles the terminal drawer, Ctrl+K opens the ask line, Ctrl+L the chat (not inside a
-  // terminal, where it clears the screen), F1 shows or hides the hints, anywhere.
+  // Ctrl+` goes to the terminal drawer and Ctrl+L to the chat (opening it; pressed again from
+  // inside, closing it), Ctrl+K opens the ask line, F1 shows or hides the hints, anywhere.
   function keys(e: KeyboardEvent) {
     const inEditor = !!(e.target as HTMLElement).closest?.(".cm-editor");
     // Ctrl+S saves the open file (and never opens the browser's "save page").
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); e.stopPropagation(); (window as any).__cockpitEditor?.save(); return; }
     if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
-    else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l" && !(e.target as HTMLElement).closest?.(".xterm")) { e.preventDefault(); toggleChat(); unread = false; }
+    else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") { e.preventDefault(); toggleChat(); unread = false; }
     else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
     // (Not in the editor, where Ctrl+R is vim's redo.)
@@ -76,7 +76,7 @@
 <svelte:window onkeydowncapture={keys} onclickcapture={outLink} onauxclickcapture={outLink} />
 
 <Palette bind:this={palette} />
-<Header ontoggleterm={() => term?.toggle()} />
+<Header ontoggleterm={() => term?.toggle(true)} />
 <main>
   <Sidebar />
   <section id="center">

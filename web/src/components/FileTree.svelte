@@ -1,7 +1,15 @@
 <script lang="ts">
-  // The project's files as a tree. Folders with uncommitted changes, or holding the open file,
-  // open by themselves until you open or close them; the agent's current files carry a dot.
+  // The project's files as a tree, laid out like VS Code's: one column for a folder's chevron or a
+  // file's icon, so every name starts at the same place; indent guides; changed files colored by
+  // their git status. Folders with uncommitted changes, or holding the open file, open by themselves
+  // until you open or close them; the agent's current files carry a dot.
   import { C, cur, folders, openFile, S, setFolder, statusOf } from "../lib/state.svelte";
+  import { fileIcon, SHAPES } from "../lib/fileicons";
+
+  const STEP = 12, PAD = 8; // indent per level, left padding
+  // The indent guides of a row at depth d: one faint line per level, under its folder's chevron.
+  const guides = (d: number) => Array.from({ length: d }, (_, i) => `linear-gradient(var(--guide),var(--guide)) ${PAD + i * STEP + 7}px 0/1px 100% no-repeat`).join(",") || "none";
+  const rowStyle = (d: number) => `padding-left:${PAD + d * STEP}px;--guides:${guides(d)}`;
 
   type Dir = { name: string; path: string; dirs: Dir[]; files: { name: string; path: string }[] };
   const tree = $derived.by(() => {
@@ -32,23 +40,30 @@
   const isOpen = (d: Dir) => folders[d.path] ?? (dirty.has(d.path) || (openPath ?? "").startsWith(d.path));
 </script>
 
-{#snippet dir(d: Dir)}
+{#snippet dir(d: Dir, depth: number)}
   {#each d.dirs as sub (sub.path)}
     {@const open = isOpen(sub)}
-    <button class="folder" class:dirtydot={dirty.has(sub.path)} onclick={() => setFolder(sub.path, !open)}>
-      <span class="chev">{open ? "▾" : "▸"}</span>{sub.name}
+    <button class="trow folder" class:changed={dirty.has(sub.path)} style={rowStyle(depth)} onclick={() => setFolder(sub.path, !open)} title={sub.path}>
+      <span class="tlead"><svg class="chev" class:open viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      <span class="tname">{sub.name}</span>
+      {#if dirty.has(sub.path)}<span class="tdot" title="has changes">●</span>{/if}
     </button>
-    {#if open}<div class="sub">{@render dir(sub)}</div>{/if}
+    {#if open}{@render dir(sub, depth + 1)}{/if}
   {/each}
   {#each d.files as f (f.path)}
     {@const st = statusOf(f.path)}
     {@const rv = S.review?.files.find((x) => x.path === f.path)}
-    <button class="file" class:sel={openPath === f.path} onclick={() => openFile(f.path)} title={f.path}>
-      {#if C.touched.has(f.path)}<span class="agentdot" title="the agent is editing it">◉</span>{/if}
-      <span class="fname">{f.name}</span>
-      {#if st}<span class="mark {st}">{st}</span>{:else if rv}<span class="mark rev" title="changed in this review">◆</span>{/if}
+    {@const ic = fileIcon(f.name)}
+    <button class="trow file st-{st ?? (rv ? 'rev' : '')}" class:sel={openPath === f.path} style={rowStyle(depth)} onclick={() => openFile(f.path)} title={f.path}>
+      <span class="tlead fi fi-{ic.color}">
+        {#if C.touched.has(f.path)}<span class="agentdot" title="the agent is editing it">◉</span>
+        {:else if ic.shape}<svg viewBox="0 0 16 16">{@html SHAPES[ic.shape]}</svg>
+        {:else}<span class="fl" class:long={ic.label!.length > 1}>{ic.label}</span>{/if}
+      </span>
+      <span class="tname">{f.name}</span>
+      {#if st}<span class="mark {st}">{st === "A" ? "U" : st}</span>{:else if rv}<span class="mark rev" title="changed in this review">◆</span>{/if}
     </button>
   {/each}
 {/snippet}
 
-<div class="tree">{@render dir(tree)}</div>
+<div class="tree">{@render dir(tree, 0)}</div>

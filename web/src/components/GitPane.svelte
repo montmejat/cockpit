@@ -36,8 +36,18 @@
   }
   const startMr = (mr: MergeRequest) => act(`checking out ${mr.source}…`, "api/review/start", { mr });
   const startBranches = () => act(`checking out ${pickBranch}…`, "api/review/start", { branch: pickBranch, target: pickTarget });
+  // One click: the branch's open MR, else the branch against the default one (the server decides).
+  const reviewHere = () => (mr?.state === "open" ? startMr(mr) : g.branch ? act(`opening the review…`, "api/review/start", { branch: g.branch }) : openPicker());
+  const reviewBranch = (b: string) => { menu = null; act(`checking out ${b}…`, "api/review/start", { branch: b }); };
   const stop = (back: boolean) => act(back ? "going back…" : "", "api/review/stop", { back });
   const R = $derived(S.review);
+
+  // ---- .cockpit/ kept private (src/private.ts) ---------------------------
+  const P = $derived(S.private);
+  const hasDesc = $derived(S.files.some((f) => f.startsWith(".cockpit/")));
+  let pErr = $state("");
+  const privPost = (path: string) => { pErr = ""; api.post(path, {}).then((r) => { if (r?.error) pErr = r.error; }).catch((e) => (pErr = String(e))); };
+  const ago = (t: number) => { const s = Math.round((Date.now() - t) / 1000); return s < 60 ? "just now" : s < 3600 ? Math.round(s / 60) + " min ago" : Math.round(s / 3600) + " h ago"; };
   const ST: Record<string, string> = { A: "A", M: "M", D: "D", T: "M" };
 
   // ---- staged and not --------------------------------------------------------------
@@ -100,6 +110,37 @@
     out.sort((a, b) => +b.head - +a.head || +a.remote - +b.remote);
     return { shown: out.slice(0, 1), more: Math.max(0, out.length - 1) };
   }
+  // ---- right-click on a commit: switch to one of its branches, or to the commit itself ----
+  type MenuItem = { label: string; hint?: string; off?: boolean; run: () => void } | null; // null: a separator
+  let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+  let swErr = $state(""), swNote = $state("");
+  async function switchTo(body: { ref?: string; sha?: string }) {
+    menu = null; swErr = ""; swNote = "";
+    const r = await api.post("api/git/switch", body).catch((e) => ({ error: String(e) }));
+    if (r?.error) swErr = r.error; else swNote = r?.note ?? "";
+  }
+  function openMenu(e: MouseEvent, c: Commit) {
+    e.preventDefault();
+    const remotes = new Set(["origin", "upstream", (g.upstream ?? "").split("/")[0]].filter(Boolean));
+    const isRemote = (n: string) => n.includes("/") && remotes.has(n.split("/")[0]);
+    const names = c.refs.filter((x) => !x.startsWith("tag: ") && x !== "HEAD" && !x.endsWith("/HEAD")).map((x) => (x.startsWith("HEAD -> ") ? x.slice(8) : x));
+    const locals = names.filter((n) => !isRemote(n));
+    // a remote branch whose local one is here too is the same: only the local one is offered
+    const remoteOnly = names.filter((n) => isRemote(n) && !locals.includes(n.slice(n.indexOf("/") + 1)));
+    const items: MenuItem[] = [
+      ...locals.map((n) => n === g.branch ? { label: n, hint: "current", off: true, run: () => {} } : { label: "Switch to " + n, run: () => switchTo({ ref: n }) }),
+      ...remoteOnly.map((n) => ({ label: "Switch to " + n, hint: "new local " + n.slice(n.indexOf("/") + 1), run: () => switchTo({ ref: n }) })),
+    ];
+    // Review a branch: checks it out and opens its MR's review (or compares it with the default branch).
+    if (!R) for (const n of [...locals, ...remoteOnly]) items.push({ label: "Review " + n, hint: "◆", run: () => reviewBranch(n) });
+    if (items.length) items.push(null);
+    items.push(
+      { label: "Check out this commit", hint: "detached", off: c.hash.startsWith(S.git.head) && !g.branch, run: () => switchTo({ sha: c.hash }) },
+      { label: "Open commit", run: () => { menu = null; openCommit(c.sha); } },
+      { label: "Copy hash", hint: c.sha, run: () => { menu = null; navigator.clipboard?.writeText(c.hash).catch(() => {}); } },
+    );
+    menu = { x: Math.min(e.clientX, innerWidth - 250), y: Math.min(e.clientY, innerHeight - 30 - items.length * 26), items };
+  }
   const nameOf = (p: string) => p.split("/").pop()!;
   const dirOf = (p: string) => p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "";
 </script>
@@ -139,7 +180,11 @@
         {#if g.behind}<span class="chip-s behind" title="{g.behind} commit{g.behind > 1 ? 's' : ''} to pull">↓{g.behind}</span>{/if}
         {#if !g.ahead && !g.behind}<span class="chip-s" title="nothing to push or pull">✓ in sync</span>{/if}
       {:else}<span class="gup">no upstream</span>{/if}
-      {#if !R}<button class="gghost" onclick={openPicker} disabled={!!busy} title="Review a merge request, or compare two branches">◆ review</button>{/if}
+      {#if !R}
+        <span class="gsplit">
+          <button class="gghost" onclick={reviewHere} disabled={!!busy} title={mr?.state === "open" ? `Review ${mr.ref}: what it changes against ${mr.target}, on the map and in the files` : g.branch ? `Review ${g.branch}: its merge request if it has one, else against the default branch` : "Review a merge request, or compare two branches"}>◆ review{mr?.state === "open" ? " " + mr.ref : ""}</button><button class="gghost gcaret" onclick={openPicker} disabled={!!busy} title="Pick another merge request, or two branches to compare">▾</button>
+        </span>
+      {/if}
     </div>
     {#if mr}
       {@const kind = mr.ref.startsWith("!") ? "MR" : "PR"}
@@ -157,6 +202,29 @@
       </div>
     {:else if mrErr}<div class="gmuted" title={mrErr}>PR lookup: {mrErr}</div>{/if}
   </div>
+
+  {#if P && (P.mode === "on" || P.busy || (P.mode === "off" && hasDesc))}
+    {@const on = P.mode === "on" && !P.busy}
+    <div class="gcard gpriv" class:on>
+      <div class="gprow">
+        <svg class="gplock" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="7" width="9" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.3"/><path d={on ? "M5.5 7V5a2.5 2.5 0 0 1 5 0v2" : "M5.5 7V5a2.5 2.5 0 0 1 4.9-.7"} fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+        <div class="gptext">
+          {#if P.busy}<div class="gptitle"><span class="spin"></span> {P.busy}</div>
+          {:else if on}
+            <div class="gptitle" title="Kept out of the project's git (.git/info/exclude): only you have it. It follows your branches{P.remote ? ' and is synced to ' + P.remote : ''}.">.cockpit/ is private</div>
+            <div class="gpsub" title={P.remote ?? ""}>{P.remote ? (P.synced ? "synced " + ago(P.synced) : "not synced yet") + " · " + P.remote.split("/").slice(0, 1).join("") : "on this machine only"}</div>
+          {:else}
+            <div class="gptitle">.cockpit/ isn't in git</div>
+            <div class="gpsub" title="Not in git: it stays on this branch, on this machine">this branch, this machine only</div>
+          {/if}
+        </div>
+        {#if on && P.remote}<button class="gicon" onclick={() => privPost("api/private/sync")} title="Sync now">↻</button>
+        {:else if !on && !P.busy}<button class="gpbtn" onclick={() => privPost("api/private/enable")} title={P.host ? `Keeps .cockpit/ out of the project's git, saves it per branch and commit, and syncs it through a private repo "cockpit-private" in your namespace on ${P.host} (created if needed). Nothing goes to the project's own repo.` : "Keeps .cockpit/ out of the project's git and saves it per branch and commit (this project has no remote: on this machine only)."}>Keep private</button>{/if}
+      </div>
+      {#if P.note}<div class="gpnote">{P.note}</div>{/if}
+      {#if P.error || pErr}<div class="gperr">{pErr || P.error}</div>{/if}
+    </div>
+  {/if}
 
   {#if R || busy || err || note}
     <div class="gcard review">
@@ -239,11 +307,24 @@
     <div class="graph">
       {#each rows as r (r.c.hash)}
         {@const rf = refsOf(r.c.refs)}
-        <button class="grow-row" class:sel={selSha === r.c.sha} onclick={() => openCommit(r.c.sha)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
+        <button class="grow-row" class:sel={selSha === r.c.sha} onclick={() => openCommit(r.c.sha)} oncontextmenu={(e) => openMenu(e, r.c)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
           {@html graphSvg(r, width)}
           <span class="msg">{#each rf.shown as x}<span class="ref" class:head={x.head} class:remote={x.remote} class:synced={x.synced} title={x.synced ? `${x.name} (same as origin/${x.name})` : x.name}>{x.name}</span>{/each}{#if rf.more}<span class="ref more" title={r.c.refs.join(", ")}>+{rf.more}</span>{/if}{r.c.subject}</span>
         </button>
       {/each}
     </div>
+    {#if swErr}<pre class="err gsw">{swErr}</pre>{:else if swNote}<div class="gmuted gsw">{swNote}</div>{/if}
   {/if}
 </div>
+
+{#if menu}
+  <!-- closes on a click anywhere, Esc, or scrolling -->
+  <div class="cmenu-back" role="presentation" onpointerdown={() => (menu = null)} oncontextmenu={(e) => { e.preventDefault(); menu = null; }}></div>
+  <div class="cmenu" role="menu" style="left:{menu.x}px;top:{menu.y}px">
+    {#each menu.items as it}
+      {#if it}<button role="menuitem" disabled={it.off} onclick={it.run}><span class="cl">{it.label}</span>{#if it.hint}<span class="ch">{it.hint}</span>{/if}</button>
+      {:else}<div class="csep"></div>{/if}
+    {/each}
+  </div>
+{/if}
+<svelte:window onkeydown={(e) => { if (menu && e.key === "Escape") menu = null; }} />

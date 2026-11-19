@@ -42,6 +42,8 @@
       if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) return false;
       if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K")) { if (e.type === "keydown") openAsk(); return false; }
       if (e.ctrlKey && (e.code === "Backquote" || e.key === "`")) return false;
+      // Ctrl+L goes to the chat, from here too (`clear` still clears the screen).
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && (e.key === "l" || e.key === "L")) return false;
       return true;
     });
     term.onData((d) => ws.readyState === 1 && ws.send(JSON.stringify({ t: "in", d })));
@@ -88,7 +90,12 @@
     if (o && !views.size) await newTerm();
     else if (o) showView(active ?? [...views.keys()][0]);
   }
-  export function toggle() { show(!open); }
+  // Ctrl+`: open the terminal and go to it; when it's open but you're elsewhere (the chat, the
+  // editor), go to it; close it only when you're in it already. A button (`plain`) just shows or hides it.
+  export function toggle(plain = false) {
+    if (open && !plain && !document.activeElement?.closest?.("#term")) { const v = views.get(active ?? ""); asking ? input?.focus() : v?.term.focus(); return; }
+    show(!open);
+  }
 
   onMount(() => {
     for (const m of initialTerminals) view(m);

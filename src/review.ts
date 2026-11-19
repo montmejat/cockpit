@@ -130,7 +130,19 @@ export function createReview(root: string, project: string) {
   const dirty = async () => (await git(root, "status", "--porcelain=v1", "--untracked-files=no")).length > 0;
 
   // Start reviewing a merge request, or `branch` against `target` (both branch names, local or remote).
+  // A branch alone: its open merge request when it has one, else against the remote's default branch.
   async function start(opts: { mr?: MergeRequest; branch?: string; target?: string }) {
+    if (opts.branch && !opts.target && !opts.mr) {
+      const b = opts.branch.replace(/^origin\//, "");
+      const mr = (await mergeRequests()).list.find((m) => m.source === b);
+      if (mr) opts = { mr };
+      else {
+        const def = (await git(root, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").catch(() => "")) || "";
+        if (!def) throw new Error("no default branch known (origin/HEAD): pick what to compare with");
+        if (def.replace(/^origin\//, "") === b) throw new Error(`${b} is the default branch: nothing to compare it with`);
+        opts = { branch: b, target: def };
+      }
+    }
     const before = (await git(root, "symbolic-ref", "--short", "-q", "HEAD").catch(() => "")) || (await git(root, "rev-parse", "--short", "HEAD"));
     let branch: string, target: string;
     if (opts.mr) {

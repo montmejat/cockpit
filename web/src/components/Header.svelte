@@ -182,6 +182,6 @@
   {/if}
   <!-- Ctrl+` opens the terminal; the button only shows with the hints on (F1) -->
   {#if ui.help}<button onclick={ontoggleterm} title="Terminal  (Ctrl+`)">▭ terminal <span class="muted">Ctrl+`</span></button>
-    <button onclick={toggleChat} title="Chat  (Ctrl+L)">◧ chat <span class="muted">Ctrl+L</span></button>{/if}
+    <button onclick={() => toggleChat(true)} title="Chat  (Ctrl+L)">◧ chat <span class="muted">Ctrl+L</span></button>{/if}
   {#if win && wb.right.length}{@render controls(wb.right)}{/if}
 </header>
