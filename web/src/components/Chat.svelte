@@ -16,6 +16,15 @@
   let session: string | null = $state(null);
   let text = $state("");
   let msgs: HTMLElement;
+  // The composer grows with what's typed (whole pixels, up to its max-height) instead of scrolling:
+  // a scrolled textarea re-renders its text at fractional offsets in WebKitGTK and looks blurry.
+  let ta: HTMLTextAreaElement;
+  $effect(() => {
+    text;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.ceil(ta.scrollHeight + ta.offsetHeight - ta.clientHeight) + "px";
+  });
   let near = true;
   let list: ChatSession[] | null = $state(null); // the conversations list, when open
   let usage: Usage | null = $state(null);
@@ -169,7 +178,7 @@
     {/each}
   </div>
   <form id="composer" onsubmit={(e) => { e.preventDefault(); send(); }}>
-    <textarea rows="3" bind:value={text} placeholder="Ask the agent…  Enter sends, Shift+Enter for a new line"
+    <textarea rows="3" bind:this={ta} bind:value={text} placeholder="Ask the agent…  Enter sends, Shift+Enter for a new line"
       onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
     <div class="crow">
       {#if busy}<span class="muted"><span class="spin"></span> working…</span>{/if}

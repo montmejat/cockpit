@@ -319,7 +319,7 @@ body.desktop header.wleft{padding-left:6px}
 .cnote{color:var(--muted);font-style:italic;font-size:var(--fs-s)}.cnote.bad{color:var(--bad)}
 .cempty{color:var(--fg);padding:8px 0}.cempty button{margin-top:6px}
 #composer{border-top:1px solid var(--line);padding:8px}
-#composer textarea{width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:var(--fs-m);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;outline:none}
+#composer textarea{display:block;width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:var(--fs-m);line-height:18px;max-height:calc(14 * 18px + 14px);overflow-y:auto;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;outline:none}
 #composer textarea:focus{border-color:var(--accent)}
 .crow{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:var(--fs-s)}
 .spin{display:inline-block;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--accent);border-right-color:transparent;animation:spin .8s linear infinite;vertical-align:-1px}
