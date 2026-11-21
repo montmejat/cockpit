@@ -1,7 +1,7 @@
 {
   "question": "How does cockpit know what an agent changed in a turn?",
   "kind": "pipeline",
-  "tldr": "Snapshot before and after in a private git store, and note files as they change.",
+  "tldr": "Snapshots before and after, plus files noted as they change.",
   "answer": "Cockpit commits the work tree into its own bare repo at turn start and end, so nothing lands in the project's .git. In between, each tool call's file is recorded for live lighting.",
   "why": "The snapshot store and the live file list are two mechanisms that together make a turn.",
   "nodes": [
