@@ -164,6 +164,16 @@ down; it lists the instruction files agents read, like CLAUDE.md and skills). A 
 - When you correct how code is written, the agent's brief (`templates/guardrails.md`) has it
   propose a rule at the strongest layer it can enforce. cockpit's own are in its `.cockpit/`.
 
+## TypeScript / JavaScript projects
+
+A repo with a `package.json` (or `tsconfig.json`) at the top, and no Rust, Zig or CMake manifest
+there, is scanned by cockpit itself (`src/skeleton-ts.ts`): no tool to install. Packages are the
+dirs with a `package.json`; modules are files (`.ts`, `.tsx`, `.js`, `.svelte`, `.vue`…), named
+`package/path` without the extension and a leading `src/` (`src/serve.ts` is `cockpit/serve`);
+items are top-level functions, classes and their methods, types and variables (a `.svelte` file's
+`<script>`). Edges are relative imports. A top-level dir that is a Rust crate (cockpit's own
+`desktop/`) is indexed with rust-analyzer and added in. Path aliases (`@/x`, `$lib`) aren't followed.
+
 ## C and C++ projects
 
 A repo with a `CMakeLists.txt` at the top or in a top-level folder (and no `Cargo.toml`) is read

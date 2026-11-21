@@ -50,15 +50,15 @@ function indexFiles(root: string, name: string) {
   return { scip, lang, config, stale, begin, finish, cleanup };
 }
 
-const toolOf = (lang: Lang, config: IndexConfig) => (lang === "rust" ? "rust-analyzer" : lang === "zig" ? "the Zig scanner" : `scip-clang${config.image ? ` in ${config.image}` : ""}`);
+const toolOf = (lang: Lang, config: IndexConfig) => (lang === "rust" ? "rust-analyzer" : lang === "zig" ? "the Zig scanner" : lang === "ts" ? "the TypeScript scanner" : `scip-clang${config.image ? ` in ${config.image}` : ""}`);
 
 export function createIndex(root: string, name: string, log: (s: string) => void = console.log) {
   const f = indexFiles(root, name);
-  if (!f.lang) log(`index: ${root} has no Cargo.toml (Rust), build.zig (Zig) or CMakeLists.txt (C/C++): no code index`);
+  if (!f.lang) log(`index: ${root} has no Cargo.toml (Rust), build.zig (Zig), CMakeLists.txt (C/C++) or package.json (TypeScript): no code index`);
   const read = () => {
     try {
       const sk = skeletonFrom(f.lang!, root, f.scip, PROTO);
-      log(`index: ${sk.crates.length} ${f.lang === "cpp" ? "projects" : f.lang === "zig" ? "packages" : "crates"}, ${sk.modules.length} modules`);
+      log(`index: ${sk.crates.length} ${f.lang === "cpp" ? "projects" : f.lang === "zig" || f.lang === "ts" ? "packages" : "crates"}, ${sk.modules.length} modules`);
       return sk;
     } catch (e) { log(`index: could not read (${e})`); return EMPTY(root, f.lang ?? undefined); }
   };
@@ -113,7 +113,7 @@ export function createIndex(root: string, name: string, log: (s: string) => void
 // For one-off tools: the index of the working copy, built now if needed.
 export function indexNow(root: string, name: string, log: (s: string) => void = () => {}): Skeleton {
   const f = indexFiles(root, name);
-  if (!f.lang) throw new Error(`${root}: no Cargo.toml (Rust), build.zig (Zig) or CMakeLists.txt (C/C++) found`);
+  if (!f.lang) throw new Error(`${root}: no Cargo.toml (Rust), build.zig (Zig), CMakeLists.txt (C/C++) or package.json (TypeScript) found`);
   if (f.stale()) {
     log(`indexing with ${toolOf(f.lang, f.config)}…`);
     const { t, tmp } = f.begin();

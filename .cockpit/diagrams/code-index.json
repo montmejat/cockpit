@@ -1,0 +1,15 @@
+{
+  "question": "How does cockpit learn the code's structure that links point to?",
+  "kind": "pipeline",
+  "tldr": "Pick the language, index or scan, build one skeleton, check links.",
+  "answer": "The repo's top-level files pick the language; an external indexer (Rust, C/C++) or cockpit's own scanner (Zig, TypeScript) produces the same skeleton of packages, modules and items, which the check and the map read.",
+  "why": "Four languages go through different tools into one shape; the picture shows where they meet.",
+  "nodes": [
+    {"id": "detect", "label": "detectLang", "tldr": "Cargo.toml, build.zig, CMake or package.json", "explain": "The first manifest found at the top of the repo decides how it is indexed.", "anchors": ["cockpit/indexer::detectLang"]},
+    {"id": "stale", "label": "Fresh or stale?", "tldr": "Reindex only when a source is newer", "explain": "Compares the newest indexed source with when the last index started; a run swaps its file in atomically.", "anchors": ["cockpit/codeindex::createIndex", "cockpit/codeindex::newestSource"]},
+    {"id": "index", "label": "Index or scan", "tldr": "SCIP tools, or cockpit's own scanners", "explain": "rust-analyzer or scip-clang write a SCIP index; Zig and TypeScript are scanned directly, and a Rust crate inside a TypeScript repo gets rust-analyzer too.", "anchors": ["cockpit/indexer::indexProjectAsync", "cockpit/skeleton-ts::buildTsSkeleton", "cockpit/skeleton-zig::buildZigSkeleton"]},
+    {"id": "skeleton", "label": "Skeleton", "tldr": "Packages, modules, items, edges", "explain": "One shape for every language: module ids like package/path and items like module::Type::method, with their lines.", "anchors": ["cockpit/indexer::skeletonFrom", "cockpit/skeleton::buildSkeleton"]},
+    {"id": "check", "label": "checkArch", "tldr": "Every link names something real", "explain": "Features and diagram boxes are checked against the skeleton, with the likely right link for a wrong one.", "anchors": ["cockpit/arch::checkArch", "cockpit/arch::closestLink"]}
+  ],
+  "edges": []
+}

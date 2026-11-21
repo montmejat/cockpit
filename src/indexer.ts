@@ -3,6 +3,8 @@
 //   C/C++: scip-clang over the project's compile_commands.json files, merged into one.
 //   Zig: no indexer; cockpit scans the sources itself (skeleton-zig.ts) and stores the skeleton
 //        as JSON where the SCIP file would be.
+//   TypeScript / JavaScript: scanned the same way (skeleton-ts.ts), with any top-level dir that
+//        is a Rust crate (a desktop shell, say) indexed by rust-analyzer and added in.
 //
 // C++ needs the compiler's view of the code (include paths, defines), so it reads the compile
 // databases the build already writes (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON). When those
@@ -15,13 +17,14 @@
 
 import { execFile, execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, delimiter, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { buildSkeleton, type Lang, type Skeleton } from "./skeleton.ts";
 import { buildCppSkeleton, CXX_SOURCE } from "./skeleton-cpp.ts";
+import { buildTsSkeleton, isTsIndexed, rustParts } from "./skeleton-ts.ts";
 import { buildZigSkeleton, ZIG_SOURCE } from "./skeleton-zig.ts";
-import { dataDir } from "./turns.ts";
+import { dataDir, PROTO } from "./turns.ts";
 import { workspaceOf } from "./workspace.ts";
 
 export interface IndexConfig { image?: string; compdb?: string[] }
@@ -41,6 +44,7 @@ export function detectLang(root: string): Lang | null {
   if (existsSync(join(root, "CMakeLists.txt")) || existsSync(join(root, "compile_commands.json"))) return "cpp";
   for (const d of readdirSync(root, { withFileTypes: true }))
     if (d.isDirectory() && !d.name.startsWith(".") && existsSync(join(root, d.name, "CMakeLists.txt"))) return "cpp";
+  if (existsSync(join(root, "package.json")) || existsSync(join(root, "tsconfig.json"))) return "ts";
   return null;
 }
 
@@ -48,6 +52,7 @@ export function detectLang(root: string): Lang | null {
 export function isIndexedSource(lang: Lang, path: string): boolean {
   if (lang === "rust") return !/(^|\/)target\//.test(path) && (path.endsWith(".rs") || path.endsWith("Cargo.toml"));
   if (lang === "zig") return ZIG_SOURCE.test(path) && !/(^|\/)(zig-out|\.zig-cache|zig-cache)\//.test(path);
+  if (lang === "ts") return isTsIndexed(path) || (/^[^/]+\/.*(\.rs|Cargo\.toml)$/.test(path) && !/(^|\/)target\//.test(path));
   return CXX_SOURCE.test(path) || /(^|\/)CMakeLists\.txt$|\.cmake$/.test(path);
 }
 
@@ -174,9 +179,39 @@ function parseJsonc(text: string) {
 
 const failed = (r: Run, e: any) => new Error(`${r.tool} failed: ${String(e.stderr || e.message).trim().split("\n").slice(-5).join("\n")}`);
 
+// TypeScript: the scanned skeleton, with each Rust part's modules added (their files under the
+// part's dir). A part that can't be indexed (no rust-analyzer, a broken Cargo.toml) is left out
+// rather than failing the whole index.
+const rustPartRuns = (dir: string, scip: string, repo: string) => rustParts(dir).map((part) => ({
+  part, cwd: join(dir, part), scip: scip.replace(/\.scip$/, `.${part}.scip`),
+  args: ["scip", ".", "--output", scip.replace(/\.scip$/, `.${part}.scip`)],
+  env: dir === repo ? process.env : { ...process.env, CARGO_TARGET_DIR: join(repo, part, "target") },
+}));
+function addRustPart(sk: Skeleton, run: { part: string; cwd: string; scip: string }) {
+  try {
+    const rs = buildSkeleton(run.cwd, run.scip, PROTO);
+    sk.modules.push(...rs.modules.map((m) => ({ ...m, file: `${run.part}/${m.file}` })));
+    sk.edges.push(...rs.edges);
+    sk.crates.push(...rs.crates);
+  } catch { /* left out: the TypeScript part still indexes */ }
+  finally { rmSync(run.scip, { force: true }); }
+}
+function writeTs(sk: Skeleton, scip: string) {
+  sk.modules.sort((a, b) => a.id.localeCompare(b.id));
+  writeFileSync(scip, JSON.stringify(sk));
+}
+
 // Index now, blocking: for one-off tools and turn snapshots.
 export function indexProject(lang: Lang, dir: string, scip: string, opts: { repo?: string; config?: IndexConfig } = {}) {
   if (lang === "zig") return writeFileSync(scip, JSON.stringify(buildZigSkeleton(dir)));
+  if (lang === "ts") {
+    const sk = buildTsSkeleton(dir);
+    for (const r of rustPartRuns(dir, scip, opts.repo ?? dir)) {
+      try { execFileSync("rust-analyzer", r.args, { cwd: r.cwd, env: r.env, stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 << 20 }); } catch {}
+      addRustPart(sk, r);
+    }
+    return writeTs(sk, scip);
+  }
   const r = indexCommand(lang, dir, scip, opts);
   try {
     if (r.build) execFileSync("docker", r.build, { stdio: ["ignore", "pipe", "pipe"], maxBuffer: 256 << 20 });
@@ -187,6 +222,14 @@ export function indexProject(lang: Lang, dir: string, scip: string, opts: { repo
 // Index in the background, so a server keeps answering while the indexer runs (minutes for C++).
 export function indexProjectAsync(lang: Lang, dir: string, scip: string, opts: { repo?: string; config?: IndexConfig } = {}): Promise<void> {
   if (lang === "zig") return new Promise((done, fail) => setImmediate(() => { try { indexProject(lang, dir, scip, opts); done(); } catch (e) { fail(e); } }));
+  if (lang === "ts") return (async () => {
+    const sk = buildTsSkeleton(dir);
+    for (const r of rustPartRuns(dir, scip, opts.repo ?? dir)) {
+      await new Promise<void>((done) => execFile("rust-analyzer", r.args, { cwd: r.cwd, env: r.env, maxBuffer: 256 << 20 }, () => done()));
+      addRustPart(sk, r);
+    }
+    writeTs(sk, scip);
+  })();
   return new Promise((done, fail) => {
     let r: Run;
     try { r = indexCommand(lang, dir, scip, opts); } catch (e) { return fail(e); }
@@ -198,6 +241,6 @@ export function indexProjectAsync(lang: Lang, dir: string, scip: string, opts: {
 }
 
 export function skeletonFrom(lang: Lang, root: string, scip: string, proto: string): Skeleton {
-  if (lang === "zig") return { ...JSON.parse(readFileSync(scip, "utf8")), root };
+  if (lang === "zig" || lang === "ts") return { ...JSON.parse(readFileSync(scip, "utf8")), root };
   return lang === "rust" ? buildSkeleton(root, scip, proto) : buildCppSkeleton(root, scip, proto);
 }

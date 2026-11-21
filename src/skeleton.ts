@@ -45,14 +45,14 @@ export interface Crate {
 export function isTestPath(path: string): boolean {
   if (/(^|\/)(tests?|testing|__tests__|specs?)\//.test(path)) return true;
   const name = path.split("/").pop() ?? "";
-  return /^test_|[_-](test|spec)\.[^.]+$|[a-z0-9]Tests?\.[^.]+$/.test(name);
+  return /^test_|[_.-](test|spec)\.[^.]+$|[a-z0-9]Tests?\.[^.]+$/.test(name);
 }
 
-// Bump when the skeleton's shape or rules change (or the Zig scanner's), so cached skeletons and
-// indexes are rebuilt.
-export const SKELETON_VERSION = 7;
+// Bump when the skeleton's shape or rules change (or the Zig or TypeScript scanner's), so cached
+// skeletons and indexes are rebuilt.
+export const SKELETON_VERSION = 8;
 
-export type Lang = "rust" | "cpp" | "zig";
+export type Lang = "rust" | "cpp" | "zig" | "ts";
 
 // How a diagram links to an item: "crate/module::Type::method" or "crate/module::item".
 export const itemKey = (mod: string, i: { owner?: string; name: string }) => `${mod}::${i.owner ? i.owner + "::" : ""}${i.name}`;
