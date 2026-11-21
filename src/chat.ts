@@ -34,6 +34,7 @@ type Event =
   | { type: "init"; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null };
 
 export const MODELS = ["haiku", "sonnet", "opus"];
+const DEFAULT_MODEL = "opus"; // until a model is picked in the chat; the pick is kept per project
 
 // A queue the SDK reads the user's messages from; it stays open between turns.
 function inbox() {
@@ -142,13 +143,13 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     try {
       const old = JSON.parse(readFileSync(legacy, "utf8"));
       if (old.sessionId) writeFileSync(fileOf(old.sessionId), JSON.stringify({ items: old.items ?? [], context: null }));
-      writeFileSync(metaFile, JSON.stringify({ session: old.sessionId ?? null, model: old.model ?? "sonnet" }));
+      writeFileSync(metaFile, JSON.stringify({ session: old.sessionId ?? null, model: old.model ?? DEFAULT_MODEL }));
       renameSync(legacy, legacy + ".old");
     } catch {}
   }
   const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, "utf8")) : {};
   let session: string | null = meta.session ?? null;
-  let model: string = meta.model ?? "sonnet";
+  let model: string = meta.model ?? DEFAULT_MODEL;
   let items: Item[] = [];
   let context: Context = null;
   if (session && existsSync(fileOf(session))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(session), "utf8")) });

@@ -11,7 +11,7 @@
   let { hidden, onactivity }: { hidden: boolean; onactivity: (ask: boolean) => void } = $props();
 
   let items: ChatItem[] = $state([]);
-  let busy = $state(false), model = $state("sonnet"), models: string[] = $state([]);
+  let busy = $state(false), model = $state("opus"), models: string[] = $state([]);
   let context = $state<{ used: number; max: number } | null>(null);
   let session: string | null = $state(null);
   let text = $state("");
