@@ -1,0 +1,14 @@
+{
+  "question": "How does cockpit know what an agent changed in a turn?",
+  "kind": "pipeline",
+  "tldr": "Snapshot before and after in a private git store, and note files as they change.",
+  "answer": "Cockpit commits the work tree into its own bare repo at turn start and end, so nothing lands in the project's .git. In between, each tool call's file is recorded for live lighting.",
+  "why": "The snapshot store and the live file list are two mechanisms that together make a turn.",
+  "nodes": [
+    {"id": "start", "label": "turnStart", "tldr": "Snapshot code, open turn", "explain": "Commits every file, untracked ones included, with a temporary index into cockpit's own store.", "anchors": ["src/recorder.ts", "src/snapshot.ts"]},
+    {"id": "tool", "label": "turnTool", "tldr": "Note each file touched", "explain": "Called per tool use by the chat or by Claude Code hooks; the page highlights those files' boxes.", "anchors": ["src/recorder.ts", "src/hook.ts"]},
+    {"id": "check", "label": "Check", "tldr": "Does .cockpit/ match the code?", "explain": "Compares the description with the live code index; hooks sessions get the problems once.", "anchors": ["src/arch.ts"]},
+    {"id": "end", "label": "turnEnd", "tldr": "Snapshot again, save the turn", "explain": "Writes the turn with before and after commits and the files, under the project's state folder.", "anchors": ["src/turns.ts", "src/snapshot.ts"]}
+  ],
+  "edges": []
+}

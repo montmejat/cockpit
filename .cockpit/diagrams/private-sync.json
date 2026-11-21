@@ -1,0 +1,20 @@
+{
+  "question": "How is a private .cockpit/ kept per branch and synced between machines?",
+  "kind": "dataflow",
+  "tldr": "Saved per commit and branch in a private repo, pulled back on checkout.",
+  "answer": "A cockpit-owned git store keeps refs per project, commit and branch; switching branches saves one description and restores the other, and a push to a private repo on the same forge syncs machines.",
+  "why": "The ref layout and the switch rules decide which description you see; prose alone hides them.",
+  "nodes": [
+    {"id": "work", "label": ".cockpit/ on disk", "tldr": "What you and agents see", "explain": "Excluded from the project's git through .git/info/exclude.", "outside": true},
+    {"id": "store", "label": "Private store", "tldr": "Refs per commit and branch", "explain": "One bare repo per forge host, with refs c/<sha>, b/<branch> and kept/<n>.", "anchors": ["src/private.ts"]},
+    {"id": "switch", "label": "Branch switch", "tldr": "Save the old, restore the new", "explain": "Uses the branch's own description, else the nearest earlier commit's, else what you had.", "anchors": ["src/private.ts"]},
+    {"id": "remote", "label": "cockpit-private repo", "tldr": "Your own repo on the same forge", "explain": "Pushed and pulled so another machine's newer description comes in.", "outside": true}
+  ],
+  "edges": [
+    {"from": "work", "to": "store", "label": "save on commit"},
+    {"from": "store", "to": "switch", "label": "descriptions"},
+    {"from": "switch", "to": "work", "label": "restore"},
+    {"from": "store", "to": "remote", "label": "push"},
+    {"from": "remote", "to": "store", "label": "newer description"}
+  ]
+}

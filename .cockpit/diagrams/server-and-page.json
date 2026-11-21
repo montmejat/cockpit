@@ -1,0 +1,26 @@
+{
+  "question": "How do the server, the page and the desktop shell fit together?",
+  "kind": "zones",
+  "tldr": "One Node server per project; page and desktop shell just talk to it.",
+  "answer": "The server owns files, git, the index, terminals and the chat, and pushes changes over an event stream. The Svelte page renders them; the Rust window only starts servers and hosts the page.",
+  "why": "Three processes and several channels (HTTP, events, WebSockets) are not obvious from the files.",
+  "nodes": [
+    {"id": "desktop", "label": "Desktop shell", "tldr": "GTK window, one server per project", "explain": "Starts a server on a free port per project, shows the page in WebKitGTK and stops them on close.", "zone": true, "anchors": ["cockpit-desktop::run"]},
+    {"id": "page", "label": "Svelte page", "tldr": "Map, files, git, terminals, chat", "explain": "The UI built by Vite; state lives in one reactive store fed by the event stream.", "zone": true, "in": "desktop", "anchors": ["web/src/lib/state.svelte.ts"]},
+    {"id": "server", "label": "Node server", "tldr": "Owns the project's data and agents", "explain": "Serves the page, a JSON API, an events stream and WebSockets for terminals and language servers.", "zone": true, "anchors": ["src/serve.ts"]},
+    {"id": "index", "label": "Code index", "tldr": "Modules and items from SCIP", "explain": "rust-analyzer or scip-clang output turned into modules and items that diagram links name.", "in": "server", "anchors": ["src/codeindex.ts"]},
+    {"id": "chat", "label": "Agent chat", "tldr": "Claude Agent SDK session", "explain": "Runs Claude Code with the user's login and streams items to the page.", "in": "server", "anchors": ["src/chat.ts"]},
+    {"id": "terms", "label": "Terminals", "tldr": "PTY shells with command marks", "explain": "Shells whose commands, folder and exit codes are tracked, attached over WebSocket.", "in": "server", "anchors": ["src/term.ts"]},
+    {"id": "disk", "label": "Project folder and git", "tldr": "Code, .cockpit/, history", "explain": "The working tree the agent edits and the server watches.", "outside": true},
+    {"id": "claude", "label": "Claude Code login", "tldr": "The user's own Claude account", "explain": "Cockpit uses it through the SDK; no API key.", "outside": true}
+  ],
+  "edges": [
+    {"from": "desktop", "to": "server", "label": "spawns, port"},
+    {"from": "server", "to": "page", "label": "events stream"},
+    {"from": "page", "to": "server", "label": "API calls"},
+    {"from": "disk", "to": "index", "label": "sources"},
+    {"from": "chat", "to": "claude", "label": "prompts"},
+    {"from": "chat", "to": "disk", "label": "edits"},
+    {"from": "terms", "to": "page", "label": "screen bytes"}
+  ]
+}

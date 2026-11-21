@@ -1,0 +1,28 @@
+{
+  "question": "What happens from opening a project to seeing an agent's edit light up?",
+  "kind": "loop",
+  "tldr": "Each agent turn: snapshot, edit, light up the map, check, repeat.",
+  "answer": "The server watches the project and pushes changes to the page. Each chat turn is snapshotted before and after, and when the agent stops cockpit checks .cockpit/ and guardrails and may send it back.",
+  "rate": "once per chat message to the agent",
+  "why": "The order of snapshot, live recording, checks and send-back is spread over serve, chat and recorder files.",
+  "nodes": [
+    {"id": "open", "label": "Open project", "tldr": "Desktop or CLI starts a server", "explain": "The desktop app (or npm run serve) starts one server for the project folder and shows the page.", "start": true},
+    {"id": "state", "label": "Project state", "tldr": "Description, index, files and git, kept fresh", "explain": "What the server holds and pushes to the page: .cockpit/ diagrams, the code index, git status, turns and the checks' results.", "carries": true, "anchors": ["src/serve.ts"]},
+    {"id": "message", "label": "User message", "tldr": "You ask the agent for something", "explain": "A message typed in the chat panel, sent to the agent over the server.", "anchors": ["src/chat.ts"]},
+    {"id": "begin", "label": "Open a turn", "tldr": "Snapshot the code before the agent acts", "explain": "A commit of the whole work tree is made in cockpit's own git store, so the turn can later be diffed.", "anchors": ["src/recorder.ts", "src/snapshot.ts"]},
+    {"id": "agent", "label": "Claude edits", "tldr": "Claude Code works; each edited file is noted", "explain": "The Agent SDK runs Claude Code. Every tool call that touches a file is recorded and pushed so the map lights up that box.", "anchors": ["src/chat.ts", "src/turns.ts"]},
+    {"id": "verify", "label": "Check on stop", "tldr": "Compare .cockpit/ with code, run guardrails", "explain": "When the agent stops after editing files, cockpit checks the description against the code index and runs the guardrail checks.", "anchors": ["src/arch.ts", "src/guardrails.ts"]},
+    {"id": "close", "label": "Close the turn", "tldr": "Snapshot after, keep what changed", "explain": "A second snapshot closes the turn; the page can now show what it changed. Problems send the agent back, up to 3 times.", "anchors": ["src/recorder.ts"]},
+    {"id": "end", "label": "Window closed", "tldr": "Servers stop", "explain": "Closing the desktop window stops every project server.", "end": true}
+  ],
+  "edges": [
+    {"from": "open", "to": "state", "label": "serves"},
+    {"from": "state", "to": "message", "label": "page shows it"},
+    {"from": "message", "to": "begin", "label": "prompt"},
+    {"from": "begin", "to": "agent", "label": "turn id"},
+    {"from": "agent", "to": "verify", "label": "edited files"},
+    {"from": "verify", "to": "close", "label": "problems or ok"},
+    {"from": "close", "to": "state", "label": "turn + results", "next": true},
+    {"from": "state", "to": "end", "label": "on close"}
+  ]
+}

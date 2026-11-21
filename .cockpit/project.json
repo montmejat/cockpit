@@ -1,0 +1,77 @@
+{
+  "summary": "Cockpit is a control center for software written with AI agents: it shows the project's own description (features and diagrams kept in .cockpit/) live, lights up what an agent is editing, and puts files, git, terminals and the agent chat beside it. A Node server (plus a Svelte page and a GTK desktop shell) indexes the code, runs Claude Code through the Agent SDK and records each turn.",
+  "features": [
+    {
+      "id": "map",
+      "name": "Live map of diagrams",
+      "status": "working",
+      "description": "Agent-written diagrams (loop, pipeline, dataflow, zones) drawn from .cockpit/, explained on hover, zoomable down to the code of a box, with boxes of uncommitted or in-progress code marked.",
+      "modules": [],
+      "note": "Links point at TypeScript files (src/arch.ts, web/src/components/MapView.svelte) that cockpit's own code index can't read, so it cannot check them."
+    },
+    {
+      "id": "files-git",
+      "name": "Files and git",
+      "status": "working",
+      "description": "File tree and editor (CodeMirror, LSP) showing uncommitted changes in place, a git tab with the branch, PR/MR, status and a commit graph.",
+      "modules": []
+    },
+    {
+      "id": "chat",
+      "name": "Agent chat",
+      "status": "working",
+      "description": "Runs Claude Code through the Agent SDK on the user's login: sessions, model picker, Allow/Deny cards, context and plan-limit meters, and a self-check that sends the agent back to fix .cockpit/ when it no longer matches the code.",
+      "modules": []
+    },
+    {
+      "id": "turns",
+      "name": "Turns and live lighting",
+      "status": "working",
+      "description": "Every agent request is a turn recorded with before/after snapshots in cockpit's own git store; the files it touches light up the map as it works.",
+      "modules": []
+    },
+    {
+      "id": "terminals",
+      "name": "Terminals",
+      "status": "working",
+      "description": "Real shells in the project with command marks, readable by the agent, plus a Ctrl+K line that turns words into a command without running it.",
+      "modules": []
+    },
+    {
+      "id": "review",
+      "name": "Review mode",
+      "status": "working",
+      "description": "Check out a merge request or two branches and see changed boxes, files and git lists against the point where the branch left its target.",
+      "modules": []
+    },
+    {
+      "id": "guardrails",
+      "name": "Guardrails",
+      "status": "working",
+      "description": "Checks (commands) and rules (with why and enforcement layer) in .cockpit/guardrails.json, run at the end of a turn that edited files; the agent is sent back for checks it broke.",
+      "modules": []
+    },
+    {
+      "id": "private-and-workspaces",
+      "name": "Private descriptions and workspaces",
+      "status": "working",
+      "description": "A project's .cockpit/ can be kept out of its repo and synced between machines through a private repo; workspaces let several projects know about each other.",
+      "modules": []
+    },
+    {
+      "id": "code-index",
+      "name": "Code index (Rust, Zig, C/C++)",
+      "status": "partial",
+      "description": "Builds the modules and items that diagram links point to, from rust-analyzer or scip-clang SCIP indexes, or a Zig skeleton.",
+      "modules": [],
+      "note": "No TypeScript/JavaScript indexer, so cockpit can't check .cockpit/ links for its own code."
+    },
+    {
+      "id": "desktop-app",
+      "name": "Desktop app",
+      "status": "working",
+      "description": "A GTK 4 / libadwaita window (WebKitGTK) that starts one server per project on a free port, switches projects in place and stops the servers when closed.",
+      "modules": ["cockpit-desktop"]
+    }
+  ]
+}
