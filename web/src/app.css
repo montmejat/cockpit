@@ -169,7 +169,7 @@ button.mrrow .mm{font-size:var(--fs-s);color:var(--muted);white-space:nowrap;ove
 .mark.rev{color:var(--rev)}
 #dlist .rc{color:var(--rev);font-size:var(--fs-s);margin-left:6px}#dlist .rn{color:var(--add);font-size:var(--fs-xs);margin-left:6px}
 .hint{color:var(--muted);font-size:var(--fs-s)}
-.back{font-size:var(--fs-s)}
+
 .updrow{display:flex;align-items:center;gap:8px;margin:4px 0 8px}.updrow .hint{margin:0}button:disabled{opacity:.6;cursor:default}
 
 /* center: tabs, then a diagram or code */
@@ -488,7 +488,7 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 #palette .pin{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
 #palette input[type=text]{flex:1;font:inherit;font-size:var(--fs-m);color:var(--fg);background:none;border:0;outline:0;min-width:0}
 #palette .pin label{font-size:var(--fs-s);color:var(--muted);display:flex;gap:3px;align-items:center;cursor:pointer}
-#palette .plist{overflow:auto;padding:4px 0}
+#palette .plist{overflow:auto;padding:4px 0;border:1px solid var(--line);border-radius:var(--r-l);background:var(--card)}
 #palette button.prow{display:flex;gap:10px;width:100%;font:inherit;font-size:var(--fs-m);color:var(--fg);background:none;border:0;border-radius:0;padding:3px 12px;text-align:left;cursor:pointer;white-space:nowrap}
 #palette button.prow.on{background:var(--sel)}
 #palette .prow .pp{overflow:hidden;text-overflow:ellipsis}
@@ -650,10 +650,16 @@ button.stab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(-
 .stab.bad .sbadge{background:var(--bad)}
 /* the project tab: a grouped list, like iOS settings */
 .lrow .pval.psum{display:block;min-width:0;flex:1;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#project .about{line-height:1.5;margin:0 0 10px}
-.plist{border:1px solid var(--line);border-radius:var(--r-l);background:var(--card);overflow:hidden}
-button.lrow,.lrow{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:0;background:none;text-align:left;font-weight:400}
-.lrow+.lrow{border-top:1px solid var(--line)}button.lrow:hover{background:var(--btn)}
+#project .about{line-height:1.5;margin:0}
+/* the project tab's list, and a section's card: one rounded card, rows highlighted as rounded
+   pills inside it (like the conversation list) */
+#project .plist,.pcard{border:1px solid var(--line);border-radius:var(--r-l);background:var(--card)}
+#project .plist{padding:4px;display:flex;flex-direction:column;gap:1px}
+.pcard{padding:10px 12px;margin-bottom:10px}
+button.lrow,.lrow{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:0;border-radius:var(--r-m);background:none;text-align:left;font-weight:400}
+button.lrow:hover{background:var(--btn)}
+.subhead{display:flex;align-items:center;gap:6px;margin:0 0 8px -4px}
+#project .subhead h2{margin:0}
 .lrow .pval{margin-left:auto;color:var(--muted);font-size:var(--fs-s);display:flex;gap:8px}.lrow .pval.bad{color:var(--bad)}
 .pdot{display:inline-flex;align-items:center;gap:4px}.pchev{color:var(--muted)}
 /* the card over the map: the picked box, or the diagram */

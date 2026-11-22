@@ -4,6 +4,7 @@
   // guardrails open as a tab in the center.
   import { api } from "../lib/code";
   import { openFile, openGuardrails, plural, S, showChat, ui } from "../lib/state.svelte";
+  import IconButton from "./ui/IconButton.svelte";
 
   const ORDER = ["broken", "partial", "working", "planned"] as const;
   const fileOfModule = (id: string) => S.modules.find((m) => m.id === id)?.file;
@@ -28,14 +29,21 @@
   }
 </script>
 
+<!-- a section's top: back to the list, and its name -->
+{#snippet head(title: string)}
+  <div class="subhead">
+    <IconButton label="Back to the project" onclick={back}><path d="M9.5 3.5 5 8l4.5 4.5" /></IconButton>
+    <h2>{title}</h2>
+  </div>
+{/snippet}
+
 {#snippet testLink(file: string, x: { name: string; line: number })}
   <button class="tname" onclick={() => openFile(file, x.line)}>{x.name}</button>
 {/snippet}
 
 <div id="project">
   {#if ui.insp === "features"}
-    <button class="back link" onclick={back}>← project</button>
-    <h2>Features</h2><p class="lead">What it does today, as the agents see it.</p>
+    {@render head("Features")}<p class="lead">What it does today, as the agents see it.</p>
     <details class="more"><summary>where this comes from</summary><p class="hint">The agents keep this list in .cockpit/project.json. They set each status and must say what's missing when a feature is partial or broken. Cockpit checks that the code they point to exists.</p></details>
     {#each ORDER as st}
       {@const fs = S.features.filter((f) => f.status === st)}
@@ -54,18 +62,16 @@
       {/if}
     {/each}
   {:else if ui.insp === "about"}
-    <button class="back link" onclick={back}>← project</button>
-    <h2>{S.project}</h2><p class="about">{S.summary}</p>
+    {@render head("About")}
+    <div class="pcard"><p class="about">{S.summary}</p></div>
     <details class="more"><summary>where this comes from</summary><p class="hint">The agents write it in .cockpit/project.json, from the code and the project's own docs.</p></details>
   {:else if ui.insp === "problems"}
-    <button class="back link" onclick={back}>← project</button>
-    <h2>Out of date</h2><p class="lead">Where the agents’ description in .cockpit/ no longer matches the code.</p>
+    {@render head("Out of date")}<p class="lead">Where the agents’ description in .cockpit/ no longer matches the code.</p>
     <p class="updrow"><button disabled={asked === problemsKey} onclick={update}>{asked === problemsKey ? "asked the agent ✓" : "Update"}</button> <span class="hint">the chat's agent fixes .cockpit/, not the code</span></p>
     <details class="more"><summary>what happens next</summary><p class="hint">An agent finishing a turn gets this list and must fix it before stopping. "Update" asks the chat's agent to do it now.</p></details>
     {#each S.problems as p}<div class="trow"><span>{p.problem}</span></div><p class="hint" style="margin:0 0 6px">{p.where}</p>{/each}
   {:else if ui.insp === "tests"}
-    <button class="back link" onclick={back}>← project</button>
-    <h2>Tests</h2>
+    {@render head("Tests")}
     <p class="lead">{unitN} unit, {intN} integration. {#if bare.length}<span class="bad">{plural(bare.length, "feature")} with none.</span>{:else}Every feature has some.{/if}</p>
     <details class="more"><summary>how this is counted</summary><p class="hint">Test functions found in the code: where tests exist, not how much they cover.</p></details>
     {#if S.features.length}
