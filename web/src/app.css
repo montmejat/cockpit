@@ -598,7 +598,7 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 #guardrails h2{margin:0;font-size:var(--fs-xl);font-weight:600}
 #guardrails .ghead{display:flex;align-items:baseline;gap:6px 12px;flex-wrap:wrap}#guardrails .ghead > *{white-space:nowrap}#guardrails .ghead b{font-weight:600}
 #guardrails .okc{color:var(--ok)}
-#guardrails .gtrust{max-width:760px;margin:12px 0 16px;padding:10px 14px;border:1px solid var(--warn);border-radius:var(--r-l)}#guardrails .gtrust ul{margin:6px 0 10px;padding-left:18px}#guardrails .gtrust li{margin:2px 0}
+#guardrails .gtrust{margin:12px 0 16px;padding:10px 14px;border:1px solid var(--warn);border-radius:var(--r-l)}#guardrails .gtrust p{margin:0}#guardrails .gtrust ul{margin:6px 0 10px;padding-left:18px}#guardrails .gtrust li{margin:2px 0}
 #guardrails code{font-size:var(--fs-s)}
 .gempty{border:1px dashed var(--line);border-radius:var(--r-l);padding:10px 14px;margin:10px 0 16px;max-width:760px}.gempty p{margin:0 0 8px}
 .gproblems{margin:6px 0 12px;padding-left:18px;font-size:var(--fs-m)}
