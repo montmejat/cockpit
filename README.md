@@ -1,10 +1,38 @@
-# cockpit
+<h1 align="center">cockpit</h1>
 
-A control center for software written with AI agents. The agents keep a description of the
-project in its repo (`.cockpit/`: features and a few diagrams of how the code works); cockpit
-shows it live, with what is changing right now projected onto it, next to the files, git,
-terminals and the agent chat. You lead at whatever depth you choose and can always go one level
-deeper: diagram → detail diagram → the code of one box.
+<p align="center">
+  <b>See what your AI agents are building, while they build it.</b><br>
+  A live map of your project, drawn and kept true by the agents, beside the files, git, terminals and the agent chat.
+</p>
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/map-dark.gif">
+    <img src="docs/media/map-light.gif" alt="Hovering and clicking boxes on cockpit's map, then double-clicking down to a detail diagram and into the code of one box" width="900">
+  </picture>
+</p>
+
+Agents write a lot of code fast; reading all of it is not an option. Cockpit has them keep a short
+description of the project in its repo (`.cockpit/`: the features and a few diagrams of how the
+code works, every box linked to real code) and shows it live, with what is changing right now
+projected onto it. You lead at whatever depth you choose and can always go one level deeper:
+**diagram → detail diagram → the code of one box.**
+
+- 🗺️ **A map that stays true.** The agents draw the diagrams; cockpit checks every link against the
+  code and sends the agent back when its description drifts.
+- ✨ **Changes light up.** Boxes whose code changed turn amber, boxes the agent is editing glow, and
+  the diagram list says which diagrams a change reaches.
+- 🤖 **The agent, built in.** Claude Code runs in the side panel on your own login, its turns
+  recorded, its work checked by your project's guardrails before it stops.
+- 🌿 **Git, review and terminals** in the same window, so you rarely leave it.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/changes-dark.gif">
+    <img src="docs/media/changes-light.gif" alt="An edit turns a box amber; the diagram list shows which diagram it reaches; the git tab reverts it in two clicks; the project tab lists the features" width="900">
+  </picture>
+  <br><sub>An edit lands: its boxes turn amber and ☰ counts the diagrams it reaches. Revert it from the git tab, then check the features on the project tab.</sub>
+</p>
 
 ## Run it
 
@@ -52,20 +80,24 @@ have them.
 
 ## What's on the page
 
-- **Map** (first tab): the agents' diagrams. Hover a box for what it is, click it for details,
-  double-click (or scroll in) to go into its detail diagram or its code; Esc, scrolling out or the
-  breadcrumb comes back up. ☰ by the breadcrumb lists every diagram as a small tree (by which
-  box zooms into which); click one to go there. Drag boxes to arrange them; the arrangement is saved in
-  `.cockpit/layout.json`. Boxes whose code changed (not committed) are dashed amber; boxes the
-  agent is editing glow.
+- **Map** (first tab): the agents' diagrams. Hover a box for what it is, click it for a card with
+  its code links (ⓘ by the breadcrumb does the same for the diagram), double-click (or scroll in)
+  to go into its detail diagram or its code; Esc, scrolling out or the breadcrumb comes back up.
+  ☰ by the breadcrumb lists every diagram as a small tree (by which box zooms into which); click
+  one to go there. Drag boxes to arrange them; the arrangement is saved in `.cockpit/layout.json`.
+  Boxes whose code changed (not committed) are dashed amber, and ☰ and the list count the
+  diagrams and boxes a change reaches; boxes the agent is editing glow.
 - **Files**: open a file and its uncommitted changes show in place, like an editor: a green bar
   by added lines, blue by changed ones, a red mark where lines were removed (click it to see
   them, or tick "show removed"). ↑ ↓ jump between changes. A small diagram floats over the code
   and lights up the boxes whose code is on screen.
-- **Git**: branch and its upstream, the PR / MR the branch has open (via `gh` or `glab`: state,
-  review, checks; one click reviews it), what isn't committed, and the history of all branches
-  as a graph (hash and all refs in the tooltip); a commit opens as its patch. Sections fold.
-- **Header**: lines, tests and features at a glance; each opens what's behind it on the right.
+- **Git** (sidebar): branch and its upstream, the PR / MR the branch has open (via `gh` or `glab`:
+  state, review, checks; one click reviews it), what isn't committed (hover a file to stage it or
+  revert it, two clicks), and the history of all branches as a graph (hash and all refs in the
+  tooltip); a commit opens as its patch. Sections fold.
+- **Project** (sidebar): the summary, the features by status, tests, links that went out of date,
+  guardrails and size. The header only shows what is happening: a running agent, a review in
+  progress, a guardrail check that fails.
 - **Review mode** (git tab, "review a merge request…"): pick one of the project's open merge
   requests (through `glab` or `gh`, whichever the remote needs, with your own login) or any two
   branches. Cockpit fetches and checks out the branch (only when nothing is uncommitted) and
@@ -78,17 +110,20 @@ have them.
   command in words and puts it on the prompt, never runs it.
 - **Chat**: an agent cockpit runs itself (below).
 
-Links: `?file=path&line=n`, `?commit=sha`, `?tab=git`, `?panel=features|tests`, `?at=diagram&box=node`.
+Links: `?file=path&line=n`, `?commit=sha`, `?tab=files|git|project`, `?panel=features|tests`, `?at=diagram&box=node`.
 
 ## Agent chat
 
 Cockpit runs Claude Code through the Claude Agent SDK, on your Claude Code login (no API key),
 with your user and project settings. Auto mode decides what it may do; when it wants you, an
-Allow/Deny card shows in the chat. Model picker (haiku/sonnet/opus) and a stop button.
+Allow/Deny card shows in the chat. A model menu (opus by default) and one button that sends, or
+stops the agent while it works; messages typed meanwhile reach it as it goes. Paste or drop
+images into a message.
 
-- **Conversations** are Claude Code sessions: the title at the top lists this project's sessions,
-  including ones started in a terminal, and reopens any of them. "new" starts another; the old one
-  stays in the list. Cockpit keeps its own view of each in `chats/` in the project's state dir.
+- **Conversations** are Claude Code sessions, named Chat 1, Chat 2… in the order they started:
+  the title at the top lists this project's sessions, including ones started in a terminal, and
+  reopens any of them; hover one to delete it. + starts another; the old one stays in the list.
+  Cockpit keeps its own view of each in `chats/` in the project's state dir.
 - **Meters** under the message box: how full this conversation's context is, and how much of your
   plan's 5-hour and weekly limits you've used (the numbers behind `/usage`; it reads them through
   an experimental SDK call, and hides them if that stops working).
@@ -147,7 +182,7 @@ write them; the agent's brief tells it to use it before writing links. Test code
 
 What keeps agents' work right without re-reading every line: **checks** (commands that pass or
 fail: types, lint, tests, a script that drives the app) and **rules** (decisions about how the code
-is written, each with why and where it is enforced). The ◈ in the header opens them as layers,
+is written, each with why and where it is enforced). The project tab opens them as layers,
 strongest first: *design* (the code makes the wrong thing impossible), *static* (a check finds it
 without running the program), *verification* (a check runs it and looks), *prose* (only written
 down; it lists the instruction files agents read, like CLAUDE.md and skills). A prose rule has a
