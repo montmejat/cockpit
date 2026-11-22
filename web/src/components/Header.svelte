@@ -64,8 +64,15 @@
       else if (r) { projNote = r.error; projOpen = true; }
     } catch (e) { projNote = String(e); projOpen = true; }
   }
+  // Another window (desktop app): it asks which project. Ctrl+Shift+N, like VS Code.
+  async function newWindow() {
+    projNote = "";
+    try { const r = await win!.newWindow(); if (r === true) projOpen = false; else if (r) { projNote = r.error; projOpen = true; } }
+    catch (e) { projNote = String(e); projOpen = true; }
+  }
   function keys(e: KeyboardEvent) {
     if (e.key === "Escape") { wsOpen = false; projOpen = false; }
+    else if (win && e.ctrlKey && e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") { e.preventDefault(); newWindow(); }
     else if (win && e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !(e.target as HTMLElement).closest?.(".cm-editor,.xterm")) { e.preventDefault(); openFolder(); }
   }
   function drag(e: MouseEvent) {
@@ -117,6 +124,7 @@
   {#if projOpen}
     <div class="wsmenu projmenu" role="menu">
       <button class="prow" role="menuitem" onclick={() => openFolder()}><span>Open Folder…</span><span class="muted">Ctrl+O</span></button>
+      <button class="prow" role="menuitem" onclick={newWindow}><span>New Window</span><span class="muted">Ctrl+Shift+N</span></button>
       {#if recent.length}
         <div class="muted wshead">recent</div>
         {#each recent as r (r.path)}

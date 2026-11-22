@@ -9,6 +9,7 @@ import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 // The desktop app's window (desktop/src/main.rs, BRIDGE), absent in a browser tab.
 export interface Desktop {
   openProject(path: string | null): Promise<boolean | { error: string }>;
+  newWindow(): Promise<boolean | { error: string }>; // another window, asking for its project
   state(): Promise<{ maximized: boolean; fullscreen: boolean }>;
   startDragging(): Promise<boolean>;
   minimize(): Promise<boolean>;

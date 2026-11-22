@@ -50,6 +50,7 @@ const BRIDGE: &str = r#"(() => {
     .postMessage(JSON.stringify({ cmd, ...args })).then((r) => JSON.parse(r));
   window.cockpitDesktop = {
     openProject: (path) => call("open_project", { path: path ?? null }),
+    newWindow: () => call("new_window"),
     state: () => call("state"),
     startDragging: () => call("start_drag"),
     minimize: () => call("minimize"),
@@ -353,6 +354,12 @@ fn on_message(ui: &Ui, msg: &str, reply: webkit6::ScriptMessageReply, ctx: javas
             answer(true.into())
         }
         "close" => { win.close(); answer(true.into()) }
+        // Another cockpit window, which asks for its project: this app again, as its own process
+        // (it allows several), with the same environment (the patched WebKit's path included).
+        "new_window" => match std::env::current_exe().and_then(|exe| Command::new(exe).arg("--pick").stdin(Stdio::null()).spawn()) {
+            Ok(mut child) => { std::thread::spawn(move || { let _ = child.wait(); }); answer(true.into()) } // reaped when it closes
+            Err(e) => answer(serde_json::json!({ "error": format!("couldn't start another window: {e}") })),
+        },
         "start_drag" => {
             // From the press that is still down: GNOME moves the window until it's released.
             let press = ui.press.borrow().clone();
