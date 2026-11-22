@@ -4,9 +4,9 @@
 // --host 0.0.0.0 makes it reachable from other machines on the network. Either way only a page
 // opened with the server's token gets in (auth.ts): the link it prints, or the desktop app.
 
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { execFile, execFileSync, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { createServer } from "node:http";
+import { execFileSync, spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
@@ -14,16 +14,22 @@ import { WebSocketServer } from "ws";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
 import { createChat, IMAGE_TYPES } from "./chat.ts";
 import { createIndex } from "./codeindex.ts";
-import { itemKey, type Skeleton } from "./skeleton.ts";
-import { COCKPIT, outDir, turnsDir, type Turn } from "./turns.ts";
+import { itemKey } from "./skeleton.ts";
+import { COCKPIT, outDir, turnsDir } from "./turns.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview } from "./review.ts";
 import { createPrivate } from "./private.ts";
 import { workspaceOf } from "./workspace.ts";
-import { createGit, type Status } from "./git.ts";
+import { createGit } from "./git.ts";
 import { createAuth } from "./auth.ts";
 import { listPatch, type ListPatch } from "./listpatch.ts";
+import { events, json, post, q, sameOrigin, type Handler } from "./http.ts";
+import { search } from "./search.ts";
+import { createLsp } from "./lsp.ts";
+import { itemsIn, testsOf } from "./tests-of.ts";
+import { createReviewState } from "./review-state.ts";
+import { liveTurn } from "./live-turn.ts";
 import { instructions, isTrusted, lastResults, loadGuardrails, runChecks, runningChecks, trust } from "./guardrails.ts";
 
 const args = process.argv.slice(2);
@@ -41,10 +47,13 @@ const terms = createTerminals(root, name); // shells in the bottom drawer, reada
 const ask = createAsk(root); // the terminal's ask line: words → a command
 const chat = createChat(root, name, terms, index, () => changed()); // the agent, run by cockpit itself
 const review = createReview(root, name); // reviewing a merge request against its target
+const lsp = createLsp(root); // language servers for the editor
 // .cockpit/ kept out of the project's git, following its branches, synced between your machines
 const priv = createPrivate(root, () => changed());
 
 const git = createGit(root);
+const reviewing = createReviewState(root, git, review, priv);
+const reviewBase = reviewing.base;
 const port = Number(opt("port") ?? 4173), host = opt("host") ?? "127.0.0.1";
 // The desktop app hands its token over; else one kept per project, so a page left open keeps
 // working when the server restarts.
@@ -104,35 +113,6 @@ async function saveSource(path: string, text: string, hash: string, force = fals
 
 // ---- what is changing ----------------------------------------------------
 
-// The running agent turn, if any, and the files it touched so far. Only the turns sessions point
-// to as current are read, not the whole history. A turn can stay open after its agent is gone
-// (the server stopped mid-reply, a terminal closed), so one whose session hasn't written to its
-// transcript for a while doesn't count. `chat`: it is cockpit's own chat, not a Claude Code
-// session in a terminal.
-const STALE_MS = 10 * 60_000;
-function liveTurn() {
-  const d = turnsDir(name);
-  if (!existsSync(d)) return null;
-  let live: (Turn & { last: number }) | null = null;
-  for (const f of readdirSync(d).filter((x) => x.startsWith(".current-"))) {
-    try {
-      const id = readFileSync(join(d, f), "utf8").trim();
-      const t: Turn = JSON.parse(readFileSync(join(d, `${id}.json`), "utf8"));
-      if (t.status !== "running") continue;
-      let last = Date.parse(t.startedAt);
-      try { last = Math.max(last, statSync(t.transcript).mtimeMs); } catch {}
-      for (const x of t.touched) last = Math.max(last, Date.parse(x.at));
-      if (Date.now() - last > STALE_MS) continue;
-      if (!live || t.startedAt > live.startedAt) live = { ...t, last };
-    } catch {}
-  }
-  if (!live) return null;
-  return {
-    id: live.id, prompt: live.prompt, startedAt: live.startedAt,
-    chat: existsSync(join(outDir(name), "chats", `${live.session}.json`)),
-    touched: [...new Set(live.touched.map((x) => (x.file.startsWith(root) ? x.file.slice(root.length + 1) : x.file)))],
-  };
-}
 // Nothing gets written when an agent dies, so look again now and then while one shows as working.
 setInterval(() => { if (current?.live) changed(); }, 60_000).unref();
 
@@ -140,100 +120,6 @@ setInterval(() => { if (current?.live) changed(); }, 60_000).unref();
 // project, so the arrangement travels with the repo.
 const dlayoutPath = join(root, ARCH_DIR, "layout.json");
 const readDLayout = () => { try { return existsSync(dlayoutPath) ? JSON.parse(readFileSync(dlayoutPath, "utf8")) : {}; } catch { return {}; } };
-
-// What is tested, by name. Rust: #[test] functions inside each module and in the integration
-// test files (tests/*.rs). Zig: the test "…" blocks in each file. C/C++: test files (*_test.cpp, test_*.cpp, *Test.cpp, or anything
-// under a test/ dir), with their GoogleTest / Catch2 / Boost.Test cases, else their test_*() functions
-// (plain main() tests), else the file as one test.
-const CXX_TEST_FILE = /(^|\/)(tests?\/.*|[^/]*[_-]test|test_[^/]*|[^/]*Tests?)\.(c|cc|cpp|cxx)$/;
-const CXX_TEST_FN = /^[ \t]*(?:static\s+)?(?:inline\s+)?void\s+(test_?\w*)\s*\(\s*(?:void)?\s*\)\s*\{/gm;
-const CXX_TEST_CASE = /^[ \t]*(?:TEST|TEST_F|TEST_P|TYPED_TEST|TYPED_TEST_P|TEST_CASE|SCENARIO|BOOST_AUTO_TEST_CASE|BOOST_FIXTURE_TEST_CASE)\s*\(\s*([^)]*)\)/gm;
-function testsOf(sk: Skeleton, files: string[]) {
-  const unit = sk.modules.map((m) => ({ module: m.id, file: m.file, crate: m.crate, tests: m.items.filter((i) => i.test && (i.kind === "Function" || i.kind === "Test")).map((i) => ({ name: i.name, line: i.line })) }));
-  const integration = files.filter((f) => /(^|\/)tests\/.*\.rs$/.test(f)).flatMap((file) => {
-    try {
-      const text = readFileSync(join(root, file), "utf8"), tests: { name: string; line: number }[] = [];
-      const re = /#\[test\]\s*(?:#\[[^\]]*\]\s*)*(?:pub\s+)?fn\s+(\w+)/g;
-      for (let m; (m = re.exec(text)); ) tests.push({ name: m[1], line: text.slice(0, m.index).split("\n").length });
-      return [{ file, tests }];
-    } catch { return []; }
-  });
-  if (sk.lang === "cpp") for (const file of files.filter((f) => CXX_TEST_FILE.test(f))) {
-    let text: string;
-    try { text = readFileSync(join(root, file), "utf8"); } catch { continue; }
-    const tests: { name: string; line: number }[] = [];
-    for (let m; (m = CXX_TEST_CASE.exec(text)); ) {
-      const args = m[1].split(",").map((a) => a.trim().replace(/^"|"$/g, ""));
-      tests.push({ name: args.length > 1 && !/^"/.test(m[1].trim()) ? `${args[0]}.${args[1]}` : args[0], line: text.slice(0, m.index).split("\n").length });
-    }
-    if (!tests.length) for (let m; (m = CXX_TEST_FN.exec(text)); ) tests.push({ name: m[1], line: text.slice(0, m.index).split("\n").length });
-    integration.push({ file, tests: tests.length ? tests : [{ name: file.split("/").pop()!.replace(/\.[^.]+$/, ""), line: 1 }] });
-  }
-  return { unit, integration };
-}
-
-// Items whose lines changed: lets a diagram box light up only when its own function changed.
-function itemsIn(sk: Skeleton, lines: Record<string, [number, number][]>) {
-  const out: string[] = [];
-  for (const m of sk.modules) {
-    const ranges = lines[m.file];
-    if (ranges) for (const i of m.items) if (!i.test && ranges.some(([a, b]) => a <= (i.end ?? i.line) && b >= i.line)) out.push(itemKey(m.id, i));
-  }
-  return out;
-}
-
-// ---- review mode ---------------------------------------------------------------
-
-// Where the reviewed branch left its target: the merge request's diff starts there.
-const reviewBase = async () => { const r = review.current(); return r ? (await git.read("merge-base", "HEAD", r.target)) || null : null; };
-
-// The diagrams as the target had them, by commit (they never change for a given commit).
-// null when the target has no .cockpit/ (not committed, or kept out of git): nothing to compare.
-const baseDiagrams = new Map<string, Map<string, { question: string; nodes: Map<string, string> }> | null>();
-async function diagramsAt(base: string) {
-  // .cockpit/ kept private: the description saved at (or nearest before) the base, from the store.
-  const kept = (await git.read("cat-file", "-t", `${base}:${ARCH_DIR}/project.json`)) === "blob" ? null : priv.at(base);
-  const key = kept ? base + "@" + kept : base;
-  if (!baseDiagrams.has(key)) {
-    const arch = kept ? loadArch(root, kept, priv.store).arch : loadArch(root, base).arch;
-    baseDiagrams.set(key, arch ? new Map(arch.diagrams.map((d) => [d.id, { question: d.question, nodes: new Map(d.nodes.map((n) => [n.id, n.label])) }])) : null);
-  }
-  return baseDiagrams.get(key)!;
-}
-
-// What the review changes: files and items (committed on the branch or not), and the diagrams'
-// own boxes added and removed.
-async function reviewState(sk: Skeleton, status: Status[], diagrams: { id: string; question: string; nodes: { id: string; label: string }[] }[]) {
-  const r = review.current();
-  if (!r) return null;
-  const base = await reviewBase();
-  if (!base) return { ...r, base: null, error: `${r.target} and this branch share no history`, files: [], changedFiles: [], changedItems: [], impacted: [], commits: 0, diagrams: {}, removedDiagrams: [] };
-  const [lines, nameStatus, short, commits] = await Promise.all([
-    git.changedLines(status, base), git.read("diff", "--name-status", "--no-renames", base),
-    git.read("rev-parse", "--short", base), git.read("rev-list", "--count", `${base}..HEAD`),
-  ]);
-  const files: { path: string; st: string }[] = nameStatus.split("\n").filter(Boolean)
-    .map((l) => { const [st, path] = l.split("\t"); return { path, st: st[0] }; });
-  for (const s of status) if (s.x === "?" && !files.some((f) => f.path === s.path)) files.push({ path: s.path, st: "A" });
-  files.sort((a, b) => a.path.localeCompare(b.path));
-  const before = await diagramsAt(base), diff: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }> = {};
-  if (before) for (const d of diagrams) {
-    const b = before.get(d.id);
-    const added = b ? d.nodes.filter((n) => !b.nodes.has(n.id)).map((n) => n.id) : d.nodes.map((n) => n.id);
-    const removed = b ? [...b.nodes].filter(([id]) => !d.nodes.some((n) => n.id === id)).map(([id, label]) => ({ id, label })) : [];
-    if (!b || added.length || removed.length) diff[d.id] = { isNew: !b, added, removed };
-  }
-  // What it impacts: the modules that use a changed one (one step out), not changed themselves.
-  const changedFiles = new Set(Object.keys(lines));
-  const changedMods = new Set(sk.modules.filter((m) => changedFiles.has(m.file)).map((m) => m.id));
-  const impacted = [...new Set(sk.edges.filter((e) => changedMods.has(e.to) && !changedMods.has(e.from)).map((e) => e.from))];
-  return {
-    ...r, base: short, error: null,
-    commits: Number(commits) || 0,
-    files, changedFiles: [...changedFiles], changedItems: itemsIn(sk, lines), impacted,
-    diagrams: diff, removedDiagrams: [...(before ?? [])].filter(([id]) => !diagrams.some((d) => d.id === id)).map(([id, b]) => ({ id, question: b.question })),
-  };
-}
 
 // Everything the page shows, as named parts: the page gets the whole thing once, then only the
 // parts that changed.
@@ -257,7 +143,7 @@ async function state() {
   const sk = index.current();
   const loaded = loadArch(root), arch = loaded.arch;
   const [status, files, head] = await Promise.all([git.status(), listFiles(), git.head()]);
-  const [lines, review] = await Promise.all([git.changedLines(status), reviewState(sk, status, arch?.diagrams ?? [])]);
+  const [lines, review] = await Promise.all([git.changedLines(status), reviewing.state(sk, status, arch?.diagrams ?? [])]);
   const changedItems = itemsIn(sk, lines);
   // When each changed file was last written: the page reloads an open file when this moves.
   const fileRevs: Record<string, number> = {};
@@ -268,13 +154,13 @@ async function state() {
     problems: sk.modules.length ? checkArch(loaded, sk) : loaded.problems,
     modules: sk.modules.map((m) => ({ id: m.id, file: m.file, items: m.items.filter((i) => !i.test).map((i) => ({ key: itemKey(m.id, i), line: i.line, end: i.end })) })),
     layout: readDLayout(),
-    live: liveTurn(),
+    live: liveTurn(root, name),
     files,
     status, changedFiles: Object.keys(lines), changedItems, fileRevs,
     git: head,
     lines: sk.modules.reduce((s, m) => s + m.lines, 0),
     features: arch?.features ?? [],
-    tests: testsOf(sk, files),
+    tests: testsOf(root, sk, files),
     summary: arch?.summary ?? "",
     review,
     workspace: workspaceState(),
@@ -366,61 +252,6 @@ const TYPES: Record<string, string> = { ".js": "text/javascript", ".css": "text/
 
 // ---- routes --------------------------------------------------------------
 
-const json = (res: ServerResponse, data: unknown, code = 200) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(data));
-// At most 64 MB (a message with pasted images is the biggest thing the page sends).
-const BODY_MAX = 64 << 20;
-const readBody = (req: IncomingMessage) => new Promise<any>((ok, fail) => {
-  const parts: Buffer[] = [];
-  let size = 0;
-  req.on("data", (c: Buffer) => {
-    size += c.length;
-    if (size > BODY_MAX) { fail(new Error("request too large")); req.destroy(); return; }
-    parts.push(c);
-  });
-  req.on("end", () => { try { const b = Buffer.concat(parts).toString("utf8"); ok(b ? JSON.parse(b) : {}); } catch (e) { fail(e); } });
-  req.on("error", fail);
-});
-// Server-sent events: a first message, then each one `subscribe` hands over.
-function events(req: IncomingMessage, res: ServerResponse, first: unknown, subscribe: (send: (e: unknown) => void) => () => void) {
-  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
-  const send = (e: unknown) => res.write("data: " + JSON.stringify(e) + "\n\n");
-  send(first);
-  const off = subscribe(send);
-  const ping = setInterval(() => res.write(": ping\n\n"), 20000);
-  req.on("close", () => { off(); clearInterval(ping); });
-}
-
-// Only the page itself may act: a page from another site, open in the same browser, could
-// otherwise talk to the agent or open a shell here.
-const sameOrigin = (req: IncomingMessage) => { const o = req.headers.origin; if (!o) return true; try { return new URL(o).host === req.headers.host; } catch { return false; } };
-
-type Handler = (req: IncomingMessage, res: ServerResponse, url: URL) => unknown;
-const q = (url: URL, k: string) => url.searchParams.get(k) ?? "";
-const post = (fn: (body: any, res: ServerResponse) => unknown): Handler => async (req, res) => {
-  try { const r = await fn(await readBody(req), res); if (!res.headersSent) json(res, r ?? { ok: true }); }
-  catch (e: any) { if (!res.headersSent) json(res, { error: String(e?.message ?? e) }, 400); }
-};
-
-// Project search, for the page's Ctrl+Shift+F: ripgrep, at most ~500 hits.
-async function search(q: string, caseSensitive: boolean, regex: boolean) {
-  if (!q) return [];
-  const a = ["--json", "--max-count", "50", "--max-columns", "300", caseSensitive ? "--case-sensitive" : "--smart-case"];
-  if (!regex) a.push("--fixed-strings");
-  // exit 1 = no match: the output is used either way
-  const out = await new Promise<string>((done) => { execFile("rg", [...a, "--", q, "."], { cwd: root, encoding: "utf8", maxBuffer: 64 << 20 }, (_e, o) => done(String(o ?? ""))).stdin?.end(); });
-  const hits: { path: string; line: number; col: number; text: string }[] = [];
-  for (const l of out.split("\n")) {
-    if (hits.length >= 500) break;
-    if (!l.startsWith('{"type":"match"')) continue;
-    try {
-      const d = JSON.parse(l).data, text: string = d.lines.text ?? "";
-      const at = d.submatches?.[0]?.start ?? 0;
-      hits.push({ path: String(d.path.text).replace(/^\.\//, ""), line: d.line_number, col: Buffer.from(text).subarray(0, at).toString().length + 1, text: text.replace(/\n$/, "") });
-    } catch {}
-  }
-  return hits;
-}
-
 // The desktop's look, so the page can match the apps around it (GNOME): the accent color and
 // which window buttons go where. Read once; null fields when it isn't GNOME.
 let look: { accent: string | null; buttons: string | null } | null = null;
@@ -485,7 +316,7 @@ const routes: Record<string, Handler> = {
       c.on("spawn", () => { c.unref(); done({ ok: true }); });
     });
   }),
-  "GET /api/search": async (_req, res, url) => json(res, await search(q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")),
+  "GET /api/search": async (_req, res, url) => json(res, await search(root, q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")),
   "POST /api/file/save": post(({ path, text, hash, force }) => saveSource(path, text, hash, !!force)),
   "POST /api/open-url": post(({ url }) => {
     if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("expected an http(s) link");
@@ -567,53 +398,12 @@ const server = createServer(async (req, res) => {
   }
 });
 const wss = new WebSocketServer({ noServer: true });
-// Language servers for the editor (web/src/lib/lsp.svelte.ts): one process per page connection,
-// in the project folder, killed when the page goes. LSP frames (Content-Length headers) on the
-// process side, one JSON message per WebSocket message on the page side. A missing server closes
-// with 4404 and the editor carries on without it.
-const LSP: Record<string, string[]> = {
-  rust: ["rust-analyzer"],
-  typescript: ["typescript-language-server", "--stdio"],
-  python: ["pyright-langserver", "--stdio"],
-  zig: ["zls"],
-  c: ["clangd"],
-};
-const lspProcs = new Set<ReturnType<typeof spawn>>();
-function lsp(ws: import("ws").WebSocket, lang: string) {
-  const cmd = LSP[lang];
-  if (!cmd) { ws.close(4404, "no language server for " + lang); return; }
-  const p = spawn(cmd[0], cmd.slice(1), { cwd: root, stdio: ["pipe", "pipe", "ignore"] });
-  lspProcs.add(p);
-  let buf = Buffer.alloc(0);
-  p.stdout!.on("data", (chunk: Buffer) => {
-    buf = Buffer.concat([buf, chunk]);
-    for (;;) {
-      const end = buf.indexOf("\r\n\r\n");
-      if (end < 0) return;
-      const m = /content-length:\s*(\d+)/i.exec(buf.subarray(0, end).toString());
-      if (!m) { buf = buf.subarray(end + 4); continue; }
-      const len = +m[1];
-      if (buf.length < end + 4 + len) return;
-      const body = buf.subarray(end + 4, end + 4 + len).toString("utf8");
-      buf = buf.subarray(end + 4 + len);
-      if (ws.readyState === ws.OPEN) ws.send(body);
-    }
-  });
-  p.on("error", () => { lspProcs.delete(p); ws.close(4404, cmd[0] + " not found"); });
-  p.on("exit", () => { lspProcs.delete(p); if (ws.readyState === ws.OPEN) ws.close(4000, cmd[0] + " exited"); });
-  p.stdin!.on("error", () => {});
-  ws.on("message", (raw) => {
-    const body = Buffer.from(String(raw), "utf8");
-    if (p.stdin!.writable) p.stdin!.write(`Content-Length: ${body.length}\r\n\r\n`), p.stdin!.write(body);
-  });
-  ws.on("close", () => { p.kill(); });
-}
 server.on("upgrade", (req, sock, head) => {
   const url = new URL(req.url ?? "/", "http://x");
   if (!["/api/term/ws", "/api/lsp"].includes(url.pathname) || auth.check(req, url) !== "ok" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
-  wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? lsp(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
+  wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? lsp.attach(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
 });
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); chat.close(); for (const p of lspProcs) p.kill(); process.exit(0); });
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); chat.close(); lsp.killAll(); process.exit(0); });
 server.listen(port, host, () =>
   console.log(`serving ${name} on ${auth.link(host === "0.0.0.0" || host === "::" ? hostname() : host)}`),
 );

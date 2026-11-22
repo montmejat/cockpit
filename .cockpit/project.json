@@ -15,7 +15,7 @@
         "cockpit/web/src/components/TabBar", "cockpit/web/src/components/Sidebar", "cockpit/web/src/components/Grip",
         "cockpit/web/src/components/Palette",
         "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu",
-        "cockpit/listpatch", "cockpit/web/src/lib/listmerge"
+        "cockpit/listpatch", "cockpit/web/src/lib/listmerge", "cockpit/http", "cockpit/live-turn", "cockpit/tests-of"
       ]
     },
     {
@@ -24,7 +24,7 @@
       "status": "working",
       "description": "File tree and editor (CodeMirror, vim keys, language servers) showing uncommitted changes in place, and a git tab with the branch, its PR/MR, status and a commit graph; a project tab beside them lists features, tests, out-of-date links and guardrails.",
       "modules": [
-        "cockpit/serve", "cockpit/git",
+        "cockpit/serve", "cockpit/git", "cockpit/search", "cockpit/lsp",
         "cockpit/web/src/components/FileTree", "cockpit/web/src/components/FileEditor", "cockpit/web/src/components/CodeView",
         "cockpit/web/src/components/GitPane",
         "cockpit/web/src/lib/code", "cockpit/web/src/lib/editor", "cockpit/web/src/lib/fileicons", "cockpit/web/src/lib/graph",
@@ -57,7 +57,7 @@
       "name": "Review mode",
       "status": "working",
       "description": "Check out a merge request or two branches and see changed boxes, files and git lists against the point where the branch left its target.",
-      "modules": ["cockpit/review"]
+      "modules": ["cockpit/review", "cockpit/review-state"]
     },
     {
       "id": "guardrails",
