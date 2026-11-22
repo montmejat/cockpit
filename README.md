@@ -39,9 +39,16 @@ projected onto it. You lead at whatever depth you choose and can always go one l
 ```sh
 npm install
 npm run build                               # the page (web/ → web/dist)
-npm run serve -- ~/Projects/slipangle       # http://127.0.0.1:4173
-npm run serve -- ~/Projects/slipangle --host 0.0.0.0   # reachable from your network, no login
+npm run serve -- ~/Projects/slipangle       # prints http://127.0.0.1:4173/?token=…
+npm run serve -- ~/Projects/slipangle --host 0.0.0.0   # reachable from your network
+npm test                                    # the server's parsers, the access check, git actions
 ```
+
+Only a page opened with the server's token gets in: open the link it prints once, and the
+browser keeps a cookie for that port. The token is kept per project in cockpit's state folder,
+so a page left open keeps working when the server restarts; the desktop app makes a new one for
+each server it starts. Listening on 127.0.0.1, the server also refuses requests that call it by
+another name (a site pointing its own domain at 127.0.0.1).
 
 Desktop app (Linux), a GTK 4 / libadwaita window (WebKitGTK 6) around the same server:
 

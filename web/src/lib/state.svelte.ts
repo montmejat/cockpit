@@ -3,6 +3,7 @@
 
 import { SvelteSet } from "svelte/reactivity";
 import { api } from "./code";
+import { merge } from "./listmerge";
 import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 
 // The desktop app's window (desktop/src/main.rs, BRIDGE), absent in a browser tab.
@@ -35,15 +36,6 @@ export const S: Live = (() => {
   }
   return o;
 })();
-
-// A list patched by key: changed and new entries replace or join, removed ones go; when the
-// membership changed the server sends the new order of keys.
-function merge<T>(list: T[], p: { set: T[]; del: string[]; keys?: string[] }, key: (x: T) => string): T[] {
-  const by = new Map(list.map((x) => [key(x), x]));
-  for (const k of p.del) by.delete(k);
-  for (const x of p.set) by.set(key(x), x);
-  return p.keys ? p.keys.map((k) => by.get(k)!).filter(Boolean) : list.filter((x) => by.has(key(x))).map((x) => by.get(key(x))!);
-}
 
 export function connectLive() {
   const es = new EventSource("api/events");

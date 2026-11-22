@@ -1,12 +1,14 @@
 // The cockpit server for one project: serves the page (web/, built with Vite) and its data, runs
 // the agent chat and the terminals, and pushes what changes as it changes.
 //   npm run serve -- <project dir> [--port 4173] [--host 127.0.0.1]
-// --host 0.0.0.0 makes it reachable from other machines on the network (no login).
+// --host 0.0.0.0 makes it reachable from other machines on the network. Either way only a page
+// opened with the server's token gets in (auth.ts): the link it prints, or the desktop app.
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
-import { createHash } from "node:crypto";
+import { execFile, execFileSync, spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { hostname } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
@@ -19,6 +21,9 @@ import { createAsk } from "./ask.ts";
 import { createReview } from "./review.ts";
 import { createPrivate } from "./private.ts";
 import { workspaceOf } from "./workspace.ts";
+import { createGit, type Status } from "./git.ts";
+import { createAuth } from "./auth.ts";
+import { listPatch, type ListPatch } from "./listpatch.ts";
 import { instructions, lastResults, loadGuardrails, runChecks, runningChecks } from "./guardrails.ts";
 
 const args = process.argv.slice(2);
@@ -39,59 +44,46 @@ const review = createReview(root, name); // reviewing a merge request against it
 // .cockpit/ kept out of the project's git, following its branches, synced between your machines
 const priv = createPrivate(root, () => changed());
 
-// No optional locks: `git status` must not rewrite .git/index, which the watcher below follows.
-const tryGit = (...a: string[]) => {
-  try {
-    return execFileSync("git", a, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"], env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" } }).trimEnd();
-  } catch (e: any) { return String(e.stdout ?? "").trimEnd(); }
-};
-
-// Git that must work: throws with git's own message (for staging and committing from the page).
-const runGit = (args: string[], input?: string) => {
-  try {
-    return execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, input, stdio: [input == null ? "ignore" : "pipe", "pipe", "pipe"] }).trimEnd();
-  } catch (e: any) { throw new Error(String(e.stderr || e.stdout || e.message).trim().split("\n").slice(-6).join("\n")); }
-};
+const git = createGit(root);
+const port = Number(opt("port") ?? 4173), host = opt("host") ?? "127.0.0.1";
+// The desktop app hands its token over; else one kept per project, so a page left open keeps
+// working when the server restarts.
+function savedToken() {
+  const f = join(outDir(name), "token");
+  try { return readFileSync(f, "utf8").trim(); } catch {}
+  const t = randomBytes(24).toString("base64url");
+  mkdirSync(outDir(name), { recursive: true });
+  writeFileSync(f, t + "\n", { mode: 0o600 });
+  chmodSync(f, 0o600);
+  return t;
+}
+const auth = createAuth(port, host, process.env.COCKPIT_TOKEN || savedToken());
+delete process.env.COCKPIT_TOKEN; // not passed on to the terminals and agents started from here
 
 // ---- files ---------------------------------------------------------------
 
 // .cockpit/ is listed even when it is kept out of git (private.ts).
-const listFiles = () => [...new Set([
-  ...tryGit("ls-files", "--cached", "--others", "--exclude-standard").split("\n"),
-  ...tryGit("ls-files", "--others", "--ignored", "--exclude-standard", "--", ARCH_DIR).split("\n").filter((f) => !f.includes("/node_modules/")),
-])].filter(Boolean).sort();
-const isProjectFile = (path: string) => {
-  const full = resolve(root, path);
-  return full.startsWith(root + sep) && listFiles().includes(path);
-};
-
-// What changed in a file since the last commit (or since `against`, in review mode), as hunks over
-// the current text: lines added or changed, and the old lines removed at each place. The page
-// draws them in the file itself.
-type Hunk = { at: number; added: number; removed: string[] };
-function hunksOf(path: string, untracked: boolean, against = "HEAD"): Hunk[] {
-  if (untracked) return [{ at: 1, added: 1e9, removed: [] }]; // all new
-  const out: Hunk[] = [];
-  for (const l of tryGit("diff", against, "-U0", "--no-color", "--no-ext-diff", "--", path).split("\n")) {
-    const m = l.match(/^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-    if (m) out.push({ at: +m[2] + (m[3] === "0" ? 1 : 0), added: m[3] === undefined ? 1 : +m[3], removed: [] });
-    else if (out.length && l.startsWith("-") && !l.startsWith("---")) out.at(-1)!.removed.push(l.slice(1));
-  }
-  return out;
+const listFiles = () => git.files(ARCH_DIR);
+// Tracked or untracked, not ignored: in the live list, else asked again (a file just created).
+async function isProjectFile(path: unknown): Promise<boolean> {
+  if (typeof path !== "string" || !resolve(root, path).startsWith(root + sep)) return false;
+  return current.files.includes(path) || (await listFiles()).includes(path);
 }
-function readSource(path: string, inReview = false) {
-  const base = inReview ? reviewBase() : null;
-  if (base && !isProjectFile(path) && tryGit("cat-file", "-t", `${base}:${path}`) === "blob")
+
+async function readSource(path: string, inReview = false) {
+  const base = inReview ? await reviewBase() : null;
+  const known = await isProjectFile(path);
+  if (base && !known && (await git.read("cat-file", "-t", `${base}:${path}`)) === "blob")
     return { path, text: null, note: "deleted in this review", hunks: [] };
-  if (!isProjectFile(path)) throw new Error("not a project file");
+  if (!known) throw new Error("not a project file");
   const full = resolve(root, path);
   if (statSync(full).size > 1 << 20) return { path, text: null, note: "file larger than 1 MB", hunks: [] };
   const text = readFileSync(full, "utf8");
   if (text.includes("\u0000")) return { path, text: null, note: "binary file", hunks: [] };
-  const st = gitStatus().find((s) => s.path === path);
+  const st = (await git.status()).find((s) => s.path === path);
   const hash = hashOf(text); // what the editor saves against
-  if (base) return { path, text, hash, hunks: hunksOf(path, st?.x === "?", base) };
-  return { path, text, hash, hunks: st ? hunksOf(path, st.x === "?") : [] };
+  if (base) return { path, text, hash, hunks: await git.hunks(path, st?.x === "?", base) };
+  return { path, text, hash, hunks: st ? await git.hunks(path, st.x === "?") : [] };
 }
 const hashOf = (text: string) => createHash("sha1").update(text).digest("hex");
 
@@ -99,9 +91,9 @@ const hashOf = (text: string) => createHash("sha1").update(text).digest("hex");
 // refused), and only if the file is still what the editor loaded (`hash`): when an agent changed it
 // meanwhile, the save is refused with the file as it is now, and the page asks you what to keep.
 // `force` overwrites anyway.
-function saveSource(path: string, text: string, hash: string, force = false) {
+async function saveSource(path: string, text: string, hash: string, force = false) {
   if (typeof path !== "string" || typeof text !== "string") throw new Error("expected path and text");
-  if (!isProjectFile(path)) throw new Error("not a project file");
+  if (!(await isProjectFile(path))) throw new Error("not a project file");
   const full = resolve(root, path);
   if (!realpathSync(full).startsWith(realpathSync(root) + sep)) throw new Error("outside the project");
   const now = readFileSync(full, "utf8");
@@ -110,123 +102,7 @@ function saveSource(path: string, text: string, hash: string, force = false) {
   return { ok: true, hash: hashOf(text) };
 }
 
-// ---- git -----------------------------------------------------------------
-
-function gitStatus() {
-  // Porcelain v1: XY path, X = staged, Y = unstaged; "??" = untracked.
-  return tryGit("status", "--porcelain=v1", "-z", "--untracked-files=all").split("\0").filter(Boolean).flatMap((e, i, arr) => {
-    if (i > 0 && /^R|^C/.test(arr[i - 1] ?? "") && !/^.. /.test(e)) return []; // rename source, already used
-    return [{ x: e[0], y: e[1], path: e.slice(3) }];
-  });
-}
-function gitHead() {
-  const branch = tryGit("symbolic-ref", "--short", "-q", "HEAD") || null;
-  const upstream = tryGit("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}") || null;
-  const [behind, ahead] = upstream ? tryGit("rev-list", "--left-right", "--count", "@{u}...HEAD").split(/\s+/).map(Number) : [0, 0];
-  return { branch, head: tryGit("rev-parse", "--short", "HEAD"), upstream, ahead, behind };
-}
-// Staging and committing from the git tab. Only paths git reports as changed can be (un)staged.
-function stagePaths(paths: unknown, stage: boolean) {
-  if (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === "string")) throw new Error("expected paths");
-  const known = new Set(gitStatus().map((s) => s.path));
-  const bad = (paths as string[]).filter((p) => !known.has(p));
-  if (bad.length) throw new Error("not changed: " + bad.join(", "));
-  if (stage) runGit(["add", "-A", "--", ...(paths as string[])]);
-  else if (tryGit("rev-parse", "-q", "--verify", "HEAD")) runGit(["restore", "--staged", "--", ...(paths as string[])]);
-  else runGit(["rm", "-r", "-q", "--cached", "--", ...(paths as string[])]); // no commit yet
-}
-// Reverting from the git tab: a file's unstaged changes go back to what is staged (or committed);
-// an untracked file is deleted (git clean). Only paths git reports with unstaged changes.
-function discardPaths(paths: unknown) {
-  if (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === "string")) throw new Error("expected paths");
-  const st = new Map(gitStatus().filter((s) => s.y !== " ").map((s) => [s.path, s]));
-  const bad = (paths as string[]).filter((p) => !st.has(p));
-  if (bad.length) throw new Error("no unstaged changes: " + bad.join(", "));
-  const untracked = (paths as string[]).filter((p) => st.get(p)!.y === "?"), tracked = (paths as string[]).filter((p) => st.get(p)!.y !== "?");
-  if (tracked.length) runGit(["restore", "--worktree", "--", ...tracked]);
-  if (untracked.length) runGit(["clean", "-f", "-q", "--", ...untracked]);
-}
-// Switching from the history's right-click menu: to a branch (a remote one gets a local branch
-// tracking it), or to a commit, detached. Only refs git lists; git itself refuses when local
-// changes would be overwritten.
-function switchTo({ ref, sha }: { ref?: unknown; sha?: unknown }) {
-  if (typeof sha === "string") {
-    if (!/^[0-9a-f]{4,40}$/i.test(sha)) throw new Error("not a commit");
-    runGit(["switch", "-q", "--detach", sha]);
-    return {};
-  }
-  if (typeof ref !== "string") throw new Error("expected a branch");
-  const local = tryGit("for-each-ref", "--format=%(refname:short)", "refs/heads").split("\n");
-  if (local.includes(ref)) { runGit(["switch", "-q", ref]); return {}; }
-  const remote = tryGit("for-each-ref", "--format=%(refname:short)", "refs/remotes").split("\n");
-  if (!remote.includes(ref) || !ref.includes("/")) throw new Error(`no branch ${ref}`);
-  const name = ref.slice(ref.indexOf("/") + 1);
-  if (local.includes(name)) throw new Error(`a local ${name} exists already, at another commit: switch to it, then pull`);
-  runGit(["switch", "-q", "-c", name, "--track", ref]);
-  return { note: `new local branch ${name}, tracking ${ref}` };
-}
-function commitStaged(message: unknown) {
-  if (typeof message !== "string" || !message.trim()) throw new Error("write a commit message");
-  if (!gitStatus().some((s) => s.x !== " " && s.x !== "?")) throw new Error("nothing staged");
-  runGit(["commit", "-q", "-F", "-"], message.trim() + "\n");
-  return { head: tryGit("rev-parse", "--short", "HEAD") };
-}
-// Lines added and removed per file, staged and not (binary files count as -1).
-function numstat() {
-  const parse = (out: string) => {
-    const r: Record<string, [number, number]> = {};
-    // A rename is "old => new" or "dir/{old => new}/rest": keep the new path.
-    const newPath = (p: string) => p.includes("{") ? p.replace(/\{[^{}]* => ([^{}]*)\}/, "$1").replace(/\/\//g, "/") : p.replace(/^.* => /, "");
-    for (const l of out.split("\n")) { const m = /^(-|\d+)\t(-|\d+)\t(.*)$/.exec(l); if (m) r[newPath(m[3])] = [m[1] === "-" ? -1 : +m[1], m[2] === "-" ? -1 : +m[2]]; }
-    return r;
-  };
-  return { staged: parse(tryGit("diff", "--cached", "--numstat")), unstaged: parse(tryGit("diff", "--numstat")) };
-}
-
-// Commits of all branches, newest first, with parents: the page draws the graph.
-function gitGraph() {
-  return tryGit("log", "--branches", "--remotes", "--tags", "--topo-order", "-n", "200", "--format=%H%x1f%P%x1f%h%x1f%s%x1f%an%x1f%aI%x1f%D")
-    .split("\n").filter(Boolean).map((l) => {
-      const [hash, parents, sha, subject, author, date, refs] = l.split("\x1f");
-      return { hash, parents: parents ? parents.split(" ") : [], sha, subject, author, date, refs: refs ? refs.split(", ").filter((r) => !r.startsWith("refs/cockpit")) : [] };
-    });
-}
-// A changed file's diff, for the Git tab: staged (the index against HEAD), or not staged (the
-// working tree against the index; an untracked file shows whole, as added). Only for files git
-// reports as changed.
-function fileDiff(path: string, staged: boolean) {
-  const st = gitStatus().find((s) => s.path === path);
-  if (!st) return { path, staged, patch: "", note: "no changes" };
-  const patch = staged ? tryGit("diff", "--cached", "--no-color", "--no-ext-diff", "--", path)
-    : st.x === "?" ? tryGit("diff", "--no-index", "--no-color", "--no-ext-diff", "--", "/dev/null", path)
-    : tryGit("diff", "--no-color", "--no-ext-diff", "--", path);
-  return { path, staged, patch, note: patch ? undefined : "no changes" + (staged ? " staged" : " outside the index") };
-}
-
-function commitPatch(sha: string) {
-  const [meta, ...rest] = tryGit("show", "--format=%H%x1f%s%x1f%an%x1f%aI%x1f%b%x1e", "--patch", sha).split("\x1e");
-  const [full, subject, author, date, body] = meta.split("\x1f");
-  return { sha: full, subject, author, date, body: (body ?? "").trim(), patch: rest.join("\x1e").replace(/^\n+/, "") };
-}
-
 // ---- what is changing ----------------------------------------------------
-
-// Lines changed but not committed (or since `against`), per file (new-file line numbers), from
-// the working diff.
-function changedLines(status: ReturnType<typeof gitStatus>, against = "HEAD"): Record<string, [number, number][]> {
-  const out: Record<string, [number, number][]> = {};
-  let file = "";
-  for (const l of tryGit("diff", against, "-U0", "--no-color", "--no-ext-diff").split("\n")) {
-    if (l.startsWith("+++ ")) file = l.startsWith("+++ b/") ? l.slice(6) : "";
-    const m = l.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
-    if (m && file) {
-      const start = +m[1], n = m[2] === undefined ? 1 : +m[2];
-      (out[file] ??= []).push([start, start + Math.max(n, 1) - 1]); // n = 0: lines removed just after start
-    }
-  }
-  for (const s of status) if (s.x === "?") out[s.path] = [[1, 1e9]];
-  return out;
-}
 
 // The running agent turn, if any, and the files it touched so far. Only the turns sessions point
 // to as current are read, not the whole history. A turn can stay open after its agent is gone
@@ -309,14 +185,14 @@ function itemsIn(sk: Skeleton, lines: Record<string, [number, number][]>) {
 // ---- review mode ---------------------------------------------------------------
 
 // Where the reviewed branch left its target: the merge request's diff starts there.
-const reviewBase = () => { const r = review.current(); return r ? tryGit("merge-base", "HEAD", r.target) || null : null; };
+const reviewBase = async () => { const r = review.current(); return r ? (await git.read("merge-base", "HEAD", r.target)) || null : null; };
 
 // The diagrams as the target had them, by commit (they never change for a given commit).
 // null when the target has no .cockpit/ (not committed, or kept out of git): nothing to compare.
 const baseDiagrams = new Map<string, Map<string, { question: string; nodes: Map<string, string> }> | null>();
-function diagramsAt(base: string) {
+async function diagramsAt(base: string) {
   // .cockpit/ kept private: the description saved at (or nearest before) the base, from the store.
-  const kept = tryGit("cat-file", "-t", `${base}:${ARCH_DIR}/project.json`) === "blob" ? null : priv.at(base);
+  const kept = (await git.read("cat-file", "-t", `${base}:${ARCH_DIR}/project.json`)) === "blob" ? null : priv.at(base);
   const key = kept ? base + "@" + kept : base;
   if (!baseDiagrams.has(key)) {
     const arch = kept ? loadArch(root, kept, priv.store).arch : loadArch(root, base).arch;
@@ -327,17 +203,20 @@ function diagramsAt(base: string) {
 
 // What the review changes: files and items (committed on the branch or not), and the diagrams'
 // own boxes added and removed.
-function reviewState(sk: Skeleton, status: ReturnType<typeof gitStatus>, diagrams: { id: string; question: string; nodes: { id: string; label: string }[] }[]) {
+async function reviewState(sk: Skeleton, status: Status[], diagrams: { id: string; question: string; nodes: { id: string; label: string }[] }[]) {
   const r = review.current();
   if (!r) return null;
-  const base = reviewBase();
+  const base = await reviewBase();
   if (!base) return { ...r, base: null, error: `${r.target} and this branch share no history`, files: [], changedFiles: [], changedItems: [], impacted: [], commits: 0, diagrams: {}, removedDiagrams: [] };
-  const lines = changedLines(status, base);
-  const files: { path: string; st: string }[] = tryGit("diff", "--name-status", "--no-renames", base).split("\n").filter(Boolean)
+  const [lines, nameStatus, short, commits] = await Promise.all([
+    git.changedLines(status, base), git.read("diff", "--name-status", "--no-renames", base),
+    git.read("rev-parse", "--short", base), git.read("rev-list", "--count", `${base}..HEAD`),
+  ]);
+  const files: { path: string; st: string }[] = nameStatus.split("\n").filter(Boolean)
     .map((l) => { const [st, path] = l.split("\t"); return { path, st: st[0] }; });
   for (const s of status) if (s.x === "?" && !files.some((f) => f.path === s.path)) files.push({ path: s.path, st: "A" });
   files.sort((a, b) => a.path.localeCompare(b.path));
-  const before = diagramsAt(base), diff: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }> = {};
+  const before = await diagramsAt(base), diff: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }> = {};
   if (before) for (const d of diagrams) {
     const b = before.get(d.id);
     const added = b ? d.nodes.filter((n) => !b.nodes.has(n.id)).map((n) => n.id) : d.nodes.map((n) => n.id);
@@ -349,8 +228,8 @@ function reviewState(sk: Skeleton, status: ReturnType<typeof gitStatus>, diagram
   const changedMods = new Set(sk.modules.filter((m) => changedFiles.has(m.file)).map((m) => m.id));
   const impacted = [...new Set(sk.edges.filter((e) => changedMods.has(e.to) && !changedMods.has(e.from)).map((e) => e.from))];
   return {
-    ...r, base: tryGit("rev-parse", "--short", base), error: null,
-    commits: Number(tryGit("rev-list", "--count", `${base}..HEAD`)) || 0,
+    ...r, base: short, error: null,
+    commits: Number(commits) || 0,
     files, changedFiles: [...changedFiles], changedItems: itemsIn(sk, lines), impacted,
     diagrams: diff, removedDiagrams: [...(before ?? [])].filter(([id]) => !diagrams.some((d) => d.id === id)).map(([id, b]) => ({ id, question: b.question })),
   };
@@ -373,11 +252,12 @@ function guardrailsState() {
   return { on: true as const, checks: g?.checks ?? [], rules: g?.rules ?? [], problems, results: lastResults(name), running: runningChecks(name), instructions: told };
 }
 
-function state() {
+// Git is asked side by side, off the server's thread.
+async function state() {
   const sk = index.current();
   const loaded = loadArch(root), arch = loaded.arch;
-  const status = gitStatus(), files = listFiles();
-  const lines = changedLines(status);
+  const [status, files, head] = await Promise.all([git.status(), listFiles(), git.head()]);
+  const [lines, review] = await Promise.all([git.changedLines(status), reviewState(sk, status, arch?.diagrams ?? [])]);
   const changedItems = itemsIn(sk, lines);
   // When each changed file was last written: the page reloads an open file when this moves.
   const fileRevs: Record<string, number> = {};
@@ -391,40 +271,37 @@ function state() {
     live: liveTurn(),
     files,
     status, changedFiles: Object.keys(lines), changedItems, fileRevs,
-    git: gitHead(),
+    git: head,
     lines: sk.modules.reduce((s, m) => s + m.lines, 0),
     features: arch?.features ?? [],
     tests: testsOf(sk, files),
     summary: arch?.summary ?? "",
-    review: reviewState(sk, status, arch?.diagrams ?? []),
+    review,
     workspace: workspaceState(),
     guardrails: guardrailsState(),
     private: priv.state(),
   };
 }
-type State = ReturnType<typeof state>;
+type State = Awaited<ReturnType<typeof state>>;
 
 // ---- live: watch the project, push the parts that changed ----------------------------
 
 priv.tick();
-let current: State = state();
+let current: State = await state();
 let currentJson: Record<string, string> = Object.fromEntries(Object.entries(current).map(([k, v]) => [k, JSON.stringify(v)]));
 const pages = new Set<(e: unknown) => void>();
 
-// Big lists go out as the entries that changed, by key: a large project's modules and tests are
-// ~1 MB and an edit shifts the lines of one file only. Sending them whole on every save stalled
-// the page (WebKit reads the event stream on its main thread) for 100-180 ms.
-type ListPatch = { set: unknown[]; del: string[]; keys?: string[] };
-function listPatch<T>(before: T[], after: T[], key: (x: T) => string): ListPatch {
-  const old = new Map(before.map((x) => [key(x), JSON.stringify(x)]));
-  const set = after.filter((x) => old.get(key(x)) !== JSON.stringify(x));
-  const now = new Set(after.map(key)), del = [...old.keys()].filter((k) => !now.has(k));
-  const same = !del.length && !set.some((x) => !old.has(key(x)));
-  return same ? { set, del } : { set, del, keys: after.map(key) };
-}
 const unitKey = (u: State["tests"]["unit"][number]) => u.module + "\0" + u.file;
-function recompute() {
-  const next = state(), patch: Record<string, unknown> = {}, lists: Record<string, ListPatch> = {};
+// One at a time, in order: a call while one runs queues one more (calls meanwhile share it), so
+// what a route changed is in the state its answer waits for.
+let chain: Promise<void> = Promise.resolve(), queued: Promise<void> | null = null;
+function recompute(): Promise<void> {
+  if (queued) return queued;
+  const p: Promise<void> = chain.then(() => { queued = null; return recomputeNow(); }).catch((e) => console.error("state:", e));
+  return (chain = queued = p);
+}
+async function recomputeNow() {
+  const next = await state(), patch: Record<string, unknown> = {}, lists: Record<string, ListPatch> = {};
   for (const [k, v] of Object.entries(next)) {
     const j = JSON.stringify(v);
     if (currentJson[k] === j) continue;
@@ -446,7 +323,7 @@ let debounce: NodeJS.Timeout | null = null;
 function changed(code = false) {
   if (code) void index.refresh();
   if (debounce) clearTimeout(debounce);
-  debounce = setTimeout(() => { debounce = null; try { priv.tick(); recompute(); syncWatchers(); } catch (e) { console.error("state:", e); } }, 150);
+  debounce = setTimeout(() => { debounce = null; try { priv.tick(); } catch (e) { console.error("private:", e); } void recompute().then(syncWatchers); }, 150);
 }
 function syncWatchers() {
   const want = new Map<string, (f: string) => void>();
@@ -490,10 +367,18 @@ const TYPES: Record<string, string> = { ".js": "text/javascript", ".css": "text/
 // ---- routes --------------------------------------------------------------
 
 const json = (res: ServerResponse, data: unknown, code = 200) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(data));
+// At most 64 MB (a message with pasted images is the biggest thing the page sends).
+const BODY_MAX = 64 << 20;
 const readBody = (req: IncomingMessage) => new Promise<any>((ok, fail) => {
-  let b = "";
-  req.on("data", (c) => (b += c));
-  req.on("end", () => { try { ok(b ? JSON.parse(b) : {}); } catch (e) { fail(e); } });
+  const parts: Buffer[] = [];
+  let size = 0;
+  req.on("data", (c: Buffer) => {
+    size += c.length;
+    if (size > BODY_MAX) { fail(new Error("request too large")); req.destroy(); return; }
+    parts.push(c);
+  });
+  req.on("end", () => { try { const b = Buffer.concat(parts).toString("utf8"); ok(b ? JSON.parse(b) : {}); } catch (e) { fail(e); } });
+  req.on("error", fail);
 });
 // Server-sent events: a first message, then each one `subscribe` hands over.
 function events(req: IncomingMessage, res: ServerResponse, first: unknown, subscribe: (send: (e: unknown) => void) => () => void) {
@@ -517,13 +402,12 @@ const post = (fn: (body: any, res: ServerResponse) => unknown): Handler => async
 };
 
 // Project search, for the page's Ctrl+Shift+F: ripgrep, at most ~500 hits.
-function search(q: string, caseSensitive: boolean, regex: boolean) {
+async function search(q: string, caseSensitive: boolean, regex: boolean) {
   if (!q) return [];
   const a = ["--json", "--max-count", "50", "--max-columns", "300", caseSensitive ? "--case-sensitive" : "--smart-case"];
   if (!regex) a.push("--fixed-strings");
-  let out = "";
-  try { out = execFileSync("rg", [...a, "--", q, "."], { cwd: root, encoding: "utf8", maxBuffer: 64 << 20, stdio: ["ignore", "pipe", "ignore"] }); }
-  catch (e: any) { out = String(e.stdout ?? ""); } // exit 1 = no match
+  // exit 1 = no match: the output is used either way
+  const out = await new Promise<string>((done) => { execFile("rg", [...a, "--", q, "."], { cwd: root, encoding: "utf8", maxBuffer: 64 << 20 }, (_e, o) => done(String(o ?? ""))).stdin?.end(); });
   const hits: { path: string; line: number; col: number; text: string }[] = [];
   for (const l of out.split("\n")) {
     if (hits.length >= 500) break;
@@ -560,9 +444,9 @@ const routes: Record<string, Handler> = {
     try { paths = readFileSync(f, "utf8").split("\n").filter((p) => p && p !== root && existsSync(p)); } catch {}
     json(res, paths.slice(0, 10).map((path) => ({ path, name: path.split("/").pop() })));
   },
-  "GET /api/file": (_req, res, url) => { try { json(res, readSource(q(url, "path"), q(url, "review") === "1")); } catch (e) { json(res, { error: String(e) }, 400); } },
-  "GET /api/git/graph": (_req, res) => json(res, gitGraph()),
-  "GET /api/git/numstat": (_req, res) => json(res, numstat()),
+  "GET /api/file": async (_req, res, url) => { try { json(res, await readSource(q(url, "path"), q(url, "review") === "1")); } catch (e) { json(res, { error: String(e) }, 400); } },
+  "GET /api/git/graph": async (_req, res) => json(res, await git.graph()),
+  "GET /api/git/numstat": async (_req, res) => json(res, await git.numstat()),
   // Run the guardrails' checks now (all, or `ids`); the results arrive with the live state.
   "POST /api/guardrails/run": post(({ ids }) => {
     const { g } = loadGuardrails(root);
@@ -570,13 +454,13 @@ const routes: Record<string, Handler> = {
     void runChecks(root, name, g, Array.isArray(ids) ? ids : undefined, () => changed());
     return { ok: true };
   }),
-  "POST /api/git/stage": post(({ paths }) => { stagePaths(paths, true); recompute(); }),
-  "POST /api/git/unstage": post(({ paths }) => { stagePaths(paths, false); recompute(); }),
-  "POST /api/git/discard": post(({ paths }) => { discardPaths(paths); recompute(); }),
-  "POST /api/git/switch": post((body) => { const r = switchTo(body ?? {}); recompute(); return r; }),
-  "POST /api/git/commit": post(({ message }) => { const r = commitStaged(message); recompute(); return r; }),
-  "GET /api/git/diff": (_req, res, url) => json(res, fileDiff(q(url, "path"), q(url, "staged") === "1")),
-  "GET /api/git/commit": (_req, res, url) => (/^[0-9a-f]{4,40}$/.test(q(url, "sha")) ? json(res, commitPatch(q(url, "sha"))) : json(res, { error: "bad sha" }, 400)),
+  "POST /api/git/stage": post(async ({ paths }) => { await git.stage(paths, true); await recompute(); }),
+  "POST /api/git/unstage": post(async ({ paths }) => { await git.stage(paths, false); await recompute(); }),
+  "POST /api/git/discard": post(async ({ paths }) => { await git.discard(paths); await recompute(); }),
+  "POST /api/git/switch": post(async (body) => { const r = await git.switchTo(body ?? {}); await recompute(); return r; }),
+  "POST /api/git/commit": post(async ({ message }) => { const r = await git.commit(message); await recompute(); return r; }),
+  "GET /api/git/diff": async (_req, res, url) => json(res, await git.fileDiff(q(url, "path"), q(url, "staged") === "1")),
+  "GET /api/git/commit": async (_req, res, url) => { try { json(res, await git.commitPatch(q(url, "sha"))); } catch (e: any) { json(res, { error: e.message }, 400); } },
   // A web link (from the chat, say) in your browser: the desktop app's window can't open one itself.
   // Another project of the workspace, in its own window of the desktop app.
   "POST /api/workspace/open": post(({ path }) => {
@@ -590,7 +474,7 @@ const routes: Record<string, Handler> = {
       c.on("spawn", () => { c.unref(); done({ ok: true }); });
     });
   }),
-  "GET /api/search": (_req, res, url) => json(res, search(q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")),
+  "GET /api/search": async (_req, res, url) => json(res, await search(q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")),
   "POST /api/file/save": post(({ path, text, hash, force }) => saveSource(path, text, hash, !!force)),
   "POST /api/open-url": post(({ url }) => {
     if (typeof url !== "string" || !/^https?:\/\//.test(url)) throw new Error("expected an http(s) link");
@@ -607,14 +491,14 @@ const routes: Record<string, Handler> = {
 
   // review mode
   "GET /api/review/mrs": async (_req, res) => json(res, await review.mergeRequests()),
-  "GET /api/git/mr": async (_req, res, url) => { const h = gitHead(); json(res, h.branch ? await review.branchMr(h.branch + "@" + h.head, q(url, "fresh") === "1") : { mr: null }); },
+  "GET /api/git/mr": async (_req, res, url) => { const h = await git.head(); json(res, h.branch ? await review.branchMr(h.branch + "@" + h.head, q(url, "fresh") === "1") : { mr: null }); },
   "GET /api/review/branches": async (_req, res) => json(res, await review.branches()),
-  "POST /api/review/start": post(async (body) => { const r = await review.start(body ?? {}); recompute(); return r; }),
+  "POST /api/review/start": post(async (body) => { const r = await review.start(body ?? {}); await recompute(); return r; }),
   // .cockpit/ kept private and synced (private.ts)
-  "POST /api/private/enable": post(async () => { await priv.enable(); recompute(); }),
-  "POST /api/private/disable": post(() => { priv.disable(); recompute(); }),
-  "POST /api/private/sync": post(async () => { await priv.sync(); recompute(); }),
-  "POST /api/review/stop": post(async ({ back }) => { await review.stop(!!back); recompute(); }),
+  "POST /api/private/enable": post(async () => { await priv.enable(); await recompute(); }),
+  "POST /api/private/disable": post(async () => { priv.disable(); await recompute(); }),
+  "POST /api/private/sync": post(async () => { await priv.sync(); await recompute(); }),
+  "POST /api/review/stop": post(async ({ back }) => { await review.stop(!!back); await recompute(); }),
 
   // the agent chat
   "GET /api/chat/events": (req, res) => events(req, res, { type: "init", ...chat.snapshot() }, chat.subscribe),
@@ -645,6 +529,13 @@ const routes: Record<string, Handler> = {
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://x");
+  const pass = auth.check(req, url);
+  if (pass === "login") {
+    url.searchParams.delete("token");
+    return res.writeHead(303, { "set-cookie": auth.cookie, location: url.pathname + url.search, "cache-control": "no-store" }).end();
+  }
+  if (pass === "refused") return res.writeHead(401, { "content-type": "text/html; charset=utf-8" })
+    .end(`<!doctype html><meta charset=utf-8><body style="font:14px monospace;padding:30px">Open cockpit from the desktop app, or with the link the server printed when it started (it ends in <b>?token=…</b>).`);
   if (req.method !== "GET" && !sameOrigin(req)) return res.writeHead(403).end("cross-origin request refused");
   try {
     const h = routes[`${req.method} ${url.pathname}`];
@@ -704,10 +595,10 @@ function lsp(ws: import("ws").WebSocket, lang: string) {
 }
 server.on("upgrade", (req, sock, head) => {
   const url = new URL(req.url ?? "/", "http://x");
-  if (!["/api/term/ws", "/api/lsp"].includes(url.pathname) || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
+  if (!["/api/term/ws", "/api/lsp"].includes(url.pathname) || auth.check(req, url) !== "ok" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
   wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? lsp(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
 });
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); for (const p of lspProcs) p.kill(); process.exit(0); });
-server.listen(Number(opt("port") ?? 4173), opt("host") ?? "127.0.0.1", () =>
-  console.log(`serving ${name} on http://${opt("host") ?? "127.0.0.1"}:${opt("port") ?? 4173}`),
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); chat.close(); for (const p of lspProcs) p.kill(); process.exit(0); });
+server.listen(port, host, () =>
+  console.log(`serving ${name} on ${auth.link(host === "0.0.0.0" || host === "::" ? hostname() : host)}`),
 );

@@ -29,7 +29,8 @@ use webkit6::prelude::*;
 use webkit6::javascriptcore;
 
 /// The running servers, one per project opened in this window.
-struct Server { project: PathBuf, port: u16, pid: i32, ready: bool }
+/// `token` lets the page in (src/auth.ts): the server gets it in COCKPIT_TOKEN, the page in its first URL.
+struct Server { project: PathBuf, port: u16, pid: i32, ready: bool, token: String }
 static SERVERS: Mutex<Vec<Server>> = Mutex::new(Vec::new());
 /// The project the window shows (or is starting).
 static CURRENT: Mutex<Option<PathBuf>> = Mutex::new(None);
@@ -128,6 +129,19 @@ fn project_from_args() -> Option<PathBuf> {
         .filter(|p| p.is_dir())
 }
 
+/// A secret for one server: 24 random bytes, as hex.
+fn new_token() -> std::io::Result<String> {
+    use std::io::Read;
+    let mut b = [0u8; 24];
+    std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
+    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
+}
+
+/// The page of a server, with its token: the server swaps it for a cookie and drops it from the URL.
+fn page_url(port: u16, token: &str) -> String {
+    format!("http://127.0.0.1:{port}/?token={token}")
+}
+
 fn free_port() -> std::io::Result<u16> {
     Ok(TcpListener::bind("127.0.0.1:0")?.local_addr()?.port())
 }
@@ -203,11 +217,11 @@ fn open(project: PathBuf) {
     remember(&project);
     *CURRENT.lock().unwrap() = Some(project.clone());
     let name = title_of(&project);
-    let running = SERVERS.lock().unwrap().iter().find(|s| s.project == project).map(|s| (s.port, s.ready));
+    let running = SERVERS.lock().unwrap().iter().find(|s| s.project == project).map(|s| (s.port, s.ready, s.token.clone()));
     if let Some(ui) = ui() {
         ui.win.set_title(Some(&format!("{name} · cockpit")));
         match running {
-            Some((port, true)) => return ui.view.load_uri(&format!("http://127.0.0.1:{port}/")),
+            Some((port, true, token)) => return ui.view.load_uri(&page_url(port, &token)),
             _ => { show_loading(&ui); show_message(&ui, &format!("starting cockpit for {name}…")); }
         }
     }
@@ -236,6 +250,7 @@ fn pick_folder(done: impl FnOnce(Option<PathBuf>) + 'static) {
 fn run(project: &Path) -> Result<(), String> {
     let home = cockpit_home();
     let port = free_port().map_err(|e| format!("no free port: {e}"))?;
+    let token = new_token().map_err(|e| format!("no random token: {e}"))?;
     // `node --import tsx` keeps it to one process, so stopping it leaves nothing behind.
     let mut child = unsafe {
         let node = find_node();
@@ -246,6 +261,7 @@ fn run(project: &Path) -> Result<(), String> {
         };
         let mut cmd = Command::new(&node);
         if let Some(path) = path { cmd.env("PATH", path); }
+        cmd.env("COCKPIT_TOKEN", &token);
         // Not ours: the patched WebKit's library path (see README) is for this window only.
         cmd.env_remove("LD_LIBRARY_PATH");
         cmd
@@ -263,7 +279,7 @@ fn run(project: &Path) -> Result<(), String> {
     }
     .map_err(|e| format!("could not start node in {}: {e}", home.display()))?;
     let pid = child.id() as i32;
-    SERVERS.lock().unwrap().push(Server { project: project.to_path_buf(), port, pid, ready: false });
+    SERVERS.lock().unwrap().push(Server { project: project.to_path_buf(), port, pid, ready: false, token: token.clone() });
     // Whether it was still listed, so not stopped by us (stop_servers).
     let forget = || {
         let mut all = SERVERS.lock().unwrap();
@@ -305,7 +321,7 @@ fn run(project: &Path) -> Result<(), String> {
     if let Some(s) = SERVERS.lock().unwrap().iter_mut().find(|s| s.pid == pid) { s.ready = true; }
     // Only if you haven't switched to another project while it started.
     if is_current(project) {
-        let url = format!("http://127.0.0.1:{port}/");
+        let url = page_url(port, &token);
         on_ui(move |ui| ui.view.load_uri(&url));
     }
 

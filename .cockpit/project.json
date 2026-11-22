@@ -14,7 +14,8 @@
         "cockpit/web/src/components/NodeCard", "cockpit/web/src/components/ProjectPane", "cockpit/web/src/components/ZoomCode", "cockpit/web/src/components/Header",
         "cockpit/web/src/components/TabBar", "cockpit/web/src/components/Sidebar", "cockpit/web/src/components/Grip",
         "cockpit/web/src/components/Palette",
-        "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu"
+        "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu",
+        "cockpit/listpatch", "cockpit/web/src/lib/listmerge"
       ]
     },
     {
@@ -23,7 +24,7 @@
       "status": "working",
       "description": "File tree and editor (CodeMirror, vim keys, language servers) showing uncommitted changes in place, and a git tab with the branch, its PR/MR, status and a commit graph; a project tab beside them lists features, tests, out-of-date links and guardrails.",
       "modules": [
-        "cockpit/serve",
+        "cockpit/serve", "cockpit/git",
         "cockpit/web/src/components/FileTree", "cockpit/web/src/components/FileEditor", "cockpit/web/src/components/CodeView",
         "cockpit/web/src/components/GitPane",
         "cockpit/web/src/lib/code", "cockpit/web/src/lib/editor", "cockpit/web/src/lib/fileicons", "cockpit/web/src/lib/graph",
@@ -84,8 +85,8 @@
       "id": "desktop-app",
       "name": "Desktop app",
       "status": "working",
-      "description": "A GTK 4 / libadwaita window (WebKitGTK) that starts one server per project on a free port, switches projects in place, follows the desktop's accent and window buttons, and stops the servers when closed.",
-      "modules": ["cockpit-desktop", "cockpit/web/src/lib/desktop"]
+      "description": "A GTK 4 / libadwaita window (WebKitGTK) that starts one server per project on a free port, switches projects in place, follows the desktop's accent and window buttons, and stops the servers when closed. Each server only lets in the page opened with its token (a random one per server from the app, or the link `npm run serve` prints), and refuses other host names for 127.0.0.1.",
+      "modules": ["cockpit-desktop", "cockpit/web/src/lib/desktop", "cockpit/auth"]
     }
   ]
 }

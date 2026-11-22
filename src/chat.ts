@@ -139,7 +139,13 @@ function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSe
 export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, onChecks?: () => void) {
   const dir = join(outDir(project), "chats");
   mkdirSync(dir, { recursive: true });
-  const fileOf = (id: string) => join(dir, `${id}.json`);
+  // Conversation ids are Claude Code's session UUIDs; anything else from the page is refused, so
+  // an id can't name a file outside this folder.
+  const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const fileOf = (id: string) => {
+    if (!SESSION_ID.test(id)) throw new Error("not a conversation id");
+    return join(dir, `${id}.json`);
+  };
   // Which conversation is open, and the model picked, survive a restart.
   const metaFile = join(dir, "current.json");
   const legacy = join(outDir(project), "chat.json");
@@ -472,12 +478,14 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     },
     // Delete a past conversation: Claude Code's transcript and cockpit's copy. Not the open one.
     async remove(id: string) {
+      fileOf(id); // checks the id
       if (id === session) throw new Error("that conversation is open: start a new one first");
       await deleteSession(id, { dir: root });
       rmSync(fileOf(id), { force: true });
     },
     // Open another conversation; the next message continues it.
     async open(id: string) {
+      fileOf(id); // checks the id
       if (id === session) return;
       stopRunning();
       session = id; context = null; items = [];
@@ -487,6 +495,8 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       emit({ type: "init", ...snapshot() });
       void estimate();
     },
+    // The server is stopping: the agent's process goes with it.
+    close() { stopRunning(); },
     // A fresh conversation. The old one stays in the list.
     reset() {
       stopRunning();
