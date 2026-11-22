@@ -255,10 +255,8 @@ export type Guides = { x: number | null; y: number | null };
 
 // A box goes where you drag it. With Shift held, it lines up: its center snaps to the center line
 // of any other box within a few pixels (so an arrow between them runs straight), and the line it
-// snapped to shows as a guide.
-const keys = { shift: false };
-for (const t of ["keydown", "keyup"] as const) addEventListener(t, (e) => { keys.shift = e.shiftKey; });
-addEventListener("blur", () => { keys.shift = false; });
+// snapped to shows as a guide. Shift is read off each move of the mouse, so it can be pressed or
+// let go mid-drag.
 
 export function snapWhileDragging(cy: Core, onGuides: (g: Guides | null) => void) {
   const SNAP = 7; // screen pixels
@@ -279,7 +277,7 @@ export function snapWhileDragging(cy: Core, onGuides: (g: Guides | null) => void
     raw.x += p.x - last.x; raw.y += p.y - last.y; // where the mouse puts it, before snapping
     let x = raw.x, y = raw.y;
     let gx: number | null = null, gy: number | null = null;
-    if (keys.shift) {
+    if ((e.originalEvent as MouseEvent | undefined)?.shiftKey) {
       const tol = SNAP / cy.zoom();
       const near = (v: number, list: number[]) => list.reduce<number | null>((b, c) => (Math.abs(c - v) <= tol && (b === null || Math.abs(c - v) < Math.abs(b - v)) ? c : b), null);
       const sx = near(x, xs), sy = near(y, ys);
