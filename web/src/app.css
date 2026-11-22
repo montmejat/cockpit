@@ -104,7 +104,9 @@ body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 .ref.head{background:var(--accent);color:var(--card)}.ref.remote{border-color:var(--muted);color:var(--muted)}
 
 /* diagrams */
-#canvas{flex:1;min-width:0;display:flex;position:relative;background:var(--bg);background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:20px 20px}
+/* the map's dotted surface; the code view over it (#zcode) draws the same dots, lined up, so the card floats on one surface */
+:root{--dots:radial-gradient(var(--line) 1px,transparent 1px)}
+#canvas{flex:1;min-width:0;display:flex;position:relative;background:var(--bg);background-image:var(--dots);background-size:20px 20px}
 #canvas.split .pane+.pane{border-left:1px solid var(--line)}
 .pane{flex:1;min-width:0;position:relative;display:flex;flex-direction:column}
 .pane[hidden],#nodiagram[hidden]{display:none}
@@ -259,7 +261,7 @@ table.code tr.cur td.ln{color:var(--fg);font-weight:600}table.code tr.cur td.c{b
 #crumbs .csep{margin:0 8px}
 #pane-main .ptitle .pname{visibility:hidden}
 .zsnap{position:absolute;pointer-events:none;z-index:4;transform-origin:0 0}
-#zcode{position:absolute;z-index:5;display:flex;justify-content:center;padding:6px 24px 16px;background:var(--bg);transform-origin:0 0}
+#zcode{position:absolute;z-index:5;display:flex;justify-content:center;padding:6px 24px 16px;background:var(--bg);background-image:var(--dots);background-size:20px 20px;background-position:0 -34px;transform-origin:0 0}
 #zcode[hidden]{display:none}
 .zcard{width:min(980px,100%);display:flex;flex-direction:column;background:var(--card);border:2px solid var(--accent);border-radius:var(--r-l);overflow:hidden;box-shadow:var(--shadow-modal)}
 .zhead{padding:9px 14px;border-bottom:1px solid var(--line)}
@@ -415,7 +417,7 @@ button.ctitle .chev{color:var(--muted);font-size:var(--fs-xs)}button.ctitle:hove
 .clist{max-height:45%;overflow:auto;border-bottom:1px solid var(--line);padding:6px;background:var(--bg)}
 .clist p{padding:4px 12px;margin:0}
 /* the conversations: rounded rows, the whole row lights up; the open one is raised like a tab */
-.csrow{display:flex;align-items:center;gap:4px;padding-right:4px;border-radius:var(--r-m)}.csrow+.csrow{margin-top:1px}.csrow:hover{background:var(--btn)}
+.csrow{display:flex;align-items:center;gap:4px;padding-right:8px;border-radius:var(--r-m)}.csrow+.csrow{margin-top:1px}.csrow:hover{background:var(--btn)}
 .csrow:has(.on){background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
 button.csess{display:flex;flex-direction:column;flex:1;min-width:0;padding:5px 8px}button.csess:hover,button.csess:active{background:none}button.csess:focus-visible{border-radius:var(--r-m)}
 .csess .cwhen,.csess .cprev{font-size:var(--fs-s)}.cprev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
@@ -645,7 +647,7 @@ button.lrow,.lrow{display:flex;align-items:center;gap:8px;width:100%;padding:7px
 .lrow .pval{margin-left:auto;color:var(--muted);font-size:var(--fs-s);display:flex;gap:8px}.lrow .pval.bad{color:var(--bad)}
 .pdot{display:inline-flex;align-items:center;gap:4px}.pchev{color:var(--muted)}
 /* the card over the map: the picked box, or the diagram */
-#ncard{top:44px;right:12px;z-index:8;width:min(340px,calc(100% - 24px));max-height:calc(100% - 100px);overflow:auto;padding:10px 14px 12px}
+#ncard{top:8px;right:12px;z-index:8;width:min(340px,calc(100% - 24px));max-height:calc(100% - 64px);overflow:auto;padding:10px 14px 12px}
 .nchead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-2px -6px 0 0}
 #crumbs button.cinfo{border:0;background:none;padding:0 2px;margin-left:6px;color:var(--muted)}#crumbs button.cinfo:hover,#crumbs button.cinfo.on{color:var(--accent)}
 /* git: where you are reads as text, not a box: only the commit message is a field */
