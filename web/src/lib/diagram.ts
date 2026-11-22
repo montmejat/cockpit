@@ -289,7 +289,11 @@ export function snapWhileDragging(cy: Core, onGuides: (g: Guides | null) => void
     const z = cy.zoom(), pan = cy.pan();
     onGuides(gx === null && gy === null ? null : { x: gx === null ? null : gx * z + pan.x, y: gy === null ? null : gy * z + pan.y });
   });
-  cy.on("free", "node", () => { raw = null; onGuides(null); });
+  // Let go: no guides. Also on the window's own mouse-up, in case the library misses the release.
+  const end = () => { raw = null; onGuides(null); };
+  cy.on("free dragfree", "node", end);
+  addEventListener("pointerup", end, true);
+  cy.on("destroy", () => removeEventListener("pointerup", end, true));
 }
 
 // Arrow keys move the picked box: 1 pixel, or 10 with Shift.
