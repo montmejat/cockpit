@@ -7,6 +7,8 @@
   import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
   import { openFile, S } from "../lib/state.svelte";
   import type { ChatItem, ChatSession, Usage } from "../lib/types";
+  import IconButton from "./ui/IconButton.svelte";
+  import Menu from "./ui/Menu.svelte";
 
   let { hidden, onactivity }: { hidden: boolean; onactivity: (ask: boolean) => void } = $props();
 
@@ -128,10 +130,9 @@
     <button class="ctitle" onclick={showList} title="Your conversations in this project">
       <span class="chev">{list ? "▾" : "▸"}</span><span class="ctname">{title}</span>
     </button>
-    <div class="cmodel" role="radiogroup" aria-label="Model">
-      {#each models as m}<button role="radio" aria-checked={m === model} class:on={m === model} title="Answer with {m}" onclick={() => { if (m !== model) { model = m; post("model", { model }); } }}>{m}</button>{/each}
-    </div>
-    <button onclick={() => post("new")} title="Start a new conversation (this one stays in the list)">new</button>
+    <IconButton label="New conversation (this one stays in the list)" onclick={() => post("new")}>
+      <path d="M8 3.5v9M3.5 8h9" />
+    </IconButton>
   </div>
   {#if list}
     <div class="clist">
@@ -183,6 +184,7 @@
     <div class="crow">
       {#if busy}<span class="muted"><span class="spin"></span> working…</span>{/if}
       <span class="grow"></span>
+      {#if models.length > 1}<Menu up label="Model the agent answers with" value={model} options={models} onpick={(m) => { model = m; post("model", { model }); }} />{/if}
       <!-- how full the context is: a ring by "send"; hovering shows the numbers and plan usage, a click keeps them open -->
       <span class="ctx" bind:this={ctxEl} role="group" onmouseenter={() => (hover = true)} onmouseleave={() => (hover = false)}>
         <button type="button" class="ring {ctxPct == null ? '' : level(ctxPct)}" onclick={() => (pinned = !pinned)}
@@ -213,8 +215,17 @@
           </div>
         {/if}
       </span>
-      {#if busy}<button type="button" onclick={() => post("stop")}>stop</button>{/if}
-      <button type="submit">send</button>
+      <!-- one round button in a fixed spot: stop while the agent works and nothing is typed, send otherwise
+           (a message typed mid-turn reaches the agent while it works) -->
+      {#if busy && !text.trim()}
+        <button type="button" class="csend stop" onclick={() => post("stop")} title="Stop the agent" aria-label="Stop the agent">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5" /></svg>
+        </button>
+      {:else}
+        <button type="submit" class="csend" disabled={!text.trim()} title="Send (Enter)" aria-label="Send">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3.5M3.75 7.5 8 3.25l4.25 4.25" /></svg>
+        </button>
+      {/if}
     </div>
   </form>
 </section>

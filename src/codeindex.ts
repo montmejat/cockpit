@@ -4,6 +4,7 @@
 // answering while the indexer runs (seconds for Rust, minutes for a large C++ repo).
 
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { detectLang, findCompileDbs, type IndexConfig, indexProject, indexProjectAsync, isIndexedSource, readIndexConfig, skeletonFrom } from "./indexer.ts";
@@ -19,17 +20,19 @@ function listFiles(root: string): string[] {
       .split("\n").filter(Boolean);
   } catch { return readdirSync(root, { recursive: true }) as string[]; }
 }
-// The newest source the index depends on: for C++ the compile databases count too.
-function newestSource(root: string, lang: Lang, config: IndexConfig) {
+// The newest source the index depends on (for C++ the compile databases count too), and which
+// sources there are: a deleted or renamed file makes nothing newer, but changes the list.
+function sources(root: string, lang: Lang, config: IndexConfig) {
   let newest = 0;
-  for (const f of listFiles(root)) if (isIndexedSource(lang, f)) try { newest = Math.max(newest, statSync(join(root, f)).mtimeMs); } catch {}
+  const h = createHash("sha1");
+  for (const f of listFiles(root).sort()) if (isIndexedSource(lang, f)) try { newest = Math.max(newest, statSync(join(root, f)).mtimeMs); h.update(f + "\n"); } catch {}
   if (lang === "cpp") for (const db of findCompileDbs(root, config)) try { newest = Math.max(newest, statSync(db).mtimeMs); } catch {}
-  return newest;
+  return { newest, list: h.digest("hex").slice(0, 12) };
 }
 
 // Where the index lives and how fresh it is. Fresh only if no source changed since indexing
-// *started*: files that change while the indexer runs (a branch switch, an agent's edit) are
-// newer than the start, so they count. Indexing writes a file of its own and swaps it in, so two
+// *started* and the same sources exist: files that change while the indexer runs (a branch
+// switch, an agent's edit) are newer than the start, so they count. Indexing writes a file of its own and swaps it in, so two
 // processes indexing at once (the server and a check-arch run) never read a half-written index.
 function indexFiles(root: string, name: string) {
   mkdirSync(outDir(name), { recursive: true });
@@ -39,13 +42,14 @@ function indexFiles(root: string, name: string) {
   const config = readIndexConfig(name);
   const stale = () => {
     if (!lang) return false;
-    // The stamp is "<start time> v<skeleton version>": an index from an older reader or scanner is stale too.
-    const [t, v] = existsSync(scip) && existsSync(stamp) ? readFileSync(stamp, "utf8").trim().split(" ") : [];
+    // The stamp is "<start time> v<skeleton version> <source list>": an index from an older reader or scanner is stale too.
+    const [t, v, l] = existsSync(scip) && existsSync(stamp) ? readFileSync(stamp, "utf8").trim().split(" ") : [];
     const started = v === `v${SKELETON_VERSION}` ? Number(t) || 0 : 0;
-    return started <= newestSource(root, lang, config);
+    const now = sources(root, lang, config);
+    return started <= now.newest || l !== now.list;
   };
-  const begin = () => ({ t: Date.now(), tmp: scip.replace(/\.scip$/, `.${process.pid}.scip`) });
-  const finish = (t: number, tmp: string) => { renameSync(tmp, scip); writeFileSync(stamp, `${t} v${SKELETON_VERSION}`); };
+  const begin = () => ({ t: Date.now(), tmp: scip.replace(/\.scip$/, `.${process.pid}.scip`), list: lang ? sources(root, lang, config).list : "" });
+  const finish = (t: number, tmp: string, list: string) => { renameSync(tmp, scip); writeFileSync(stamp, `${t} v${SKELETON_VERSION} ${list}`); };
   const cleanup = (tmp: string) => { rmSync(tmp, { force: true }); rmSync(tmp.replace(/\.scip$/, ".compile_commands.json"), { force: true }); };
   return { scip, lang, config, stale, begin, finish, cleanup };
 }
@@ -74,12 +78,12 @@ export function createIndex(root: string, name: string, log: (s: string) => void
     if (running) return running;
     if (!f.lang || !f.stale()) return Promise.resolve();
     const lang = f.lang;
-    const { t, tmp } = f.begin();
+    const { t, tmp, list } = f.begin();
     log(`index: running ${toolOf(lang, f.config)}…`);
     let ok = false;
     running = indexProjectAsync(lang, root, tmp, { config: f.config })
       .then(() => {
-        f.finish(t, tmp);
+        f.finish(t, tmp, list);
         ok = true; lastError = "";
         sk = read();
         log(`index: rebuilt in ${((Date.now() - t) / 1000).toFixed(1)} s`);
@@ -116,8 +120,8 @@ export function indexNow(root: string, name: string, log: (s: string) => void = 
   if (!f.lang) throw new Error(`${root}: no Cargo.toml (Rust), build.zig (Zig), CMakeLists.txt (C/C++) or package.json (TypeScript) found`);
   if (f.stale()) {
     log(`indexing with ${toolOf(f.lang, f.config)}…`);
-    const { t, tmp } = f.begin();
-    try { indexProject(f.lang, root, tmp, { config: f.config }); f.finish(t, tmp); }
+    const { t, tmp, list } = f.begin();
+    try { indexProject(f.lang, root, tmp, { config: f.config }); f.finish(t, tmp, list); }
     finally { f.cleanup(tmp); }
   }
   return skeletonFrom(f.lang, root, f.scip, PROTO);

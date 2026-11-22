@@ -143,26 +143,26 @@ export function explainChanges(n: DiagramNode, diagram?: string) {
   const text = `${what}\n\nIn the diagram "${nameOf(byId(diagram))}", the box "${n.label}" (${n.explain}) is this code:\n${parts.join("\n")}\n\n` +
     `Explain what changed in that code only: what it did before, what it does now, why it likely changed, and anything that looks wrong, risky or worth a second look. Point to the lines. Don't change the code.`;
   api.post("api/chat/send", { text });
-  showRight("chat");
+  showChat();
 }
 export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map(where).filter((w) => !!w).map((w) => w!.file))];
 
 // ---- what is open ----------------------------------------------------------
 
 type Insp = "features" | "tests" | "problems" | null;
+export type Side = "files" | "git" | "project";
 const saved = (): Tab[] => {
   try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff" || t.kind === "guardrails")); } catch { return []; }
 };
 const sideTab = store.get("cockpit-tab", "files");
 
 export const ui = $state({
-  side: (sideTab === "git" ? "git" : "files") as "files" | "git",
+  side: (sideTab === "git" || sideTab === "project" ? sideTab : "files") as Side,
   tabs: [{ kind: "map", id: home(), code: null } as Tab, ...saved()],
   active: Math.max(0, +store.get("cockpit-active-" + S.project, "0") || 0),
   picked: null as string | null, // the box clicked on the map
-  insp: null as Insp, // the right panel shows features, tests or problems instead
-  rtab: (store.get("cockpit-right", "chat") === "details" ? "details" : "chat") as "chat" | "details",
-  right: store.get("cockpit-right-open", "1") === "1", // the right panel (chat, details) is shown: Ctrl+L
+  insp: null as Insp, // the section open in the sidebar's project tab
+  right: store.get("cockpit-right-open", "1") === "1", // the chat panel is shown: Ctrl+L
   zooming: false, // a zoom animation is running
   help: store.get("cockpit-help", "0") === "1", // F1: show the how-to hints (legend, breadcrumb, details)
 });
@@ -220,22 +220,23 @@ export function openDiagram(id: string, node?: string) {
   ui.picked = node ?? null;
   saveTabs();
 }
-export function showRight(which: "chat" | "details") { ui.rtab = which; store.set("cockpit-right", which); setRight(true); }
+export function showChat() { setRight(true); }
 export function setRight(open: boolean) { ui.right = open; store.set("cockpit-right-open", open ? "1" : "0"); }
 // Ctrl+L, like Cursor: open the chat with the cursor in the message box, or close the panel.
 // Ctrl+L: open the chat and go to it; when it's open but you're elsewhere (the terminal, the
 // editor), go to it; close it only when you're in it already. A button (`plain`) just shows or hides it.
 export function toggleChat(plain = false) {
   const inside = (document.activeElement as HTMLElement | null)?.closest?.("#right");
-  if (ui.right && ui.rtab === "chat" && (plain || inside)) {
+  if (ui.right && (plain || inside)) {
     if (inside) (document.activeElement as HTMLElement).blur();
     setRight(false);
   } else {
-    showRight("chat");
+    showChat();
     requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("#composer textarea")?.focus());
   }
 }
-export function toggleInsp(which: Exclude<Insp, null>) { ui.insp = ui.insp === which ? null : which; if (ui.insp) showRight("details"); }
+// The sidebar's project tab, with one of its sections open (features, tests, problems).
+export function showProject(which: Insp = null) { ui.side = "project"; if (which) ui.insp = which; }
 
 // ---- the files tree: which folders are open -------------------------------------
 // Folders with changes, and the folders of the file you open, open by themselves until you open

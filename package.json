@@ -8,7 +8,7 @@
     "serve": "tsx src/serve.ts",
     "build": "vite build --config web/vite.config.ts",
     "dev:web": "vite build --watch --config web/vite.config.ts",
-    "check": "tsc --noEmit",
+    "check": "node node_modules/@typescript/native/bin/tsc --noEmit",
     "check-arch": "tsx src/check-arch.ts",
     "modules": "tsx src/modules.ts"
   },
@@ -17,9 +17,11 @@
     "@types/cytoscape": "^3.31.0",
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "svelte": "^5.57.3",
+    "svelte-check": "^4.7.8",
     "tsx": "^4.23.15",
-    "typescript": "^7.0.2",
+    "typescript": "^6.0.3",
     "vite": "^8.3.7"
   },
   "dependencies": {

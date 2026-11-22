@@ -1,22 +1,21 @@
 <script lang="ts">
-  // The right panel's details: a short line first, more on click. It explains the box you picked
-  // on the map, the diagram on screen, or the features, tests and problems from the header.
+  // The sidebar's project tab: what the project is and how it stands, things that rarely move.
+  // A list of rows (features, tests, out of date, guardrails, size); a row opens its section here,
+  // guardrails open as a tab in the center.
   import { api } from "../lib/code";
-  import { anchorChanged, byId, explainChanges, cur, mapTab, nameOf, nodeState, openDiagram, openFile, plural, S, showRight, tldr, ui, where } from "../lib/state.svelte";
+  import { openFile, openGuardrails, plural, S, showChat, ui } from "../lib/state.svelte";
 
   const ORDER = ["broken", "partial", "working", "planned"] as const;
   const fileOfModule = (id: string) => S.modules.find((m) => m.id === id)?.file;
   const unitTestsIn = (mods: string[]) => S.tests.unit.filter((u) => mods.includes(u.module)).reduce((n, u) => n + u.tests.length, 0);
-  const d = $derived(byId(mapTab().id));
-  const n = $derived(ui.picked && d ? d.nodes.find((x) => x.id === ui.picked) : null);
-  const parent = $derived(d ? S.diagrams.find((x) => x.nodes.some((m) => m.detail === d.id)) : null);
-  const label = (id: string) => d?.nodes.find((x) => x.id === id)?.label ?? id;
-  const short = (a: string) => (a.includes("::") ? a.split("::").slice(1).join("::") : a.split("/").pop()!);
   const back = () => (ui.insp = null);
 
   const t = $derived(S.tests);
   const unitN = $derived(t.unit.reduce((k, m) => k + m.tests.length, 0)), intN = $derived(t.integration.reduce((k, f) => k + f.tests.length, 0));
   const bare = $derived(S.features.filter((f) => f.status !== "planned" && !unitTestsIn(f.modules)));
+  const fcount = $derived(ORDER.map((st) => ({ st, n: S.features.filter((f) => f.status === st).length })).filter((x) => x.n));
+  const gr = $derived(S.guardrails);
+  const fail = $derived(gr.on ? gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length : 0);
 
   // "Update": hand the list to the chat's agent, which fixes .cockpit/ (not the code).
   let asked = $state("");
@@ -25,22 +24,17 @@
     const list = S.problems.map((p) => `- ${p.problem} (${p.where})`).join("\n");
     api.post("api/chat/send", { text: `The description in .cockpit/ no longer matches the code here:\n${list}\n\nUpdate .cockpit/ so it matches the code again: fix the anchors, features and diagrams these point to. Don't change the code.` });
     asked = problemsKey;
-    showRight("chat");
+    showChat();
   }
 </script>
 
-{#snippet chip(a: string)}
-  {@const w = where(a)}
-  {#if w}<button class="chip" class:chg={anchorChanged(a)} title={a + " · " + w.file} onclick={() => openFile(w.file, w.line, w.end)}>{short(a)}</button>
-  {:else}<span class="chip muted">{short(a)}</span>{/if}
-{/snippet}
 {#snippet testLink(file: string, x: { name: string; line: number })}
   <button class="tname" onclick={() => openFile(file, x.line)}>{x.name}</button>
 {/snippet}
 
-<aside id="inspector">
+<div id="project">
   {#if ui.insp === "features"}
-    <button class="back link" onclick={back}>← back</button>
+    <button class="back link" onclick={back}>← project</button>
     <h2>Features</h2><p class="lead">What it does today, as the agents see it.</p>
     <details class="more"><summary>where this comes from</summary><p class="hint">The agents keep this list in .cockpit/project.json. They set each status and must say what's missing when a feature is partial or broken. Cockpit checks that the code they point to exists.</p></details>
     {#each ORDER as st}
@@ -60,22 +54,22 @@
       {/if}
     {/each}
   {:else if ui.insp === "problems"}
-    <button class="back link" onclick={back}>← back</button>
+    <button class="back link" onclick={back}>← project</button>
     <h2>Out of date</h2><p class="lead">Where the agents’ description in .cockpit/ no longer matches the code.</p>
     <p class="updrow"><button disabled={asked === problemsKey} onclick={update}>{asked === problemsKey ? "asked the agent ✓" : "Update"}</button> <span class="hint">the chat's agent fixes .cockpit/, not the code</span></p>
     <details class="more"><summary>what happens next</summary><p class="hint">An agent finishing a turn gets this list and must fix it before stopping. "Update" asks the chat's agent to do it now.</p></details>
     {#each S.problems as p}<div class="trow"><span>{p.problem}</span></div><p class="hint" style="margin:0 0 6px">{p.where}</p>{/each}
   {:else if ui.insp === "tests"}
-    <button class="back link" onclick={back}>← back</button>
+    <button class="back link" onclick={back}>← project</button>
     <h2>Tests</h2>
     <p class="lead">{unitN} unit, {intN} integration. {#if bare.length}<span class="bad">{plural(bare.length, "feature")} with none.</span>{:else}Every feature has some.{/if}</p>
-    <details class="more"><summary>how this is counted</summary><p class="hint">#[test] functions in the code: where tests exist, not how much they cover.</p></details>
+    <details class="more"><summary>how this is counted</summary><p class="hint">Test functions found in the code: where tests exist, not how much they cover.</p></details>
     {#if S.features.length}
       <h4>by feature</h4>
       {#each S.features.filter((f) => f.status !== "planned").map((f) => ({ f, k: unitTestsIn(f.modules) })).sort((a, b) => a.k - b.k) as { f, k } (f.id)}
         {@const mods = t.unit.filter((u) => f.modules.includes(u.module) && u.tests.length)}
         <details class="row"><summary><span class="rname">{f.name}</span><span class="rcount" class:bad={!k}>{k || "none"}</span></summary>
-          {#each mods as u}{#each u.tests as x}{@render testLink(u.file, x)}{/each}{:else}<p class="hint">No #[test] in its modules.</p>{/each}
+          {#each mods as u}{#each u.tests as x}{@render testLink(u.file, x)}{/each}{:else}<p class="hint">No tests in its modules.</p>{/each}
         </details>
       {/each}
     {/if}
@@ -93,51 +87,21 @@
         {#each t.integration as f}<details class="row"><summary><span class="rname">{f.file}</span><span class="rcount">{f.tests.length}</span></summary>{#each f.tests as x}{@render testLink(f.file, x)}{/each}</details>{/each}
       </details>
     {/if}
-  {:else if cur().kind !== "map"}
-    <p class="hint">Details follow the map: hover or click a box there.</p>
-  {:else if !d}
-    <p class="hint">No diagrams yet.</p>
   {:else}
-    {#if parent}<button class="back link" onclick={() => openDiagram(parent.id)}>↑ {nameOf(parent)}</button>{/if}
-    {#if n}
-      {@const ns = nodeState(n, d.id)}
-      {@const ins = d.edges.filter((e) => e.to === n.id)}
-      {@const outs = d.edges.filter((e) => e.from === n.id)}
-      <div class="kicker">{nameOf(d)}</div>
-      <h2>{n.label}</h2>
-      <p class="lead">{tldr(n, n.explain)}</p>
-      {#if ns.live}<p class="agentbox">◉ the agent is changing it now</p>{:else if ns.unc}<p class="notebox">changed, not committed</p>{/if}
-      {#if ns.added}<p class="revbox add">new in this review</p>{:else if ns.rev}<p class="revbox">changed in this review</p>{/if}
-      {#if ns.rev || (!S.review && ns.unc)}<p><button class="zexplain" onclick={() => explainChanges(n, d.id)}>explain the changes</button> <span class="hint">double-click the box for its code, changes marked</span></p>{/if}
-      {#if (n.anchors ?? []).length}<div class="chips">{#each n.anchors ?? [] as a}{@render chip(a)}{/each}</div>{/if}
-      <details class="more"><summary>more</summary>
-        {#if n.tldr || tldr(n, n.explain) !== n.explain}<p>{n.explain}</p>{/if}
-        {#if ins.length || outs.length}
-          <h4>in and out</h4>
-          {#each ins as e}<div class="io"><span class="dv">{e.next ? "↻ " : ""}{e.label}</span> ← {label(e.from)}</div>{/each}
-          {#each outs as e}<div class="io"><span class="dv">{e.next ? "↻ " : ""}{e.label}</span> → {label(e.to)}</div>{/each}
-        {/if}
-      </details>
-    {:else}
-      {@const busy = d.nodes.filter((x) => nodeState(x).unc)}
-      <div class="kicker">drawn by the agents{d.rate ? " · " + d.rate : ""}</div>
-      <h2>{nameOf(d)}</h2>
-      <p class="q">{d.question}</p>
-      <p class="lead">{tldr(d, d.answer)}</p>
-      {#if busy.length}<p class="notebox">changed: {busy.map((x) => x.label).join(", ")}</p>{/if}
-      {#if S.review}
-        {@const rd = S.review.diagrams[d.id]}
-        {@const rv = d.nodes.filter((x) => { const s = nodeState(x, d.id); return s.rev && !s.added; })}
-        {#if rd?.isNew}<p class="revbox add">new diagram in this review</p>{/if}
-        {#if rv.length}<p class="revbox">changed in this review: {rv.map((x) => x.label).join(", ")}</p>{/if}
-        {#if rd && !rd.isNew && rd.added.length}<p class="revbox add">new boxes: {rd.added.map((id) => d.nodes.find((x) => x.id === id)?.label ?? id).join(", ")}</p>{/if}
-        {#if rd?.removed.length}<p class="revbox del">removed boxes: {rd.removed.map((x) => x.label).join(", ")}</p>{/if}
+    {#if S.summary}<p class="psum">{S.summary}</p>{/if}
+    <!-- a grouped list, like iOS settings: one row per thing, its value on the right -->
+    <div class="plist">
+      {#if S.features.length}
+        <button class="lrow" onclick={() => (ui.insp = "features")}><span>Features</span>
+          <span class="pval">{#each fcount as c}<span class="pdot"><span class="dot st-{c.st}"></span>{c.n}</span>{/each}</span><span class="pchev">›</span></button>
       {/if}
-      <details class="more"><summary>more</summary>
-        {#if d.tldr || tldr(d, d.answer) !== d.answer}<p>{d.answer}</p>{/if}
-        <p class="hint">Why a picture: {d.why}</p>
-      </details>
-      {#if ui.help}<p class="hint">Hover a box · click for its details · double-click to go in</p>{/if}
-    {/if}
+      <button class="lrow" onclick={() => (ui.insp = "tests")}><span>Tests</span><span class="pval" class:bad={bare.length > 0}>{unitN + intN}</span><span class="pchev">›</span></button>
+      {#if S.problems.length}
+        <button class="lrow" onclick={() => (ui.insp = "problems")}><span>Out of date</span><span class="pval bad">{S.problems.length}</span><span class="pchev">›</span></button>
+      {/if}
+      <button class="lrow" onclick={openGuardrails}><span>Guardrails</span>
+        <span class="pval" class:bad={fail > 0}>{!gr.on ? "off" : gr.running.length ? "checking…" : fail ? `${fail} failing` : "✓"}</span><span class="pchev">›</span></button>
+      <div class="lrow static"><span>Size</span><span class="pval">{(S.lines / 1000).toFixed(1)}k lines</span></div>
+    </div>
   {/if}
-</aside>
+</div>

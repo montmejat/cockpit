@@ -7,8 +7,9 @@
   import type { Core, NodeSingular } from "cytoscape";
   import ZoomCode from "./ZoomCode.svelte";
   import DiagramList from "./DiagramList.svelte";
+  import NodeCard from "./NodeCard.svelte";
   import { buildCy, legend, positionsOf, relayout, restyle, syncCy } from "../lib/diagram";
-  import { byId, C, mapTab, nameOf, nodeState, parentOfDiagram, S, saveTabs, showRight, tldr, ui } from "../lib/state.svelte";
+  import { byId, C, mapTab, nameOf, nodeState, parentOfDiagram, S, saveTabs, tldr, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
 
   let { hidden }: { hidden: boolean } = $props();
@@ -18,6 +19,8 @@
   let legendItems = $state<{ cls: string; text: string; help?: boolean }[]>([]);
   let tip = $state<{ html: string; x: number; y: number } | null>(null);
   let listOpen = $state(false); // the list of every diagram, over the top left of the map
+  let about = $state(false); // the card about the diagram on screen (ⓘ by the breadcrumb)
+  const closeCard = () => { ui.picked = null; about = false; };
 
   const t = $derived(mapTab());
   const d = $derived(byId(t.id));
@@ -119,10 +122,9 @@
       const n = d?.nodes.find((x) => x.id === e.target.id());
       if (!n || n.zone) return;
       ui.picked = n.id;
-      ui.insp = null;
-      showRight("details");
+      about = false;
     });
-    cy.on("tap", (e) => { if (e.target === cy) ui.picked = null; });
+    cy.on("tap", (e) => { if (e.target === cy) closeCard(); });
     // Once per double-click (events also reach the zones around a box): go where that box leads.
     // By position, so an arrow crossing a zone's empty space doesn't catch it.
     cy.on("dbltap", (e) => { const n = nodeAt(e.renderedPosition.x, e.renderedPosition.y), x = n && diveTarget(n); if (x) dive(x); });
@@ -260,7 +262,7 @@
     }
   }
   function keys(e: KeyboardEvent) {
-    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (listOpen) listOpen = false; else ascend(); }
+    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (listOpen) listOpen = false; else if (ui.picked || about) closeCard(); else ascend(); }
   }
 </script>
 
@@ -284,9 +286,11 @@
         {#if i === chain.length - 1 && !codeNode}<b>{nameOf(x)}</b>{:else}<button class="link" onclick={() => jumpTo(x.id)}>{nameOf(x)}</button>{/if}
       {/each}
       {#if codeNode}<span class="muted csep">›</span><b>{codeNode.label}</b>{/if}
+      {#if !codeNode}<button class="cinfo" class:on={about && !ui.picked} title="About this diagram" aria-label="About this diagram" onclick={() => { ui.picked = null; about = !about; }}>ⓘ</button>{/if}
       {#if ui.help}<span class="muted zhint"> · {chain.length > 1 || codeNode ? "Esc or scroll out to go up" : "double-click a box to go in"} · F1 hides hints</span>{/if}
     </div>
   {/if}
+  {#if d && !codeNode && (ui.picked || about)}<NodeCard {d} onclose={closeCard} />{/if}
   {#if listOpen && S.diagrams.length}
     <DiagramList current={t.code ? null : t.id} onpick={(id) => { listOpen = false; if (id !== t.id || t.code) jumpTo(id); }} onclose={() => (listOpen = false)} />
   {/if}

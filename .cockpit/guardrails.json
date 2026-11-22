@@ -1,16 +1,17 @@
 {
   "checks": [
     { "id": "types-server", "name": "Server types", "run": "npm run -s check" },
-    { "id": "types-ui", "name": "Page types", "run": "npx svelte-check --tsconfig web/tsconfig.json --threshold error --output human" },
+    { "id": "types-ui", "name": "Page types", "run": "./node_modules/.bin/svelte-check --tsconfig web/tsconfig.json --threshold error --output human" },
     { "id": "build-page", "name": "Page builds", "run": "npm run -s build 2>&1 | grep -v 'chunk' | tail -5" },
     { "id": "desktop", "name": "Desktop app builds", "run": "cd desktop && cargo build --release --quiet", "timeout": 600 },
-    { "id": "boundaries", "name": "Page/server boundary", "run": "node .cockpit/checks/boundaries.mjs", "timeout": 30 }
+    { "id": "boundaries", "name": "Page/server boundary", "run": "node .cockpit/checks/boundaries.mjs", "timeout": 30 },
+    { "id": "style-tokens", "name": "Style tokens", "run": "node .cockpit/checks/style.mjs", "timeout": 30 }
   ],
   "rules": [
     {
       "id": "page-type-checked", "layer": "static", "checks": ["types-ui"], "since": "2026-11-18",
       "rule": "The page (web/) is type-checked like the server, with svelte-check",
-      "why": "npm run check only covered src/; 13 errors had piled up in the page, some hiding real mistakes"
+      "why": "npm run check only covered src/; 13 errors had piled up in the page, some hiding real mistakes. svelte-check is a local dev dependency on TypeScript 6 (7 sits beside it as @typescript/native for the server check). Through npx it brought its own svelte and reported false errors; its --tsgo mode passed a planted error"
     },
     {
       "id": "state-generic", "layer": "static", "checks": ["types-ui"], "since": "2026-11-18",
@@ -36,6 +37,21 @@
       "id": "projects-untouched", "layer": "prose", "since": "2026-11-18",
       "rule": "What cockpit keeps for a project stays in its .cockpit/ or in cockpit's own state folder, never in the project's setup",
       "why": "cockpit is used on work projects whose structure isn't ours to change"
+    },
+    {
+      "id": "style-tokens", "layer": "static", "checks": ["style-tokens"], "since": "2026-11-22",
+      "rule": "Colours, corners and shadows come from the tokens in web/src/app.css :root (var(--r-m), var(--shadow-pop), var(--accent)…), never raw values",
+      "why": "the page had drifted to 10 corner radii and 12 shadows; one-off values make panels look subtly unrelated"
+    },
+    {
+      "id": "ui-pieces", "layer": "prose", "since": "2026-11-22",
+      "rule": "Build controls from web/src/components/ui/ (IconButton, Menu) before writing new button or popover CSS; add a piece there when a pattern repeats",
+      "why": "every panel had grown its own popover and button styles"
+    },
+    {
+      "id": "quiet-settings", "layer": "prose", "since": "2026-11-22",
+      "rule": "One main action per toolbar; settings you rarely change go in a Menu, not on a toolbar. Repeated actions are icon buttons, text buttons are for dialogs",
+      "why": "the chat toolbar gave the model switch (almost never changed) as much room as the conversation title"
     }
   ]
 }

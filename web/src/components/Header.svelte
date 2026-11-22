@@ -1,15 +1,13 @@
 <script lang="ts">
-  // The top bar: project, branch, size and health at a glance (each opens its explanation), the
-  // running agent, the terminal and chat toggles (with the hints on). In the desktop app it is also the window's title bar.
-  import { S, dirtyFiles, openGuardrails, plural, showRight, toggleChat, toggleInsp, ui } from "../lib/state.svelte";
+  // The top bar: the project, a review in progress, the running agent, a failing guardrail; only what
+  // changes (branch and changes are on the git tab, features and tests on the project tab), and the
+  // terminal and chat toggles with the hints on. In the desktop app it is also the window's title bar.
+  import { S, dirtyFiles, openGuardrails, plural, showChat, toggleChat, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
 
   let { ontoggleterm }: { ontoggleterm: () => void } = $props();
 
-  const tests = $derived(S.tests.unit.reduce((n, m) => n + m.tests.length, 0) + S.tests.integration.reduce((n, f) => n + f.tests.length, 0));
-  const fparts = $derived(([["working", ""], ["partial", "warn"], ["broken", "bad"], ["planned", "muted"]] as const)
-    .map(([st, c]) => ({ st, c, n: S.features.filter((f) => f.status === st).length })).filter((x) => x.n));
 
   // Desktop app (desktop/, GTK 4): no system title bar, so the header drags the window.
   const win = window.cockpitDesktop;
@@ -70,16 +68,8 @@
     if (e.key === "Escape") { wsOpen = false; projOpen = false; }
     else if (win && e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !(e.target as HTMLElement).closest?.(".cm-editor,.xterm")) { e.preventDefault(); openFolder(); }
   }
-  // The numbers' popup (lines, tests, features): open while hovered, or kept open (remembered).
-  let mHover = $state(false), mPinned = $state(false);
-  try { mPinned = localStorage.getItem("cockpit.metrics") === "1"; } catch {}
-  function pinMetrics() {
-    mPinned = !mPinned;
-    if (!mPinned) mHover = false; // closing by click hides it now, not when the mouse leaves
-    try { localStorage.setItem("cockpit.metrics", mPinned ? "1" : "0"); } catch {}
-  }
   function drag(e: MouseEvent) {
-    if (!win || e.button !== 0 || (e.target as HTMLElement).closest("a,button,input,select,textarea,.mpop")) return;
+    if (!win || e.button !== 0 || (e.target as HTMLElement).closest("a,button,input,select,textarea")) return;
     if (e.detail === 2) win.toggleMaximize(); else win.startDragging();
   }
 </script>
@@ -130,12 +120,6 @@
       {#if wsNote}<div class="bad wsfoot">{wsNote}</div>{/if}
     </div>
   {/if}
-  <button class="pill" onclick={() => (ui.side = "git")} title="Git: branch, uncommitted files, history">
-    ⎇ {S.git.branch ?? "detached " + S.git.head}
-    {#if S.status.length}<span class="dirty"> · {S.status.length} changed</span>{/if}
-    {#if S.git.ahead}<span class="ahead"> ↑{S.git.ahead}</span>{/if}
-    {#if S.git.behind}<span class="ahead"> ↓{S.git.behind}</span>{/if}
-  </button>
   {#if S.review}
     {@const r = S.review}
     <span class="revpill" title={(r.mr ? r.mr.ref + " " + r.mr.title + "\n" : "") + r.branch + " → " + r.target + (r.base ? " (from " + r.base + ")" : "")}>
@@ -144,40 +128,17 @@
       <button title="End the review" onclick={() => api.post("api/review/stop", { back: false })}>✕</button>
     </span>
   {/if}
-  <!-- The project's numbers, out of the way: shown while the mouse is on the icon, kept open by a click. -->
-  <span class="mwrap" role="presentation" onmouseenter={() => (mHover = true)} onmouseleave={() => (mHover = false)}>
-    <button class="mbtn" class:on={mPinned} aria-expanded={mHover || mPinned} aria-label="Project numbers"
-      title={mPinned ? "Project numbers (click to hide)" : "Project numbers (click to keep open)"} onclick={pinMetrics}>
-      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M3.5 12.5v-3M8 12.5v-9M12.5 12.5v-6" /></svg>
-    </button>
-    {#if mHover || mPinned}
-      <div class="mpop"><div id="metrics" class="mbox muted">
-        <div><b>{(S.lines / 1000).toFixed(1)}k</b> lines</div>
-        <div><button class="mlink" class:on={ui.insp === "tests"} title="What is tested" onclick={() => toggleInsp("tests")}><b>{tests}</b> tests</button></div>
-        {#if S.features.length}
-          <div><button class="mlink" class:on={ui.insp === "features"} title="What the features are and where their status comes from" onclick={() => toggleInsp("features")}>features:
-            {#each fparts as p, i}<span class={p.c}><b>{p.n}</b> {p.st}</span>{i < fparts.length - 1 ? ", " : ""}{/each}</button></div>
-        {/if}
-      </div></div>
-    {/if}
-  </span>
-  {#if S.problems.length}
-    <button class="mlink bad" class:on={ui.insp === "problems"} title="The agents’ description in .cockpit/ no longer matches the code" onclick={() => toggleInsp("problems")}>⚠ {S.problems.length} out of date</button>
-  {/if}
-  <!-- Guardrails: always reachable; colored by the checks' last results once there are any. -->
+  <!-- Guardrails speak up only when a check fails; otherwise they live in the sidebar's project tab -->
   {#if S.guardrails.on}
     {@const gr = S.guardrails}
     {@const fail = gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length}
-    <button class="pill gpill" class:bad={fail > 0 || gr.problems.length > 0} title="Guardrails: {gr.rules.length} rules, {gr.checks.length} checks{fail ? `, ${fail} failing` : ''}" onclick={openGuardrails}>
-      ◈ {gr.running.length ? "checking…" : fail ? `${fail} failing` : `${gr.rules.length} rules`}</button>
-  {:else}
-    <button class="mlink" title="Guardrails: off in this project" onclick={openGuardrails}>◈</button>
+    {#if fail}<button class="pill gpill bad" title="Guardrails: {fail} of {gr.checks.length} checks failing" onclick={openGuardrails}>◈ {fail} failing</button>{/if}
   {/if}
   <span class="grow"></span>
   {#if S.live}
     {@const who = S.live.chat ? "chat agent" : "Claude Code (terminal)"}
     {@const tip = `${S.live.chat ? "The chat's agent" : "A Claude Code session outside cockpit"} is working, for ${since(S.live.startedAt)}, on:\n${S.live.prompt.slice(0, 300)}${S.live.touched.length ? "\n\nChanged so far: " + S.live.touched.join(", ") : ""}`}
-    {#if S.live.chat}<button class="livepill" title={tip} onclick={() => showRight("chat")}>◉ {who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</button>
+    {#if S.live.chat}<button class="livepill" title={tip} onclick={showChat}>◉ {who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</button>
     {:else}<span class="livepill" title={tip}>◉ {who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</span>{/if}
   {/if}
   <!-- Ctrl+` opens the terminal; the button only shows with the hints on (F1) -->

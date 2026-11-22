@@ -5,7 +5,7 @@
   // down. Below, the checks with their last result. Nothing here changes the project: "set up" and
   // "harden" ask the chat's agent, which keeps everything in .cockpit/.
   import { api } from "../lib/code";
-  import { openFile, S, showRight } from "../lib/state.svelte";
+  import { openFile, S, showChat } from "../lib/state.svelte";
   import type { CheckResult, Layer, Rule } from "../lib/types";
 
   const LAYERS: { id: Layer; name: string; says: string }[] = [
@@ -37,7 +37,7 @@
   const dur = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 
   const run = (ids?: string[]) => api.post("api/guardrails/run", { ids });
-  function ask(text: string) { api.post("api/chat/send", { text }); showRight("chat"); }
+  function ask(text: string) { api.post("api/chat/send", { text }); showChat(); }
   const setUp = () => ask(
     "Set up guardrails for this project: read the guide in your brief, then write .cockpit/guardrails.json with checks that use the tools this project already has " +
     "(its type checker, linter, tests, build), and the rules you can see it already follows, each with why and its layer. Only .cockpit/: don't change the project's setup. " +

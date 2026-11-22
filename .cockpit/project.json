@@ -5,22 +5,23 @@
       "id": "map",
       "name": "Live map of diagrams",
       "status": "working",
-      "description": "Agent-written diagrams (loop, pipeline, dataflow, zones) drawn from .cockpit/, explained on hover, zoomable down to the code of a box, with boxes of uncommitted or in-progress code marked.",
+      "description": "Agent-written diagrams (loop, pipeline, dataflow, zones) drawn from .cockpit/, explained on hover and in a card over the map when a box is clicked, zoomable down to the code of a box, with boxes of uncommitted or in-progress code marked.",
       "modules": [
         "cockpit/arch", "cockpit/serve",
         "cockpit/web/src/App", "cockpit/web/src/main", "cockpit/web/vite.config",
         "cockpit/web/src/lib/state.svelte", "cockpit/web/src/lib/types", "cockpit/web/src/lib/diagram",
         "cockpit/web/src/components/MapView", "cockpit/web/src/components/MiniMap", "cockpit/web/src/components/DiagramList",
-        "cockpit/web/src/components/Inspector", "cockpit/web/src/components/ZoomCode", "cockpit/web/src/components/Header",
+        "cockpit/web/src/components/NodeCard", "cockpit/web/src/components/ProjectPane", "cockpit/web/src/components/ZoomCode", "cockpit/web/src/components/Header",
         "cockpit/web/src/components/TabBar", "cockpit/web/src/components/Sidebar", "cockpit/web/src/components/Grip",
-        "cockpit/web/src/components/Palette"
+        "cockpit/web/src/components/Palette",
+        "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu"
       ]
     },
     {
       "id": "files-git",
       "name": "Files and git",
       "status": "working",
-      "description": "File tree and editor (CodeMirror, vim keys, language servers) showing uncommitted changes in place, and a git tab with the branch, its PR/MR, status and a commit graph.",
+      "description": "File tree and editor (CodeMirror, vim keys, language servers) showing uncommitted changes in place, and a git tab with the branch, its PR/MR, status and a commit graph; a project tab beside them lists features, tests, out-of-date links and guardrails.",
       "modules": [
         "cockpit/serve",
         "cockpit/web/src/components/FileTree", "cockpit/web/src/components/FileEditor", "cockpit/web/src/components/CodeView",
@@ -33,7 +34,7 @@
       "id": "chat",
       "name": "Agent chat",
       "status": "working",
-      "description": "Runs Claude Code through the Agent SDK on the user's login: sessions, model picker (opus by default), Allow/Deny cards, context and plan-limit meters, and a self-check that sends the agent back when .cockpit/ or a guardrail no longer holds.",
+      "description": "Runs Claude Code through the Agent SDK on the user's login: sessions, a model menu (opus by default), messages typed while it works, one send/stop button, Allow/Deny cards, context and plan-limit meters, and a self-check that sends the agent back when .cockpit/ or a guardrail no longer holds.",
       "modules": ["cockpit/chat", "cockpit/claude", "cockpit/web/src/components/Chat"]
     },
     {

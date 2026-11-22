@@ -23,7 +23,7 @@ import { type Crate, type Edge, isTestPath, type Item, type Module, type Skeleto
 export const TS_SOURCE = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|svelte|vue)$/;
 const DECLARATION = /\.d\.[mc]?ts$/;
 // Build outputs, and .cockpit/ (the project's description and its check scripts, not its code).
-const SKIP = /(^|\/)(node_modules|dist|coverage|\.svelte-kit|\.next|\.nuxt)\/|^\.cockpit\//;
+const SKIP = /(^|\/)(node_modules|dist|coverage|\.svelte-kit|\.svelte-check|\.next|\.nuxt)\/|^\.cockpit\//;
 const isSource = (p: string) => TS_SOURCE.test(p) && !DECLARATION.test(p) && !SKIP.test(p);
 // Files whose change makes the index stale.
 export const isTsIndexed = (p: string) => isSource(p) || (/(^|\/)package\.json$/.test(p) && !SKIP.test(p));
