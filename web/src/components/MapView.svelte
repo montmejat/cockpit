@@ -9,7 +9,7 @@
   import DiagramList from "./DiagramList.svelte";
   import NodeCard from "./NodeCard.svelte";
   import { buildCy, legend, positionsOf, relayout, restyle, syncCy } from "../lib/diagram";
-  import { byId, C, mapTab, nameOf, nodeState, parentOfDiagram, S, saveTabs, tldr, ui } from "../lib/state.svelte";
+  import { byId, C, diagramChanges, mapTab, nameOf, nodeState, parentOfDiagram, S, saveTabs, tldr, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
 
   let { hidden }: { hidden: boolean } = $props();
@@ -21,6 +21,13 @@
   let listOpen = $state(false); // the list of every diagram, over the top left of the map
   let about = $state(false); // the card about the diagram on screen (ⓘ by the breadcrumb)
   const closeCard = () => { ui.picked = null; about = false; };
+  // How many diagrams uncommitted changes reach (and whether the agent is in one): on the ☰ button.
+  const changed = $derived.by(() => {
+    void C.items; void C.files; void C.touched;
+    if (S.review) return { n: 0, live: false };
+    const all = S.diagrams.map(diagramChanges);
+    return { n: all.filter((c) => c.n).length, live: all.some((c) => c.live) };
+  });
 
   const t = $derived(mapTab());
   const d = $derived(byId(t.id));
@@ -280,7 +287,8 @@
   {#if tip}<div id="tip" style="left:{tip.x}px;top:{tip.y}px">{@html tip.html}</div>{/if}
   {#if d}
     <div id="crumbs">
-      <button class="dtoggle" class:on={listOpen} title="All diagrams  (F1: hints)" aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰</button>
+      <button class="dtoggle" class:on={listOpen} class:chg={changed.n > 0} class:live={changed.live}
+        title={changed.n ? `All diagrams: ${changed.n} touched by uncommitted changes${changed.live ? ", the agent is editing now" : ""}` : "All diagrams  (F1: hints)"} aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰{#if changed.n}<span class="dchg" class:live={changed.live}>{changed.n}</span>{/if}</button>
       {#each chain as x, i (x.id)}
         {#if i}<span class="muted csep">›</span>{/if}
         {#if i === chain.length - 1 && !codeNode}<b>{nameOf(x)}</b>{:else}<button class="link" onclick={() => jumpTo(x.id)}>{nameOf(x)}</button>{/if}

@@ -44,12 +44,13 @@ export function elements(d: Diagram): ElementDefinition[] {
     const first = d.nodes.find((n) => !n.zone && !n.outside && !n.carries && !n.start && !n.end)?.id;
     for (const el of els) if (el.data.source && (carried.has(el.data.source) || carried.has(el.data.target!) || (el.classes!.includes("next") && el.data.target !== first))) el.classes += " aux";
   } else if (df) for (const el of els) if (el.data.source && carried.has(el.data.source) && !el.classes!.includes("next")) el.classes += " aux";
-  // Loops and pipelines read in node order: invisible links keep that order top to bottom.
+  // Loops and pipelines read in node order: links keep that order top to bottom. In a pipeline each
+  // step needs the one before, so its links are drawn; in a loop they only hold the layout.
   if (d.kind === "pipeline" || d.kind === "loop") {
     const steps = d.nodes.filter((n) => !n.zone && !n.outside && !(d.kind === "loop" && n.carries));
     for (let i = 1; i < steps.length; i++)
       if (!d.edges.some((e) => !e.next && e.from === steps[i - 1].id && e.to === steps[i].id))
-        els.push({ data: { id: "o" + i, source: steps[i - 1].id, target: steps[i].id }, classes: "order" });
+        els.push({ data: { id: "o" + i, source: steps[i - 1].id, target: steps[i].id }, classes: d.kind === "pipeline" ? "order step" : "order" });
   }
   if (d.kind === "pipeline" || d.kind === "loop") for (const el of els) if (el.data.source && !el.classes!.includes("next")) el.classes += " flow";
   return els;
@@ -87,6 +88,7 @@ export function style(): any[] {
     { selector: 'edge.flow[pos="src"]', style: { label: "", "source-label": "data(label)", "source-text-offset": 30 } },
     { selector: 'edge.flow[pos="tgt"]', style: { label: "", "target-label": "data(label)", "target-text-offset": 30 } },
     { selector: "edge.order", style: { visibility: "hidden" } },
+    { selector: "edge.order.step", style: { visibility: "visible" } },
     { selector: "edge.next", style: { "line-style": "dashed", "line-dash-pattern": [6, 4], "curve-style": "unbundled-bezier", "control-point-distances": [240], "control-point-weights": [0.5],
       color: data, "line-color": data, "target-arrow-color": data, "font-weight": 700 } },
     { selector: "edge.colored", style: { "line-color": "data(c)", "target-arrow-color": "data(c)", color: "data(c)", width: 1.8, "curve-style": "bezier", "control-point-step-size": 60 } },

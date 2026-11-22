@@ -68,6 +68,9 @@ main{flex:1;min-height:0;display:flex;position:relative}
 .sgrip:hover::after,.sgrip.dragging::after{background:var(--accent)}
 body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 #sidebody{flex:1;overflow:auto}
+/* actions over a sidebar list (collapse all): top right, left of the scrollbar, shown while the mouse is on the sidebar */
+.sfloat{position:absolute;top:calc(var(--bar-h) + 5px);z-index:3;opacity:0;transition:opacity .12s}
+#side:hover .sfloat,.sfloat:focus-within{opacity:1}.sfloat button.ibtn{background:var(--side);box-shadow:0 0 0 1px var(--line)}.sfloat button.ibtn:hover{background:var(--card)}
 
 /* diagrams list */
 .dl{padding:10px}
@@ -251,9 +254,9 @@ table.code tr.cur td.ln{color:var(--fg);font-weight:600}table.code tr.cur td.c{b
 /* semantic zoom */
 #canvas{overflow:hidden}
 .pane{overflow:hidden}
-#crumbs{position:absolute;top:8px;left:12px;z-index:6;font-size:var(--fs-m);background:color-mix(in oklab,var(--card) 85%,transparent);padding:3px 10px;border-radius:var(--r-pill);border:1px solid var(--line)}
+#crumbs{position:absolute;top:8px;left:12px;z-index:6;display:flex;align-items:center;white-space:nowrap;font-size:var(--fs-m);background:color-mix(in oklab,var(--card) 85%,transparent);padding:3px 10px;border-radius:var(--r-pill);border:1px solid var(--line)}
 #crumbs a{color:var(--muted)}#crumbs a:hover{color:var(--accent)}#crumbs b{font-weight:600}
-#crumbs .csep{margin:0 6px}
+#crumbs .csep{margin:0 8px}
 #pane-main .ptitle .pname{visibility:hidden}
 .zsnap{position:absolute;pointer-events:none;z-index:4;transform-origin:0 0}
 #zcode{position:absolute;z-index:5;display:flex;justify-content:center;padding:6px 24px 16px;background:var(--bg);transform-origin:0 0}
@@ -281,6 +284,10 @@ body.desktop header.wleft{padding-left:6px}
 #msgs{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere;padding:12px 14px;font-size:var(--fs-m);line-height:1.5}
 #msgs > div{margin:0 0 8px}
 .cuser{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-l);padding:7px 10px;margin-top:14px;white-space:normal}
+/* pasted images: thumbnails in the message, and above the box before sending (× removes one) */
+.cthumbs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.cthumbs img{display:block;max-width:160px;max-height:110px;border-radius:var(--r-m);border:1px solid var(--line)}
+.cthumbs.pending{align-items:center}.cthumbs.pending img{max-width:72px;max-height:56px}
+.cthumb{position:relative}.cthumb button{position:absolute;top:-6px;right:-6px;display:grid;place-items:center;width:18px;height:18px;padding:0;border-radius:50%;border:0;background:var(--fg);color:var(--bg);font-size:12px;line-height:1}
 .ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
 .ctext code{background:var(--bg);border-radius:var(--r-xs);padding:0 3px;font-size:var(--fs-s)}
 .ctext .cblock{position:relative}#msgs .cblock pre{padding-right:30px}
@@ -364,7 +371,6 @@ header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--a
 .tree .tlead svg{width:16px;height:16px}
 .tree .chev{color:var(--muted);transition:transform .1s}.tree .chev.open{transform:rotate(90deg)}
 .tree .tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.tree .tdot{flex:none;font-size:8px;color:var(--warn);margin-right:2px}
 .tree .folder.changed .tname{color:color-mix(in oklab,var(--warn) 70%,var(--fg))}
 .tree .fl{font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:-.3px;line-height:16px}.tree .fl.long{font-size:8.5px;letter-spacing:-.6px}
 .tree .agentdot{color:var(--hot);font-size:11px}
@@ -393,21 +399,30 @@ table.code tr.del td.c{background:var(--del-bg);opacity:.85;text-decoration:line
 button.chip,button.tname{border:1px solid var(--line);border-radius:var(--r-pill);padding:0 8px;font-size:var(--fs-s);color:var(--fg)}
 button.tname{display:block;border:0;padding:1px 0 1px 14px;color:var(--accent)}
 button.chip:hover{border-color:var(--accent);color:var(--accent)}
-#crumbs button.link{color:var(--muted)}#crumbs button.link:hover{color:var(--accent);text-decoration:none}
+/* breadcrumb links: a soft rounded highlight on hover, like the other quiet buttons */
+#crumbs button.link{color:var(--muted);padding:1px 5px;margin:-1px -5px;border-radius:var(--r-m);transition:background .12s,color .12s}#crumbs button.link:hover{color:var(--fg);background:var(--btn-hover);text-decoration:none}
+#crumbs button:focus-visible{border-radius:var(--r-m)}
 #zcode{left:0;right:0;top:34px;bottom:30px}
 
 /* chat */
 #chat.hide{display:none}
 #right.hide{display:none}
 .ctools{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line)}
-button.ctitle{flex:1;min-width:0;display:flex;gap:4px;color:var(--fg);font-size:var(--fs-m)}
-button.ctitle .chev{color:var(--muted)}
+/* the open conversation: a raised pill like the sidebar's segments, opening the list */
+button.ctitle{min-width:0;max-width:100%;display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-m);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise);color:var(--fg);font-size:var(--fs-s);font-weight:500}
+button.ctitle .chev{color:var(--muted);font-size:var(--fs-xs)}button.ctitle:hover .chev,button.ctitle.on .chev{color:var(--fg)}
 .ctname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-button.ctitle:hover .ctname{color:var(--accent)}
-.clist{max-height:45%;overflow:auto;border-bottom:1px solid var(--line);padding:4px 0;background:var(--bg)}
+.clist{max-height:45%;overflow:auto;border-bottom:1px solid var(--line);padding:6px;background:var(--bg)}
 .clist p{padding:4px 12px;margin:0}
-button.csess{display:flex;flex-direction:column;width:100%;padding:4px 12px;border-left:2px solid transparent}
-button.csess:hover{background:var(--sel)}button.csess.on{border-left-color:var(--accent);background:var(--card)}
+/* the conversations: rounded rows, the whole row lights up; the open one is raised like a tab */
+.csrow{display:flex;align-items:center;gap:4px;padding-right:4px;border-radius:var(--r-m)}.csrow+.csrow{margin-top:1px}.csrow:hover{background:var(--btn)}
+.csrow:has(.on){background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
+button.csess{display:flex;flex-direction:column;flex:1;min-width:0;padding:5px 8px}button.csess:hover,button.csess:active{background:none}button.csess:focus-visible{border-radius:var(--r-m)}
+.csess .cwhen,.csess .cprev{font-size:var(--fs-s)}.cprev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+button.cdel{display:none;place-items:center;flex:none;width:22px;height:22px;margin:0;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted)}
+.csrow:hover button.cdel{display:grid}button.cdel:hover{color:var(--bad);background:var(--btn)}
+button.cdel svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+button.cdel.armed{display:grid;width:auto;padding:0 7px;background:var(--bad);color:var(--on-accent);font-size:var(--fs-s);font-weight:600}
 .cst{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 button.csess .muted{font-size:var(--fs-s)}
 .ctool .chip{flex:none}
@@ -435,8 +450,13 @@ button.csess{align-items:flex-start;text-align:left}
 .gitfile .mark{margin-left:0;flex:none}
 button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 /* diagrams list (over the map) */
-#crumbs button.dtoggle{color:var(--muted);background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 6px 0 0;margin-right:4px;font-size:var(--fs-m)}
+#crumbs button.dtoggle{color:var(--muted);background:none;border:0;border-right:1px solid var(--line);border-radius:0;padding:0 8px 0 0;margin-right:8px;font-size:var(--fs-m)}
 #crumbs button.dtoggle:hover,#crumbs button.dtoggle.on{color:var(--accent)}
+/* uncommitted changes reach diagrams: the same amber as a changed box, orange while the agent edits */
+.dchg{display:inline-block;min-width:16px;height:16px;padding:0 4px;margin-left:6px;border-radius:var(--r-pill);background:color-mix(in oklab,var(--warn) 22%,transparent);color:var(--warn);font-size:var(--fs-xs);font-weight:600;line-height:16px;text-align:center;vertical-align:1px}
+.dchg.live{background:color-mix(in oklab,var(--hot) 22%,transparent);color:var(--hot)}
+#crumbs button.dtoggle.chg{color:var(--warn)}#crumbs button.dtoggle.live{color:var(--hot)}
+#crumbs button.dtoggle .dchg{margin-left:5px}
 #dlist{position:absolute;top:36px;left:12px;z-index:7;min-width:180px;max-width:min(320px,calc(100% - 24px));max-height:calc(100% - 60px);overflow:auto;padding:4px 0;background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shadow-pop);font-size:var(--fs-m)}
 #dlist button{display:block;width:100%;text-align:left;padding:3px 10px;color:var(--fg);background:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border:0;border-left:2px solid transparent;border-radius:0}
 #dlist button:hover{background:var(--sel)}
@@ -549,8 +569,13 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 .gitrow .gname{flex:none}.gitrow .gdir{color:var(--muted);font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;min-width:0}
 .gitrow .gnum{margin-left:auto;flex:none;font-size:var(--fs-xs);display:flex;gap:4px;padding-left:6px}.gnum i{font-style:normal}.gnum .a{color:var(--add)}.gnum .d{color:var(--del)}
 .gitrow .mark{margin-left:0;width:10px;flex:none}
-.gact{visibility:hidden;flex:none;width:22px;padding:0;margin-right:8px;font-size:var(--fs-m);line-height:16px;border-radius:var(--r-s)}
-.gitrow:hover .gact{visibility:visible}
+.gact{display:none;flex:none;width:22px;padding:0;margin-right:8px;font-size:var(--fs-m);line-height:16px;border-radius:var(--r-s)}
+/* the counts sit at the far right; on hover the buttons come in and push them left */
+.gitrow .gitfile{padding-right:10px}.gitrow:hover .gitfile{padding-right:4px}
+.gitrow:hover .gact{display:grid;place-items:center}
+.gitrow:has(.armed) .gact{display:grid;place-items:center}
+.gact.grev.armed{width:auto;padding:0 7px;background:var(--bad);color:var(--on-accent);font-size:var(--fs-s);font-weight:600}.gact.grev.armed:hover{background:color-mix(in oklab,var(--bad) 88%,var(--shade));color:var(--on-accent)}
+.gact.grev{margin-right:2px;color:var(--muted)}.gact.grev:hover{color:var(--bad)}.gact.grev svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 /* history: graph, refs, subject (hash, date and all refs in the tooltip) */
 .grow-row{gap:2px}
 .grow-row .ref{display:inline-block;max-width:11ch;overflow:hidden;text-overflow:ellipsis;vertical-align:-3px;white-space:nowrap}
@@ -604,9 +629,13 @@ button.mtrig:hover,button.mtrig.on{background:var(--btn-hover);color:var(--fg)}
 .mlist button:hover{background:var(--btn-hover)}.mlist button.on{color:var(--accent)}
 
 /* sidebar: icon tabs, a badge when a tab needs a look */
-.stabs{display:flex;align-items:center;gap:10px;height:var(--bar-h);flex-shrink:0;padding:0 10px;border-bottom:1px solid var(--line)}
-.stab{position:relative;display:inline-flex}
-.sbadge{position:absolute;top:-4px;left:14px;min-width:14px;height:14px;padding:0 3px;box-shadow:0 0 0 2px var(--side);border-radius:var(--r-pill);background:var(--accent);color:var(--on-accent);font-size:9px;font-weight:600;line-height:14px;text-align:center;pointer-events:none}
+.stabs{display:flex;align-items:center;gap:2px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line)}
+/* a segmented control, like iOS: one track, the picked segment raised on it */
+button.stab{position:relative;flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:var(--r-m);background:none;color:var(--muted);font-size:var(--fs-s);font-weight:500}
+button.stab:hover{color:var(--fg);background:var(--btn)}
+button.stab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
+.stab svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.sbadge{min-width:15px;height:15px;padding:0 4px;border-radius:var(--r-pill);background:var(--accent);color:var(--on-accent);font-size:9px;font-weight:600;line-height:15px;text-align:center}
 .stab.bad .sbadge{background:var(--bad)}
 /* the project tab: a grouped list, like iOS settings */
 .psum{color:var(--muted);font-size:var(--fs-s);line-height:1.45;margin:0 2px 12px}

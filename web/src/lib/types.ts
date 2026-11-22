@@ -78,5 +78,5 @@ export interface Hunk { at: number; added: number; removed: string[] }
 export interface Commit { hash: string; parents: string[]; sha: string; subject: string; author: string; date: string; refs: string[] }
 
 export interface ChatItem { id: string; kind: string; at: string; [k: string]: any }
-export interface ChatSession { id: string; title: string; at: number; branch: string | null; here: boolean }
+export interface ChatSession { id: string; n: number; title: string; preview: string; at: number; branch: string | null; here: boolean }
 export interface Usage { plan?: string | null; windows: { name: string; pct: number; resets: string | null }[]; error?: string }

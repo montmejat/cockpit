@@ -207,7 +207,15 @@ export function mdGrowing(key: string, src: string, resolve?: (name: string) => 
   return [hit.html, md(src.slice(cut + 1), resolve)];
 }
 
+// A reply that isn't JSON (a route this server doesn't have, an older server still running) says
+// so, instead of WebKit's "The string did not match the expected pattern".
+async function replyOf<T>(r: Response, path: string): Promise<T> {
+  const text = await r.text();
+  try { return JSON.parse(text) as T; } catch {
+    throw new Error(`${path}: the server answered ${r.status}${text ? "" : " with nothing"}${r.status === 404 || !text ? " (restart the server if cockpit was just updated)" : ""}`);
+  }
+}
 export const api = {
-  get: <T = any>(path: string): Promise<T> => fetch(path).then((r) => r.json()),
-  post: <T = any>(path: string, body: unknown = {}): Promise<T> => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => r.json()),
+  get: <T = any>(path: string): Promise<T> => fetch(path).then((r) => replyOf<T>(r, path)),
+  post: <T = any>(path: string, body: unknown = {}): Promise<T> => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => replyOf<T>(r, path)),
 };

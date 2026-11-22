@@ -10,7 +10,7 @@ import { createHash } from "node:crypto";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { WebSocketServer } from "ws";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
-import { createChat } from "./chat.ts";
+import { createChat, IMAGE_TYPES } from "./chat.ts";
 import { createIndex } from "./codeindex.ts";
 import { itemKey, type Skeleton } from "./skeleton.ts";
 import { COCKPIT, outDir, turnsDir, type Turn } from "./turns.ts";
@@ -134,6 +134,17 @@ function stagePaths(paths: unknown, stage: boolean) {
   if (stage) runGit(["add", "-A", "--", ...(paths as string[])]);
   else if (tryGit("rev-parse", "-q", "--verify", "HEAD")) runGit(["restore", "--staged", "--", ...(paths as string[])]);
   else runGit(["rm", "-r", "-q", "--cached", "--", ...(paths as string[])]); // no commit yet
+}
+// Reverting from the git tab: a file's unstaged changes go back to what is staged (or committed);
+// an untracked file is deleted (git clean). Only paths git reports with unstaged changes.
+function discardPaths(paths: unknown) {
+  if (!Array.isArray(paths) || !paths.length || !paths.every((p) => typeof p === "string")) throw new Error("expected paths");
+  const st = new Map(gitStatus().filter((s) => s.y !== " ").map((s) => [s.path, s]));
+  const bad = (paths as string[]).filter((p) => !st.has(p));
+  if (bad.length) throw new Error("no unstaged changes: " + bad.join(", "));
+  const untracked = (paths as string[]).filter((p) => st.get(p)!.y === "?"), tracked = (paths as string[]).filter((p) => st.get(p)!.y !== "?");
+  if (tracked.length) runGit(["restore", "--worktree", "--", ...tracked]);
+  if (untracked.length) runGit(["clean", "-f", "-q", "--", ...untracked]);
 }
 // Switching from the history's right-click menu: to a branch (a remote one gets a local branch
 // tracking it), or to a commit, detached. Only refs git lists; git itself refuses when local
@@ -561,6 +572,7 @@ const routes: Record<string, Handler> = {
   }),
   "POST /api/git/stage": post(({ paths }) => { stagePaths(paths, true); recompute(); }),
   "POST /api/git/unstage": post(({ paths }) => { stagePaths(paths, false); recompute(); }),
+  "POST /api/git/discard": post(({ paths }) => { discardPaths(paths); recompute(); }),
   "POST /api/git/switch": post((body) => { const r = switchTo(body ?? {}); recompute(); return r; }),
   "POST /api/git/commit": post(({ message }) => { const r = commitStaged(message); recompute(); return r; }),
   "GET /api/git/diff": (_req, res, url) => json(res, fileDiff(q(url, "path"), q(url, "staged") === "1")),
@@ -608,12 +620,17 @@ const routes: Record<string, Handler> = {
   "GET /api/chat/events": (req, res) => events(req, res, { type: "init", ...chat.snapshot() }, chat.subscribe),
   "GET /api/chat/sessions": async (_req, res) => json(res, await chat.sessions()),
   "GET /api/chat/usage": async (_req, res) => json(res, await chat.usage()),
-  "POST /api/chat/send": post(({ text }) => { if (typeof text !== "string") throw new Error("expected text"); chat.send(text); }),
+  "POST /api/chat/send": post(({ text, images = [] }) => {
+    if (typeof text !== "string") throw new Error("expected text");
+    if (!Array.isArray(images) || !images.every((i) => i && IMAGE_TYPES.includes(i.media) && typeof i.data === "string" && typeof i.thumb === "string")) throw new Error("images: expected { media, data, thumb } (png, jpeg, gif or webp)");
+    chat.send(text, images);
+  }),
   "POST /api/chat/answer": post(({ id, allow }) => chat.answer(String(id), !!allow)),
   "POST /api/chat/stop": post(() => chat.stop()),
   "POST /api/chat/model": post(({ model }) => chat.setModel(String(model))),
   "POST /api/chat/new": post(() => chat.reset()),
   "POST /api/chat/open": post(({ id }) => chat.open(String(id))),
+  "POST /api/chat/delete": post(({ id }) => chat.remove(String(id))),
 
   // terminals
   "GET /api/term/list": (_req, res) => json(res, terms.list()),

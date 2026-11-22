@@ -52,6 +52,11 @@
       "id": "quiet-settings", "layer": "prose", "since": "2026-11-22",
       "rule": "One main action per toolbar; settings you rarely change go in a Menu, not on a toolbar. Repeated actions are icon buttons, text buttons are for dialogs",
       "why": "the chat toolbar gave the model switch (almost never changed) as much room as the conversation title"
+    },
+    {
+      "id": "confirm-in-place", "layer": "prose", "since": "2026-11-22",
+      "rule": "No confirm(), alert() or prompt(): a destructive action asks in place (the button turns into a red \"Revert\" that a second click confirms, leaving cancels)",
+      "why": "the browser's dialog is huge, blocks the whole window and looks foreign; three older ones remain (unsaved files on switching project or closing a tab)"
     }
   ]
 }

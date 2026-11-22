@@ -46,7 +46,6 @@
     <button class="trow folder" class:changed={dirty.has(sub.path)} style={rowStyle(depth)} onclick={() => setFolder(sub.path, !open)} title={sub.path}>
       <span class="tlead"><svg class="chev" class:open viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
       <span class="tname">{sub.name}</span>
-      {#if dirty.has(sub.path)}<span class="tdot" title="has changes">●</span>{/if}
     </button>
     {#if open}{@render dir(sub, depth + 1)}{/if}
   {/each}

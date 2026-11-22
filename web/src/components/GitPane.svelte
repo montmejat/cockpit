@@ -69,6 +69,15 @@
   }
   const stage = (paths: string[]) => git("api/git/stage", { paths });
   const unstage = (paths: string[]) => git("api/git/unstage", { paths });
+  // Revert a file's unstaged changes (an untracked file is deleted). There's no undo, so it takes two
+  // clicks in place: the first turns the arrow into a red "Revert", the second does it; leaving the
+  // row cancels.
+  let arming = $state<string | null>(null);
+  function discard(path: string) {
+    if (arming !== path) { arming = path; return; }
+    arming = null;
+    git("api/git/discard", { paths: [path] });
+  }
   async function commit() {
     if (!message.trim() || !staged.length || gitBusy) return;
     if (await git("api/git/commit", { message })) message = "";
@@ -155,12 +164,21 @@
 {#snippet row(f: { path: string }, mark: string, n: [number, number] | undefined, act: "+" | "−")}
   {@const staged = act === "−"}
   {@const conflict = mark === "C"}
-  <div class="gitrow" class:sel={cur().kind === "diff" && (cur() as { path: string; staged: boolean }).path === f.path && (cur() as { staged: boolean }).staged === staged}>
+  <div class="gitrow" role="presentation" onmouseleave={() => { if (arming === f.path) arming = null; }} class:sel={cur().kind === "diff" && (cur() as { path: string; staged: boolean }).path === f.path && (cur() as { staged: boolean }).staged === staged}>
     <!-- a click shows what changed (a conflict opens the file, to resolve it) -->
     <button class="gitfile" onclick={() => (conflict ? openFile(f.path) : openDiff(f.path, staged))} title={(conflict ? "Open " : staged ? "Staged changes in " : "Changes in ") + f.path}>
       <span class="mark {mark}">{mark}</span><span class="gname">{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>
       {#if n}<span class="gnum">{#if n[0] < 0}bin{:else}{#if n[0]}<i class="a">+{n[0]}</i>{/if}{#if n[1]}<i class="d">−{n[1]}</i>{/if}{/if}</span>{/if}
     </button>
+    {#if act === "+" && !conflict}
+      {@const untracked = S.status.find((x) => x.path === f.path)?.x === "?"}
+      {#if arming === f.path}
+        <button class="gact grev armed" disabled={gitBusy} title={untracked ? "Click to delete this new file (it isn't in git: no undo)" : "Click to throw away these changes (no undo)"} onclick={() => discard(f.path)}>{untracked ? "Delete" : "Revert"}</button>
+      {:else}
+        <button class="gact grev" disabled={gitBusy} title={untracked ? "Delete this new file" : "Revert the changes"} aria-label="Revert" onclick={() => discard(f.path)}>
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M5.5 4 3 6.5 5.5 9M3.5 6.5h6a3 3 0 0 1 0 6H7" /></svg></button>
+      {/if}
+    {/if}
     <button class="gact" disabled={gitBusy} title={act === "+" ? "Stage" : "Unstage"} onclick={() => (act === "+" ? stage([f.path]) : unstage([f.path]))}>{act}</button>
   </div>
 {/snippet}

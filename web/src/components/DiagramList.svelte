@@ -1,9 +1,9 @@
 <script lang="ts">
   // Every diagram, as a small tree over the map: the ones no other diagram zooms into at the top
   // (the branch that reaches the main loop first), each followed by the diagrams its boxes zoom
-  // into. Click one to go there; Esc, the ☰ button or a click elsewhere closes it.
+  // into, with how many of its boxes have uncommitted changes. Click one to go there; Esc, the ☰ button or a click elsewhere closes it.
   import type { Diagram } from "../lib/types";
-  import { byId, home, nameOf, reviewCount, S, tldr } from "../lib/state.svelte";
+  import { byId, diagramChanges, home, nameOf, reviewCount, S, tldr } from "../lib/state.svelte";
 
   let { current, onpick, onclose }: { current: string | null; onpick: (id: string) => void; onclose: () => void } = $props();
 
@@ -35,6 +35,6 @@
 
 <div id="dlist" bind:this={el}>
   {#each rows as { d, depth } (d.id)}
-    <button class:on={d.id === current} style:padding-left="{10 + depth * 12}px" title={d.question + (tldr(d, d.answer) ? "\n" + tldr(d, d.answer) : "")} onclick={() => onpick(d.id)}>{nameOf(d)}{#if S.review?.diagrams[d.id]?.isNew}<span class="rn">new</span>{:else if reviewCount(d)}<span class="rc" title="boxes changed in this review">◆ {reviewCount(d)}</span>{/if}</button>
+    <button class:on={d.id === current} style:padding-left="{10 + depth * 12}px" title={d.question + (tldr(d, d.answer) ? "\n" + tldr(d, d.answer) : "")} onclick={() => onpick(d.id)}>{nameOf(d)}{#if S.review?.diagrams[d.id]?.isNew}<span class="rn">new</span>{:else if reviewCount(d)}<span class="rc" title="boxes changed in this review">◆ {reviewCount(d)}</span>{:else if !S.review}{@const ch = diagramChanges(d)}{#if ch.n}<span class="dchg" class:live={ch.live} title="{ch.n} box{ch.n > 1 ? 'es' : ''} with uncommitted changes{ch.live ? ', the agent is editing now' : ''}">{ch.n}</span>{/if}{/if}</button>
   {/each}
 </div>

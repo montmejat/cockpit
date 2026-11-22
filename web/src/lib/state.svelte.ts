@@ -127,6 +127,13 @@ export function nodeState(n: DiagramNode, diagram?: string) {
     imp: !!r && (n.anchors ?? []).some((a) => C.rImpacted.has(a.split("::")[0])),
   };
 }
+// What changes touch in a diagram, outside a review: boxes whose code is uncommitted, and whether
+// the agent is editing one now (for the diagram list and its button).
+export function diagramChanges(d: { id: string; nodes: DiagramNode[] }) {
+  let n = 0, live = false;
+  for (const x of d.nodes) { const s = nodeState(x, d.id); if (s.unc) n++; if (s.live) live = true; }
+  return { n, live };
+}
 // How many boxes of a diagram the review changes (for the diagram list).
 export function reviewCount(d: { id: string; nodes: DiagramNode[] }) {
   if (!S.review) return 0;

@@ -10,10 +10,10 @@
 //   user · text (grows while the agent writes) · tool (running → ok/error) · ask (an Allow/Deny
 //   card, when auto mode wants the user) · done (one per turn) · note
 
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
-  createSdkMcpServer, getSessionMessages, listSessions, query, tool,
+  createSdkMcpServer, deleteSession, getSessionMessages, listSessions, query, tool,
   type Query, type SDKMessage, type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
@@ -26,6 +26,9 @@ import type { Terminals } from "./term.ts";
 import { workspaceBrief, workspaceOf } from "./workspace.ts";
 
 export type Item = { id: string; kind: string; at: string; [k: string]: unknown };
+// A pasted image: what Claude gets (media type, base64), and a small preview for the chat.
+export type Image = { media: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string; thumb: string };
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 type Context = { used: number; max: number } | null;
 type Event =
   | { type: "item"; item: Item }
@@ -120,6 +123,7 @@ function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSe
       }
       for (const b of msg?.content ?? []) {
         if (b.type === "text" && !String(b.text).startsWith("<")) items.push({ id: m.uuid + ":t", kind: "user", at, text: b.text });
+        else if (b.type === "image") items.push({ id: m.uuid + ":i" + items.length, kind: "user", at, text: "", images: 1 });
         else if (b.type === "tool_result" && byTool.has(b.tool_use_id)) Object.assign(byTool.get(b.tool_use_id)!, { status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
       }
     } else if (m.type === "assistant") {
@@ -431,11 +435,16 @@ export function createChat(root: string, project: string, terms: Terminals, inde
   return {
     snapshot,
     subscribe(l: (e: Event) => void) { listeners.add(l); return () => { listeners.delete(l); }; },
-    send(text: string) {
-      if (!text.trim()) return;
-      put({ id: "u-" + Date.now(), kind: "user", at: now(), text });
+    // A message, with images pasted into it (sent to Claude as image blocks before the text; the
+    // chat keeps only small previews of them).
+    send(text: string, images: Image[] = []) {
+      if (!text.trim() && !images.length) return;
+      put({ id: "u-" + Date.now(), kind: "user", at: now(), text, ...(images.length ? { thumbs: images.map((i) => i.thumb) } : {}) });
       if (!q) start();
-      box!.push({ type: "user", message: { role: "user", content: text }, parent_tool_use_id: null } as SDKUserMessage);
+      const content = images.length
+        ? [...images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.media, data: i.data } })), ...(text.trim() ? [{ type: "text" as const, text }] : [])]
+        : text;
+      box!.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null } as SDKUserMessage);
       busy = true;
       state();
     },
@@ -448,13 +457,24 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       save(); state();
     },
     usage,
-    // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere.
+    // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere. Each is
+    // "Chat n", numbered in the order they were started (Claude Code's own titles are summaries), with its first
+    // message as a preview.
     async sessions() {
-      const list = await listSessions({ dir: root, limit: 60 });
-      return list.map((s) => ({
-        id: s.sessionId, title: s.customTitle || s.summary || s.firstPrompt || "(empty)", at: s.lastModified,
+      const list = await listSessions({ dir: root, limit: 500 });
+      const born = (s: (typeof list)[number]) => s.createdAt ?? s.lastModified;
+      const order = new Map([...list].sort((a, b) => born(a) - born(b)).map((s, i) => [s.sessionId, i + 1]));
+      return list.slice(0, 80).map((s) => ({
+        id: s.sessionId, n: order.get(s.sessionId)!, title: `Chat ${order.get(s.sessionId)}`,
+        preview: s.firstPrompt || s.summary || "", at: s.lastModified,
         branch: s.gitBranch ?? null, here: existsSync(fileOf(s.sessionId)),
       }));
+    },
+    // Delete a past conversation: Claude Code's transcript and cockpit's copy. Not the open one.
+    async remove(id: string) {
+      if (id === session) throw new Error("that conversation is open: start a new one first");
+      await deleteSession(id, { dir: root });
+      rmSync(fileOf(id), { force: true });
     },
     // Open another conversation; the next message continues it.
     async open(id: string) {

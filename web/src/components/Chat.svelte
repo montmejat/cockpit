@@ -95,9 +95,46 @@
   const post = (what: string, body: unknown = {}) => api.post("api/chat/" + what, body);
   function send() {
     const t = text.trim();
-    if (!t) return;
-    text = ""; near = true;
-    post("send", { text: t });
+    if (!t && !images.length) return;
+    const imgs = images.map(({ media, data, thumb }) => ({ media, data, thumb }));
+    text = ""; images = []; pasteErr = ""; near = true;
+    post("send", { text: t, images: imgs });
+  }
+  // Images pasted (Ctrl+V) or dropped into the message box go along with the message. Claude takes
+  // png, jpeg, gif and webp up to 5 MB; big ones are scaled down to 1568 px, the most it looks at.
+  type Pasted = { media: string; data: string; thumb: string };
+  let images = $state<Pasted[]>([]), pasteErr = $state("");
+  const TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+  const asUrl = (f: Blob) => new Promise<string>((ok, no) => { const r = new FileReader(); r.onload = () => ok(String(r.result)); r.onerror = () => no(r.error); r.readAsDataURL(f); });
+  async function scaled(f: Blob, max: number, type: string, quality?: number) {
+    const bmp = await createImageBitmap(f), k = Math.min(1, max / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas");
+    c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k);
+    c.getContext("2d")!.drawImage(bmp, 0, 0, c.width, c.height);
+    bmp.close();
+    return { url: c.toDataURL(type, quality), big: k < 1 };
+  }
+  async function addImages(files: File[]) {
+    pasteErr = "";
+    for (const f of files) {
+      if (!TYPES.includes(f.type)) { pasteErr = `${f.type || "that file"}: only png, jpeg, gif or webp`; continue; }
+      try {
+        const full = await scaled(f, 1568, f.type === "image/jpeg" ? "image/jpeg" : "image/png", 0.9);
+        const url = full.big || f.type === "image/png" || f.type === "image/jpeg" ? full.url : await asUrl(f);
+        const [head, data] = url.split(",");
+        const media = head.slice(5, head.indexOf(";"));
+        if (data.length * 0.75 > 5e6) { pasteErr = "image too large (over 5 MB)"; continue; }
+        images = [...images, { media, data, thumb: (await scaled(f, 240, "image/jpeg", 0.8)).url }];
+      } catch (e) { pasteErr = "couldn't read the image: " + e; }
+    }
+  }
+  function onPaste(e: ClipboardEvent) {
+    const files = [...(e.clipboardData?.items ?? [])].filter((i) => i.kind === "file" && i.type.startsWith("image/")).map((i) => i.getAsFile()).filter((f): f is File => !!f);
+    if (files.length) { e.preventDefault(); addImages(files); }
+  }
+  function onDrop(e: DragEvent) {
+    const files = [...(e.dataTransfer?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+    if (files.length) { e.preventDefault(); addImages(files); }
   }
   async function loadUsage() { try { usage = await api.get<Usage>("api/chat/usage"); } catch {} }
   async function showList() {
@@ -106,6 +143,17 @@
     list = await api.get<ChatSession[]>("api/chat/sessions");
   }
   async function openSession(id: string) { list = null; await post("open", { id }); }
+  // The open conversation's name ("Chat 3", or its /rename title), looked up when it changes.
+  let names = $state<ChatSession[]>([]);
+  $effect(() => { if (session && !names.some((x) => x.id === session)) api.get<ChatSession[]>("api/chat/sessions").then((l) => (names = l)).catch(() => {}); });
+  // Deleting a past conversation takes two clicks in place, like reverting a file; leaving the row cancels.
+  let arming = $state<string | null>(null);
+  async function remove(id: string) {
+    if (arming !== id) { arming = id; return; }
+    arming = null;
+    const r = await api.post<{ error?: string }>("api/chat/delete", { id }).catch((e) => ({ error: String(e) }));
+    if (!r?.error && list) { list = list.filter((x) => x.id !== id); names = names.filter((x) => x.id !== id); }
+  }
 
   const k = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n));
   const ago = (ms: number) => {
@@ -120,16 +168,17 @@
   const level = (pct: number) => (pct >= 90 ? "bad" : pct >= 70 ? "warn" : "");
   const toolIcon: Record<string, string> = { running: "<span class='spin'></span>", ok: "<span class=ok>✓</span>", error: "<span class=bad>✗</span>" };
   const fresh = $derived(!S.diagrams.length);
-  const title = $derived(items.find((x) => x.kind === "user")?.text?.split("\n")[0] ?? "new conversation");
+  const title = $derived(session ? ((list ?? names).find((x) => x.id === session)?.title ?? "Chat") : "New chat");
 </script>
 
 <svelte:window onpointerdown={unpin} onkeydown={(e) => e.key === "Escape" && (pinned = false)} />
 
 <section id="chat" class:hide={hidden}>
   <div class="ctools">
-    <button class="ctitle" onclick={showList} title="Your conversations in this project">
-      <span class="chev">{list ? "▾" : "▸"}</span><span class="ctname">{title}</span>
+    <button class="ctitle" class:on={!!list} onclick={showList} title="Your conversations in this project">
+      <span class="ctname">{title}</span><span class="chev" aria-hidden="true">▾</span>
     </button>
+    <span class="grow"></span>
     <IconButton label="New conversation (this one stays in the list)" onclick={() => post("new")}>
       <path d="M8 3.5v9M3.5 8h9" />
     </IconButton>
@@ -138,16 +187,23 @@
     <div class="clist">
       {#if !list.length}<p class="muted">loading…</p>{/if}
       {#each list as s (s.id)}
-        <button class="csess" class:on={s.id === session} onclick={() => openSession(s.id)} title={s.title}>
-          <span class="cst">{s.title}</span>
-          <span class="muted">{ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span>
-        </button>
+        <div class="csrow" role="presentation" onmouseleave={() => { if (arming === s.id) arming = null; }}>
+          <button class="csess" class:on={s.id === session} onclick={() => openSession(s.id)} title={s.preview}>
+            <span class="cst">{s.title}<span class="muted cwhen"> · {ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span></span>
+            {#if s.preview}<span class="muted cprev">{s.preview}</span>{/if}
+          </button>
+          {#if s.id !== session}
+            {#if arming === s.id}<button class="cdel armed" onclick={() => remove(s.id)} title="Click to delete it for good (Claude Code's copy too)">Delete</button>
+            {:else}<button class="cdel" onclick={() => remove(s.id)} title="Delete this conversation" aria-label="Delete this conversation">
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></svg></button>{/if}
+          {/if}
+        </div>
       {/each}
     </div>
   {/if}
   <div id="msgs" bind:this={msgs} onscroll={() => (near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60)}>
     {#each items as it (it.id)}
-      {#if it.kind === "user"}<div class="cuser">{it.text}</div>
+      {#if it.kind === "user"}<div class="cuser">{#if it.thumbs?.length || it.images}<div class="cthumbs">{#each it.thumbs ?? [] as t}<img src={t} alt="pasted" />{:else}<span class="muted">🖼 image</span>{/each}</div>{/if}{it.text}</div>
       {:else if it.kind === "text"}{#if it.text}{@const [kept, rest] = mdGrowing(it.id, it.text, resolve)}<div class="ctext" onclick={clickRef} role="presentation">{@html kept}{@html rest}</div>{/if}
       {:else if it.kind === "tool"}
         <div class="ctool" class:sub={it.sub}>
@@ -179,7 +235,13 @@
     {/each}
   </div>
   <form id="composer" onsubmit={(e) => { e.preventDefault(); send(); }}>
-    <textarea rows="3" bind:this={ta} bind:value={text} placeholder="Ask the agent…  Enter sends, Shift+Enter for a new line"
+    {#if images.length || pasteErr}
+      <div class="cthumbs pending">
+        {#each images as img, i}<span class="cthumb"><img src={img.thumb} alt="pasted" /><button type="button" title="Remove" aria-label="Remove image" onclick={() => (images = images.filter((_, j) => j !== i))}>×</button></span>{/each}
+        {#if pasteErr}<span class="bad">{pasteErr}</span>{/if}
+      </div>
+    {/if}
+    <textarea onpaste={onPaste} ondrop={onDrop} rows="3" bind:this={ta} bind:value={text} placeholder="Ask the agent…"
       onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
     <div class="crow">
       {#if busy}<span class="muted"><span class="spin"></span> working…</span>{/if}
@@ -217,12 +279,12 @@
       </span>
       <!-- one round button in a fixed spot: stop while the agent works and nothing is typed, send otherwise
            (a message typed mid-turn reaches the agent while it works) -->
-      {#if busy && !text.trim()}
+      {#if busy && !text.trim() && !images.length}
         <button type="button" class="csend stop" onclick={() => post("stop")} title="Stop the agent" aria-label="Stop the agent">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="4.5" y="4.5" width="7" height="7" rx="1.5" /></svg>
         </button>
       {:else}
-        <button type="submit" class="csend" disabled={!text.trim()} title="Send (Enter)" aria-label="Send">
+        <button type="submit" class="csend" disabled={!text.trim() && !images.length} title="Send (Enter)" aria-label="Send">
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3.5M3.75 7.5 8 3.25l4.25 4.25" /></svg>
         </button>
       {/if}
