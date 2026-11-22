@@ -5,7 +5,7 @@
       "id": "map",
       "name": "Live map of diagrams",
       "status": "working",
-      "description": "Agent-written diagrams (loop, pipeline, dataflow, zones) drawn from .cockpit/, explained on hover and in a card over the map when a box is clicked, zoomable down to the code of a box, with boxes of uncommitted or in-progress code marked. Boxes can be dragged (they snap into line with other boxes, guides shown; Shift keeps a row or column, Ctrl places freely) or nudged with the arrow keys, and stay where you put them.",
+      "description": "Agent-written diagrams (loop, pipeline, dataflow, zones) drawn from .cockpit/, explained on hover and in a card over the map when a box is clicked, zoomable down to the code of a box, with boxes of uncommitted or in-progress code marked. Boxes can be dragged anywhere (with Shift they snap into line with other boxes, guides shown) or nudged with the arrow keys, and stay where you put them.",
       "modules": [
         "cockpit/arch", "cockpit/serve",
         "cockpit/web/src/App", "cockpit/web/src/main", "cockpit/web/vite.config",

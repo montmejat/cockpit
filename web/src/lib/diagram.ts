@@ -158,7 +158,9 @@ export function resizeNow(cy: Core, then?: () => void) {
 
 // A diagram in a container. Refits when the container changes size, until you zoom or pan it.
 export function buildCy(container: HTMLElement, d: Diagram, positions?: Record<string, { x: number; y: number }>) {
-  const cy = cytoscape({ container, elements: elements(d), minZoom: 0.2, maxZoom: 2.5, style: style(), userZoomingEnabled: false });
+  // No selecting (Shift+click, box select): Shift is for lining boxes up (snapWhileDragging), and
+  // the picked box is cockpit's own ("picked" class).
+  const cy = cytoscape({ container, elements: elements(d), minZoom: 0.2, maxZoom: 2.5, style: style(), userZoomingEnabled: false, boxSelectionEnabled: false, autounselectify: true });
   drawDirect(cy);
   // Scroll to zoom, at a steady rate: about 20% per mouse-wheel notch, smooth on a trackpad. The
   // library's own wheel zoom guesses the device and gives a mouse wheel ~1.4% per notch.
@@ -251,22 +253,22 @@ export function relayout(cy: Core, d: Diagram, positions?: Record<string, { x: n
 // within the diagram's container.
 export type Guides = { x: number | null; y: number | null };
 
-// Dragging a box lines it up: its center snaps to the center line of any other box within a few
-// pixels (so an arrow between them runs straight), and the line it snapped to shows as a guide.
-// Shift keeps it on the row or column it started from; Ctrl places it freely.
-const keys = { shift: false, ctrl: false };
-for (const t of ["keydown", "keyup"] as const) addEventListener(t, (e) => { keys.shift = e.shiftKey; keys.ctrl = e.ctrlKey; });
-addEventListener("blur", () => { keys.shift = keys.ctrl = false; });
+// A box goes where you drag it. With Shift held, it lines up: its center snaps to the center line
+// of any other box within a few pixels (so an arrow between them runs straight), and the line it
+// snapped to shows as a guide.
+const keys = { shift: false };
+for (const t of ["keydown", "keyup"] as const) addEventListener(t, (e) => { keys.shift = e.shiftKey; });
+addEventListener("blur", () => { keys.shift = false; });
 
 export function snapWhileDragging(cy: Core, onGuides: (g: Guides | null) => void) {
   const SNAP = 7; // screen pixels
-  let raw: { x: number; y: number } | null = null, last = { x: 0, y: 0 }, start = { x: 0, y: 0 };
+  let raw: { x: number; y: number } | null = null, last = { x: 0, y: 0 };
   let xs: number[] = [], ys: number[] = [];
   const at = (n: NodeSingular) => ({ x: n.position("x"), y: n.position("y") });
   cy.on("grab", "node", (e) => {
     const n = e.target as NodeSingular;
     if (n.isParent()) { raw = null; return; }
-    raw = at(n); last = at(n); start = at(n);
+    raw = at(n); last = at(n);
     const others = cy.nodes().not(n).toArray().map((o) => o as NodeSingular).filter((o) => !o.isParent() && o.visible());
     xs = others.map((o) => o.position("x")); ys = others.map((o) => o.position("y"));
   });
@@ -276,15 +278,13 @@ export function snapWhileDragging(cy: Core, onGuides: (g: Guides | null) => void
     const p = at(n);
     raw.x += p.x - last.x; raw.y += p.y - last.y; // where the mouse puts it, before snapping
     let x = raw.x, y = raw.y;
-    if (keys.shift) { if (Math.abs(raw.x - start.x) > Math.abs(raw.y - start.y)) y = start.y; else x = start.x; }
     let gx: number | null = null, gy: number | null = null;
-    if (!keys.ctrl) {
+    if (keys.shift) {
       const tol = SNAP / cy.zoom();
       const near = (v: number, list: number[]) => list.reduce<number | null>((b, c) => (Math.abs(c - v) <= tol && (b === null || Math.abs(c - v) < Math.abs(b - v)) ? c : b), null);
       const sx = near(x, xs), sy = near(y, ys);
       if (sx !== null) { x = sx; gx = sx; }
       if (sy !== null) { y = sy; gy = sy; }
-      if (keys.shift) { if (x === start.x) gx = start.x; if (y === start.y) gy = start.y; }
     }
     if (x !== p.x || y !== p.y) n.position({ x, y });
     last = { x, y };
