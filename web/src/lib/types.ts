@@ -70,7 +70,7 @@ export interface TermMeta { id: string; n: number; cwd: string; running: string 
 export type Tab =
   | { kind: "map"; id: string | null; code: string | null }
   | { kind: "file"; path: string; line?: number; end?: number; mini?: string; at?: number }
-  | { kind: "commit"; sha: string }
+  | { kind: "commit"; sha: string; project?: string } // project: another project of the workspace (projects.svelte.ts)
   | { kind: "diff"; path: string; staged: boolean }
   | { kind: "guardrails" };
 

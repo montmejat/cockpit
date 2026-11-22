@@ -7,6 +7,7 @@
   import Grip, { savedWidth } from "./Grip.svelte";
   import IconButton from "./ui/IconButton.svelte";
   import { collapseAll, S, store, ui, type Side } from "../lib/state.svelte";
+  import { many, projects } from "../lib/projects.svelte";
 
   $effect(() => store.set("cockpit-tab", ui.side));
 
@@ -15,7 +16,7 @@
   // Every folder in the tree, folded by the ⌃ button over the tree (shown on hover) or a click on the files tab while on it.
   const dirs = $derived.by(() => {
     const out = new Set<string>();
-    for (const p of S.files) { const parts = p.split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
+    for (const x of projects) for (const f of x.L.files) { const parts = (x.prefix + f).split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
     return [...out];
   });
   const gr = $derived(S.guardrails);
@@ -40,7 +41,13 @@
     measure();
     return () => { ro.disconnect(); mo.disconnect(); };
   });
-  const badge = (id: Side) => (id === "git" ? S.status.length : id === "project" ? wrong : 0);
+  // In a workspace, each project's git section folds from its name (remembered).
+  let gitShut = $state<string[]>((() => { try { return JSON.parse(store.get("cockpit-git-projects-shut", "[]")); } catch { return []; } })());
+  const foldGit = (name: string) => {
+    gitShut = gitShut.includes(name) ? gitShut.filter((x) => x !== name) : [...gitShut, name];
+    store.set("cockpit-git-projects-shut", JSON.stringify(gitShut));
+  };
+  const badge = (id: Side) => (id === "git" ? projects.reduce((n, x) => n + x.L.status.length, 0) : id === "project" ? wrong : 0);
 </script>
 
 <nav id="side" style:width="{width}px">
@@ -60,6 +67,19 @@
     <div class="sfloat" style:right="{bar + 6}px"><IconButton label="Collapse all folders" onclick={() => collapseAll(dirs)}><path d="M4.5 6.5 8 3l3.5 3.5M4.5 13 8 9.5l3.5 3.5" /></IconButton></div>
   {/if}
   <div id="sidebody" bind:this={body}>
-    {#if ui.side === "files"}<FileTree />{:else if ui.side === "git"}<GitPane />{:else}<ProjectPane />{/if}
+    {#if ui.side === "files"}<FileTree />{:else if ui.side === "git"}
+      {#if many}
+        <!-- one repository per project, like VS Code's source control in a multi-root workspace -->
+        {#each projects as p (p.name)}
+          {@const shut = gitShut.includes(p.name)}
+          <div class="gproj">
+            <button class="gprojhead" onclick={() => foldGit(p.name)} title={p.path} aria-expanded={!shut}>
+              <svg class="chev" class:open={!shut} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg>
+              <span>{p.name}</span>{#if p.L.status.length}<span class="gcount">{p.L.status.length}</span>{/if}
+            </button>
+            {#if !shut}<GitPane {p} />{/if}
+          </div>
+        {/each}
+      {:else}<GitPane />{/if}{:else}<ProjectPane />{/if}
   </div>
 </nav>

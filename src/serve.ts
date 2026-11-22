@@ -30,6 +30,7 @@ import { createLsp } from "./lsp.ts";
 import { itemsIn, testsOf } from "./tests-of.ts";
 import { createReviewState } from "./review-state.ts";
 import { liveTurn } from "./live-turn.ts";
+import { createWorkspaceServers } from "./workspace-servers.ts";
 import { instructions, isTrusted, lastResults, loadGuardrails, runChecks, runningChecks, trust } from "./guardrails.ts";
 
 const args = process.argv.slice(2);
@@ -48,6 +49,10 @@ const ask = createAsk(root); // the terminal's ask line: words → a command
 const chat = createChat(root, name, terms, index, () => changed()); // the agent, run by cockpit itself
 const review = createReview(root, name); // reviewing a merge request against its target
 const lsp = createLsp(root); // language servers for the editor
+// The workspace's other projects, shown in this window too: their servers, reached under /p/<name>/
+const others = createWorkspaceServers(workspaceOf(root));
+// Started as another project's server for a workspace window: go when that server goes.
+if (process.env.COCKPIT_CHILD) { process.stdin.resume(); process.stdin.on("close", () => process.exit(0)); }
 // .cockpit/ kept out of the project's git, following its branches, synced between your machines
 const priv = createPrivate(root, () => changed());
 
@@ -384,6 +389,7 @@ const server = createServer(async (req, res) => {
     .end(`<!doctype html><meta charset=utf-8><body style="font:14px monospace;padding:30px">Open cockpit from the desktop app, or with the link the server printed when it started (it ends in <b>?token=…</b>).`);
   if (req.method !== "GET" && !sameOrigin(req)) return res.writeHead(403).end("cross-origin request refused");
   try {
+    if (await others.http(req, res)) return; // another project of the workspace (/p/<name>/…)
     const h = routes[`${req.method} ${url.pathname}`];
     if (h) return await h(req, res, url);
     // The built page's own files (scripts, styles, fonts), named by content hash.
@@ -400,10 +406,12 @@ const server = createServer(async (req, res) => {
 const wss = new WebSocketServer({ noServer: true });
 server.on("upgrade", (req, sock, head) => {
   const url = new URL(req.url ?? "/", "http://x");
-  if (!["/api/term/ws", "/api/lsp"].includes(url.pathname) || auth.check(req, url) !== "ok" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
+  if (auth.check(req, url) !== "ok" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
+  if (url.pathname.startsWith("/p/")) { void others.upgrade(req, sock, head); return; }
+  if (!["/api/term/ws", "/api/lsp"].includes(url.pathname)) { sock.destroy(); return; }
   wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? lsp.attach(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
 });
-for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); chat.close(); lsp.killAll(); process.exit(0); });
+for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { terms.closeAll(); chat.close(); lsp.killAll(); others.stopAll(); process.exit(0); });
 server.listen(port, host, () =>
   console.log(`serving ${name} on ${auth.link(host === "0.0.0.0" || host === "::" ? hostname() : host)}`),
 );

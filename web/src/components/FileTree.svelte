@@ -2,9 +2,11 @@
   // The project's files as a tree, laid out like VS Code's: one column for a folder's chevron or a
   // file's icon, so every name starts at the same place; indent guides; changed files colored by
   // their git status. Folders with uncommitted changes, or holding the open file, open by themselves
-  // until you open or close them; the agent's current files carry a dot.
-  import { C, cur, folders, openFile, S, setFolder, statusOf } from "../lib/state.svelte";
+  // until you open or close them; the agent's current files carry a dot. In a workspace, each
+  // project is a root folder of its own (projects.svelte.ts), like VS Code's multi-root workspace.
+  import { C, cur, folders, openFile, S, setFolder } from "../lib/state.svelte";
   import { fileIcon, SHAPES } from "../lib/fileicons";
+  import { many, projects, type Lite } from "../lib/projects.svelte";
 
   const STEP = 12, PAD = 8; // indent per level, left padding
   // The indent guides of a row at depth d: one faint line per level, under its folder's chevron.
@@ -12,12 +14,14 @@
   const rowStyle = (d: number) => `padding-left:${PAD + d * STEP}px;--guides:${guides(d)}`;
 
   type Dir = { name: string; path: string; dirs: Dir[]; files: { name: string; path: string }[] };
-  const tree = $derived.by(() => {
-    const root: Dir = { name: "", path: "", dirs: [], files: [] };
-    const all = [...new Set([...S.files, ...S.status.map((s) => s.path)])].sort();
-    for (const p of all) {
+  // A project's files as a tree; paths carry its prefix ("@name/" for another project).
+  function treeOf(L: Lite, pre: string): Dir {
+    const root: Dir = { name: "", path: pre, dirs: [], files: [] };
+    const all = [...new Set([...L.files, ...L.status.map((s) => s.path)])].sort();
+    for (const rel of all) {
+      const p = pre + rel;
       let n = root;
-      const parts = p.split("/");
+      const parts = rel.split("/");
       for (const d of parts.slice(0, -1)) {
         const path = n.path + d + "/";
         let next = n.dirs.find((x) => x.path === path);
@@ -29,13 +33,24 @@
     const sort = (d: Dir) => { d.dirs.sort((a, b) => a.name.localeCompare(b.name)); d.files.sort((a, b) => a.name.localeCompare(b.name)); d.dirs.forEach(sort); };
     sort(root);
     return root;
+  }
+  const trees = $derived(projects.map((p) => ({ p, tree: treeOf(p.L, p.prefix) })));
+  // git status letters by page path, for every project shown
+  const statuses = $derived.by(() => {
+    const m = new Map<string, "A" | "D" | "M">();
+    for (const p of projects) for (const s of p.L.status) m.set(p.prefix + s.path, s.x === "?" || s.x === "A" ? "A" : s.x === "D" || s.y === "D" ? "D" : "M");
+    return m;
   });
+  const statusOf = (path: string) => statuses.get(path) ?? null;
   // Folders holding a changed file or one the agent is editing.
   const dirty = $derived.by(() => {
     const out = new Set<string>();
-    for (const p of [...S.status.map((s) => s.path), ...C.touched, ...(S.review?.files.map((f) => f.path) ?? [])]) { const parts = p.split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
+    const changed = [...projects.flatMap((p) => p.L.status.map((s) => p.prefix + s.path)), ...C.touched, ...(S.review?.files.map((f) => f.path) ?? [])];
+    for (const p of changed) { const parts = p.split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
     return out;
   });
+  // A project's root row is open unless you closed it ("@name/" for another one, "@/" for this one).
+  const rootKey = (pre: string) => pre || "@/";
   const openPath = $derived(cur().kind === "file" ? (cur() as { path: string }).path : null);
   const isOpen = (d: Dir) => folders[d.path] ?? (dirty.has(d.path) || (openPath ?? "").startsWith(d.path));
 </script>
@@ -65,4 +80,15 @@
   {/each}
 {/snippet}
 
-<div class="tree">{@render dir(tree, 0)}</div>
+<div class="tree">
+  {#if many}
+    {#each trees as { p, tree } (p.name)}
+      {@const open = folders[rootKey(p.prefix)] ?? true}
+      <button class="trow folder troot" class:changed={p.L.status.length > 0} onclick={() => setFolder(rootKey(p.prefix), !open)} title={p.path}>
+        <span class="tlead"><svg class="chev" class:open viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <span class="tname">{p.name}</span>
+      </button>
+      {#if open}{@render dir(tree, 1)}{/if}
+    {/each}
+  {:else}{@render dir(trees[0].tree, 0)}{/if}
+</div>

@@ -5,6 +5,9 @@
   import { tick } from "svelte";
   import { api, esc } from "../lib/code";
   import { openFile, S, store, ui } from "../lib/state.svelte";
+  import { projects } from "../lib/projects.svelte";
+  // Every project's files in this window (another project's as "@name/path").
+  const allFiles = $derived(projects.flatMap((p) => (p.here ? p.L.files : p.L.files.map((f) => p.prefix + f))));
 
   type Hit = { path: string; line: number; col: number; text: string };
   let mode: "files" | "search" | null = $state(null);
@@ -49,9 +52,9 @@
   const fileRows = $derived.by(() => {
     if (mode !== "files") return [];
     const query = q.toLowerCase().replace(/\s+/g, "");
-    if (!query) return [...openPaths, ...S.files.filter((f) => !openPaths.has(f))].slice(0, 50).map((path) => ({ path, at: [] as number[] }));
+    if (!query) return [...openPaths, ...allFiles.filter((f) => !openPaths.has(f))].slice(0, 50).map((path) => ({ path, at: [] as number[] }));
     const out: { path: string; at: number[]; s: number }[] = [];
-    for (const f of S.files) { const r = score(f, query); if (r) out.push({ path: f, at: r.at, s: r.s + (openPaths.has(f) ? 0.5 : 0) }); }
+    for (const f of allFiles) { const r = score(f, query); if (r) out.push({ path: f, at: r.at, s: r.s + (openPaths.has(f) ? 0.5 : 0) }); }
     return out.sort((a, b) => b.s - a.s).slice(0, 50);
   });
   const marked = (path: string, at: number[]) => { const set = new Set(at); return [...path].map((c, i) => (set.has(i) ? "<b>" + esc(c) + "</b>" : esc(c))).join(""); };
@@ -66,8 +69,11 @@
     timer = setTimeout(async () => {
       searching = true;
       try {
-        const r = await api.get<Hit[]>(`api/search?q=${encodeURIComponent(query)}&case=${caseSens ? 1 : 0}&regex=${regex ? 1 : 0}`);
-        if (n === seq) { hits = Array.isArray(r) ? r : []; searched = query; sel = 0; }
+        // every project of the window, side by side; another project's hits carry its prefix
+        const all = await Promise.all(projects.map((p) => api.get<Hit[]>(`${p.base}api/search?q=${encodeURIComponent(query)}&case=${caseSens ? 1 : 0}&regex=${regex ? 1 : 0}`)
+          .then((r) => (Array.isArray(r) ? r : []).map((h) => ({ ...h, path: p.prefix + h.path }))).catch(() => [] as Hit[])));
+        const r = all.flat();
+        if (n === seq) { hits = r; searched = query; sel = 0; }
       } finally { if (n === seq) searching = false; }
     }, 180);
   }

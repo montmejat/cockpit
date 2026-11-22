@@ -20,6 +20,9 @@
   import { smoothWheel } from "../lib/smoothwheel";
   import { closeTab, dirtyFiles, openFile, S, ui } from "../lib/state.svelte";
   import type { Hunk } from "../lib/types";
+  import { projects, split } from "../lib/projects.svelte";
+  // A file's language server: its project's, for its path there ("@name/…" is another project's).
+  const lspOf = (p: string) => { const at = split(p); return lspFor(at.p.L.root, at.path, at.p.base); };
 
   type FileData = { path: string; text: string | null; hash?: string; hunks: Hunk[] };
   let { path, data, want, boxLines, showAll, vimOn, onview, oncursor, onhover, onchanges }: {
@@ -61,7 +64,7 @@
         indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
         indentUnit.of(indentOf(text)), EditorState.tabSize.of(4),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
-        languageFor(p), lspSlot.of(lspFor(S.root, p)), look, changeBars(), wantMarks.field, boxMarks.field,
+        languageFor(p), lspSlot.of(lspOf(p)), look, changeBars(), wantMarks.field, boxMarks.field,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) markDirty();
           if (u.selectionSet || u.docChanged) reportChanges();
@@ -123,7 +126,7 @@
   // for that file to show.
   function connectLsp() {
     if (!view || !shown) return;
-    const l = lspFor(S.root, shown);
+    const l = lspOf(shown);
     if (lspSlot.get(view.state) !== l) view.dispatch({ effects: lspSlot.reconfigure(l) });
     for (const ok of waiting.get(shown) ?? []) ok(view);
     waiting.delete(shown);
@@ -131,8 +134,10 @@
   const waiting = new Map<string, ((v: EditorView) => void)[]>();
   onLsp(() => connectLsp());
   setDisplayFile((uri) => {
-    const p = S.root ? pathOfUri(S.root, uri) : null;
-    if (!p || !S.files.includes(p)) return Promise.resolve(null);
+    // the file, in whichever project of the window it is
+    let p: string | null = null;
+    for (const x of projects) { const rel = x.L.root ? pathOfUri(x.L.root, uri) : null; if (rel && x.L.files.includes(rel)) { p = x.prefix + rel; break; } }
+    if (!p) return Promise.resolve(null);
     if (p === shown && view) return Promise.resolve(view);
     return new Promise((ok) => { (waiting.get(p) ?? waiting.set(p, []).get(p)!).push(ok); openFile(p); });
   });
@@ -163,7 +168,8 @@
     if (!force && text === b.saved) return true;
     saving = true; error = "";
     try {
-      const r = await api.post<{ ok?: boolean; hash?: string; conflict?: boolean; text?: string; error?: string }>("api/file/save", { path: p, text, hash: b.hash, force });
+      const at = split(p);
+      const r = await api.post<{ ok?: boolean; hash?: string; conflict?: boolean; text?: string; error?: string }>(at.p.base + "api/file/save", { path: at.path, text, hash: b.hash, force });
       if (r.error) { error = r.error; return false; }
       if (r.conflict) { b.disk = { text: r.text!, hash: r.hash! }; if (shown === p) conflict = b.disk; return false; }
       if (b.hash && b.hash !== r.hash) b.before = { hash: b.hash, at: Date.now() };

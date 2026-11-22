@@ -379,6 +379,12 @@ header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--a
 .tree .tlead svg{width:16px;height:16px}
 .tree .chev{color:var(--muted);transition:transform .1s}.tree .chev.open{transform:rotate(90deg)}
 .tree .tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.gproj+.gproj{border-top:1px solid var(--line)}
+button.gprojhead{display:flex;align-items:center;gap:6px;width:100%;padding:8px 12px;border:0;border-radius:0;background:none;font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left}
+button.gprojhead:hover{color:var(--fg);background:none}.gprojhead svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gprojhead svg.open{transform:rotate(90deg)}
+.gprojhead .gcount{margin-left:auto;font-weight:500;letter-spacing:0;color:var(--accent)}
+/* a project's root folder, in a workspace: its name in small caps, like VS Code */
+.tree .troot{padding-left:8px;font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
 .tree .folder.changed .tname{color:color-mix(in oklab,var(--warn) 70%,var(--fg))}
 .tree .fl{font-family:var(--mono);font-weight:700;font-size:10px;letter-spacing:-.3px;line-height:16px}.tree .fl.long{font-size:8.5px;letter-spacing:-.6px}
 .tree .agentdot{color:var(--hot);font-size:11px}
