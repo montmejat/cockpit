@@ -21,11 +21,15 @@ Icon=cockpit
 Terminal=false
 Categories=Development;
 StartupWMClass=io.github.montmejat.cockpit
-Actions=pick;
+SingleMainWindow=false
+Actions=new-window;
 
-[Desktop Action pick]
-Name=Open project…
+# GNOME opens this for Ctrl+Enter in the app grid, Ctrl+click or middle-click on the dock icon
+# while cockpit runs, and "New Window" on the icon's right-click menu: another window, asking which project.
+[Desktop Action new-window]
+Name=New Window
 Exec=$EXEC --pick
+
 DESKTOP
 update-desktop-database ~/.local/share/applications 2>/dev/null || true
 gtk-update-icon-cache -q ~/.local/share/icons/hicolor 2>/dev/null || true

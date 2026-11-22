@@ -55,7 +55,7 @@ Desktop app (Linux), a GTK 4 / libadwaita window (WebKitGTK 6) around the same s
 ```sh
 desktop/install.sh            # once: needs gtk4-devel libadwaita-devel webkitgtk6.0-devel
 cockpit ~/Projects/slipangle  # or open "cockpit" from the app menu (reopens the last project)
-cockpit --pick                # choose another project ("Open project…" on the launcher icon)
+cockpit --pick                # choose a project in a new window ("New Window" on the launcher icon, or Ctrl+Enter in the app grid)
 ```
 
 It starts the server on a free port, shows the page, and stops the server when the window
