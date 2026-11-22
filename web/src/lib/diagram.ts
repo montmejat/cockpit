@@ -2,7 +2,7 @@
 // updated in place: when only what's changing moves, boxes are restyled; when the diagram itself
 // changes, boxes are added, removed or relabeled without tearing the view down.
 
-import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
+import cytoscape, { type Core, type ElementDefinition, type NodeSingular } from "cytoscape";
 import dagre from "cytoscape-dagre";
 import type { Diagram } from "./types";
 import { byId, nodeState } from "./state.svelte";
@@ -243,4 +243,63 @@ export function positionsOf(cy: Core) {
 export function relayout(cy: Core, d: Diagram, positions?: Record<string, { x: number; y: number }>) {
   layout(cy, d, positions);
   fitCapped(cy);
+}
+
+// ---- placing boxes by hand ------------------------------------------------------------
+
+// Guides to draw while a box is dragged: where it lines up with another box, in screen pixels
+// within the diagram's container.
+export type Guides = { x: number | null; y: number | null };
+
+// Dragging a box lines it up: its center snaps to the center line of any other box within a few
+// pixels (so an arrow between them runs straight), and the line it snapped to shows as a guide.
+// Shift keeps it on the row or column it started from; Ctrl places it freely.
+const keys = { shift: false, ctrl: false };
+for (const t of ["keydown", "keyup"] as const) addEventListener(t, (e) => { keys.shift = e.shiftKey; keys.ctrl = e.ctrlKey; });
+addEventListener("blur", () => { keys.shift = keys.ctrl = false; });
+
+export function snapWhileDragging(cy: Core, onGuides: (g: Guides | null) => void) {
+  const SNAP = 7; // screen pixels
+  let raw: { x: number; y: number } | null = null, last = { x: 0, y: 0 }, start = { x: 0, y: 0 };
+  let xs: number[] = [], ys: number[] = [];
+  const at = (n: NodeSingular) => ({ x: n.position("x"), y: n.position("y") });
+  cy.on("grab", "node", (e) => {
+    const n = e.target as NodeSingular;
+    if (n.isParent()) { raw = null; return; }
+    raw = at(n); last = at(n); start = at(n);
+    const others = cy.nodes().not(n).toArray().map((o) => o as NodeSingular).filter((o) => !o.isParent() && o.visible());
+    xs = others.map((o) => o.position("x")); ys = others.map((o) => o.position("y"));
+  });
+  cy.on("drag", "node", (e) => {
+    const n = e.target as NodeSingular;
+    if (!raw || n.isParent() || cy.nodes(":grabbed").length > 1) return;
+    const p = at(n);
+    raw.x += p.x - last.x; raw.y += p.y - last.y; // where the mouse puts it, before snapping
+    let x = raw.x, y = raw.y;
+    if (keys.shift) { if (Math.abs(raw.x - start.x) > Math.abs(raw.y - start.y)) y = start.y; else x = start.x; }
+    let gx: number | null = null, gy: number | null = null;
+    if (!keys.ctrl) {
+      const tol = SNAP / cy.zoom();
+      const near = (v: number, list: number[]) => list.reduce<number | null>((b, c) => (Math.abs(c - v) <= tol && (b === null || Math.abs(c - v) < Math.abs(b - v)) ? c : b), null);
+      const sx = near(x, xs), sy = near(y, ys);
+      if (sx !== null) { x = sx; gx = sx; }
+      if (sy !== null) { y = sy; gy = sy; }
+      if (keys.shift) { if (x === start.x) gx = start.x; if (y === start.y) gy = start.y; }
+    }
+    if (x !== p.x || y !== p.y) n.position({ x, y });
+    last = { x, y };
+    const z = cy.zoom(), pan = cy.pan();
+    onGuides(gx === null && gy === null ? null : { x: gx === null ? null : gx * z + pan.x, y: gy === null ? null : gy * z + pan.y });
+  });
+  cy.on("free", "node", () => { raw = null; onGuides(null); });
+}
+
+// Arrow keys move the picked box: 1 pixel, or 10 with Shift.
+export function nudge(cy: Core, id: string, key: string, big: boolean) {
+  const n = cy.getElementById(id) as NodeSingular;
+  const step = big ? 10 : 1;
+  const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[key];
+  if (!d || !n.length || n.isParent()) return false;
+  n.position({ x: n.position("x") + d[0], y: n.position("y") + d[1] });
+  return true;
 }

@@ -8,7 +8,7 @@
   import ZoomCode from "./ZoomCode.svelte";
   import DiagramList from "./DiagramList.svelte";
   import NodeCard from "./NodeCard.svelte";
-  import { buildCy, legend, positionsOf, relayout, restyle, syncCy } from "../lib/diagram";
+  import { buildCy, legend, nudge, positionsOf, relayout, restyle, snapWhileDragging, syncCy, type Guides } from "../lib/diagram";
   import { byId, C, diagramChanges, mapTab, nameOf, nodeState, parentOfDiagram, S, saveTabs, tldr, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
 
@@ -84,8 +84,13 @@
     relayout(cy, d);
   }
 
+  // The guides, placed over the diagram's container (the library's coordinates are its own).
+  let guides = $state<(Guides & { l: number; t: number; w: number; h: number }) | null>(null);
+  // Arrow keys nudge the picked box; saved once the keys rest.
+  let nudgeSave: ReturnType<typeof setTimeout> | null = null;
   function wire(cy: Core) {
     cy.on("dragfree", "node", save); // dragged boxes stay where you put them
+    snapWhileDragging(cy, (g) => (guides = g && { ...g, l: area.offsetLeft, t: area.offsetTop, w: area.clientWidth, h: area.clientHeight })); // lined up with the other boxes
     // The hover box. While the view zooms or pans, the diagram moves under a still mouse and the
     // library only notices on the next mouse move: hide the box then, and bring it back on that move.
     let hov: any = null;
@@ -269,6 +274,14 @@
     }
   }
   function keys(e: KeyboardEvent) {
+    if (e.key.startsWith("Arrow") && !hidden && !codeNode && ui.picked && cy && !(e.target as HTMLElement).closest?.("input,textarea,select,.xterm,.cm-editor")) {
+      if (nudge(cy, ui.picked, e.key, e.shiftKey)) {
+        e.preventDefault();
+        if (nudgeSave) clearTimeout(nudgeSave);
+        nudgeSave = setTimeout(save, 400);
+      }
+      return;
+    }
     if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (listOpen) listOpen = false; else if (ui.picked || about) closeCard(); else ascend(); }
   }
 </script>
@@ -282,6 +295,10 @@
       {#if d && S.layout?.[d.id]}<span class="pbtns"><button title="Forget where you moved the boxes" onclick={resetLayout}>reset layout</button></span>{/if}
     </div>
     <div class="cyc" bind:this={area} onwheel={wheel}></div>
+    {#if guides}
+      {#if guides.x !== null}<i class="guide gx" style="left:{guides.l + guides.x}px;top:{guides.t}px;height:{guides.h}px"></i>{/if}
+      {#if guides.y !== null}<i class="guide gy" style="top:{guides.t + guides.y}px;left:{guides.l}px;width:{guides.w}px"></i>{/if}
+    {/if}
     <div class="legend">{#each legendItems.filter((l) => ui.help || !l.help) as l (l.cls)}<span><i class="sw {l.cls}"></i>{l.text}</span>{/each}</div>
   </div>
   {#if tip}<div id="tip" style="left:{tip.x}px;top:{tip.y}px">{@html tip.html}</div>{/if}

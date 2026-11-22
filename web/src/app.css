@@ -118,6 +118,8 @@ body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 .ptitle .k{font-weight:400;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 .pbtns{position:absolute;right:10px;top:6px;display:flex;gap:6px;z-index:6}.pbtns button{padding:0 7px;font-weight:400;font-size:var(--fs-s)}
 .cyc{flex:1;min-height:0}
+/* where a dragged box lines up with another (lib/diagram.ts, snapWhileDragging) */
+.guide{position:absolute;z-index:5;pointer-events:none;background:var(--accent);opacity:.7}.guide.gx{width:1px}.guide.gy{height:1px}
 .legend{display:flex;flex-wrap:wrap;gap:4px 14px;padding:6px 12px 10px;font-size:var(--fs-s);color:var(--muted)}
 .zhint{font-size:var(--fs-s)}
 .legend .sw{display:inline-block;width:14px;height:10px;margin-right:5px;vertical-align:-1px;border-radius:var(--r-xs);border:1.5px solid var(--fg);background:var(--card)}
