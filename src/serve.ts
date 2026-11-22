@@ -532,7 +532,11 @@ const server = createServer(async (req, res) => {
   const pass = auth.check(req, url);
   if (pass === "login") {
     url.searchParams.delete("token");
-    return res.writeHead(303, { "set-cookie": auth.cookie, location: url.pathname + url.search, "cache-control": "no-store" }).end();
+    // Not a 303: a redirect stays part of the navigation that brought the link, and when that
+    // came from another site (the desktop app's loading page) the SameSite=Strict cookie is held
+    // back from it. The page moving itself on is a navigation from here, so the cookie goes along.
+    return res.writeHead(200, { "set-cookie": auth.cookie, "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "referrer-policy": "no-referrer" })
+      .end(`<!doctype html><meta charset=utf-8><script>location.replace(${JSON.stringify(url.pathname + url.search).replace(/</g, "\\u003c")})</script>`);
   }
   if (pass === "refused") return res.writeHead(401, { "content-type": "text/html; charset=utf-8" })
     .end(`<!doctype html><meta charset=utf-8><body style="font:14px monospace;padding:30px">Open cockpit from the desktop app, or with the link the server printed when it started (it ends in <b>?token=…</b>).`);
