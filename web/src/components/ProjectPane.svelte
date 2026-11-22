@@ -113,7 +113,7 @@
         <button class="lrow" onclick={() => (ui.insp = "problems")}><span>Out of date</span><span class="pval bad">{S.problems.length}</span><span class="pchev">›</span></button>
       {/if}
       <button class="lrow" onclick={openGuardrails}><span>Guardrails</span>
-        <span class="pval" class:bad={fail > 0}>{!gr.on ? "off" : gr.running.length ? "checking…" : fail ? `${fail} failing` : "✓"}</span><span class="pchev">›</span></button>
+        <span class="pval" class:bad={fail > 0 || (gr.on && !gr.trusted)}>{!gr.on ? "off" : !gr.trusted ? "not trusted" : gr.running.length ? "checking…" : fail ? `${fail} failing` : "✓"}</span><span class="pchev">›</span></button>
       <div class="lrow static"><span>Size</span><span class="pval">{(S.lines / 1000).toFixed(1)}k lines</span></div>
     </div>
   {/if}

@@ -24,7 +24,7 @@ import { workspaceOf } from "./workspace.ts";
 import { createGit, type Status } from "./git.ts";
 import { createAuth } from "./auth.ts";
 import { listPatch, type ListPatch } from "./listpatch.ts";
-import { instructions, lastResults, loadGuardrails, runChecks, runningChecks } from "./guardrails.ts";
+import { instructions, isTrusted, lastResults, loadGuardrails, runChecks, runningChecks, trust } from "./guardrails.ts";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(`--${n}`) ? args[args.indexOf(`--${n}`) + 1] : undefined);
@@ -249,7 +249,7 @@ function guardrailsState() {
   const { g, problems } = loadGuardrails(root);
   const told = instructions(root);
   if (!g && !problems.length) return { on: false as const, instructions: told };
-  return { on: true as const, checks: g?.checks ?? [], rules: g?.rules ?? [], problems, results: lastResults(name), running: runningChecks(name), instructions: told };
+  return { on: true as const, checks: g?.checks ?? [], rules: g?.rules ?? [], problems, results: lastResults(name), running: runningChecks(name), instructions: told, trusted: !g || isTrusted(root, g) };
 }
 
 // Git is asked side by side, off the server's thread.
@@ -451,8 +451,19 @@ const routes: Record<string, Handler> = {
   "POST /api/guardrails/run": post(({ ids }) => {
     const { g } = loadGuardrails(root);
     if (!g) return { error: "no .cockpit/guardrails.json" };
+    if (!isTrusted(root, g)) return { error: "these checks aren't trusted yet" };
     void runChecks(root, name, g, Array.isArray(ids) ? ids : undefined, () => changed());
     return { ok: true };
+  }),
+  // Trust the checks as they are now (`key`: the commands the page showed, so a change since isn't
+  // trusted unseen), then run them.
+  "POST /api/guardrails/trust": post(async ({ runs }) => {
+    const { g } = loadGuardrails(root);
+    if (!g) return { error: "no .cockpit/guardrails.json" };
+    if (JSON.stringify(g.checks.map((c) => c.run)) !== JSON.stringify(runs)) throw new Error("the checks changed meanwhile: look at them again");
+    trust(root, g);
+    await recompute();
+    void runChecks(root, name, g, undefined, () => changed());
   }),
   "POST /api/git/stage": post(async ({ paths }) => { await git.stage(paths, true); await recompute(); }),
   "POST /api/git/unstage": post(async ({ paths }) => { await git.stage(paths, false); await recompute(); }),

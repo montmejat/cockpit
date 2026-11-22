@@ -37,6 +37,14 @@
   const dur = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 
   const run = (ids?: string[]) => api.post("api/guardrails/run", { ids });
+  // Checks are commands from the project: none run until you've trusted them as they are now.
+  const untrusted = $derived(!!on && !on.trusted);
+  let trustErr = $state("");
+  async function trustThem() {
+    trustErr = "";
+    const r = await api.post<{ error?: string }>("api/guardrails/trust", { runs: on!.checks.map((c) => c.run) }).catch((e) => ({ error: String(e) }));
+    if (r?.error) trustErr = r.error;
+  }
   function ask(text: string) { api.post("api/chat/send", { text }); showChat(); }
   const setUp = () => ask(
     "Set up guardrails for this project: read the guide in your brief, then write .cockpit/guardrails.json with checks that use the tools this project already has " +
@@ -53,7 +61,7 @@
     {#if on}
       <span class="muted">{on.rules.length} rule{on.rules.length === 1 ? "" : "s"} · <b class={passing === on.checks.length ? "okc" : "bad"}>{passing}/{on.checks.length}</b> checks pass</span>
       <span class="grow"></span>
-      <button onclick={() => run()} disabled={on.running.length > 0}>{on.running.length ? "running…" : "Run all checks"}</button>
+      <button onclick={() => run()} disabled={on.running.length > 0 || untrusted}>{on.running.length ? "running…" : "Run all checks"}</button>
     {/if}
   </div>
   <p class="lead">What keeps the agents' work right without re-reading every line. A correction should move <i>up</i>: from prose to a check, from a check to design.</p>
@@ -63,7 +71,15 @@
       <p>Off in this project: nothing runs and nothing is enforced. Guardrails live in <code>.cockpit/guardrails.json</code> only. Setting them up doesn't add configs, scripts or dependencies to the project.</p>
       <button onclick={setUp}>Ask the agent to set them up</button>
     </div>
-  {:else if on.problems.length}
+  {:else if untrusted}
+    <div class="gtrust">
+      <p><b>These checks haven't run.</b> Each one is a shell command from this project's <code>.cockpit/guardrails.json</code>, and they're new to cockpit or changed since you last trusted them (a pull, another branch). Read them, then let them run:</p>
+      <ul>{#each on.checks as c (c.id)}<li><b>{c.name}</b> <code>{c.run}</code></li>{/each}</ul>
+      <button onclick={trustThem}>Trust and run them</button>
+      {#if trustErr}<span class="bad">{trustErr}</span>{/if}
+    </div>
+  {/if}
+  {#if on?.problems.length}
     <ul class="gproblems">{#each on.problems as p}<li class="bad"><b>{p.where}</b>: {p.problem}</li>{/each}</ul>
   {/if}
 
@@ -111,7 +127,7 @@
             <span class="cst" class:ok={r?.ok} class:bad={r && !r.ok} class:spin={isRunning(c.id)}>{isRunning(c.id) ? "◌" : !r ? "·" : r.ok ? "✓" : "✗"}</span>
             <b>{c.name}</b><code class="muted">{c.run}</code><span class="grow"></span>
             {#if r}<span class="muted">{ago(r.at)} · {dur(r.ms)}</span>{:else}<span class="muted">never run</span>{/if}
-            <button onclick={(e) => { e.preventDefault(); run([c.id]); }} disabled={isRunning(c.id)}>run</button>
+            <button onclick={(e) => { e.preventDefault(); run([c.id]); }} disabled={isRunning(c.id) || untrusted}>run</button>
           </summary>
           {#if r?.output}<pre>{r.output}</pre>{/if}
           {#if unused.includes(c)}<p class="muted hint">No rule names this check yet.</p>{/if}

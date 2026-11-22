@@ -24,7 +24,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
 import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
-import { GUARDRAILS, failureReport, lastResults, loadGuardrails, runChecks } from "./guardrails.ts";
+import { GUARDRAILS, failureReport, isTrusted, lastResults, loadGuardrails, runChecks, trust } from "./guardrails.ts";
 import type { createIndex } from "./codeindex.ts";
 import { turnEnd, turnStart, turnTool, type HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
@@ -46,6 +46,9 @@ type Event =
   | { type: "init"; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null; agents: AgentInfo[] };
 
 export const MODELS = ["haiku", "sonnet", "opus"];
+// An Allow/Deny card left unanswered this long is denied, so a turn doesn't wait forever (the
+// agent is told, and can ask again or go another way).
+const ASK_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_MODEL = "opus"; // until a model is picked in the chat; the pick is kept per project
 
 // A queue the SDK reads the user's messages from; it stays open between turns.
@@ -277,13 +280,18 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           canUseTool: async (tool, input, { signal, decisionReason }) => {
             const id = "ask-" + Math.random().toString(36).slice(2, 10);
             put({ id, kind: "ask", at: now(), tool, ...describe(root, tool, input), reason: decisionReason ?? null, status: "waiting" });
+            let expired = false;
             const allow = await new Promise<boolean>((res) => {
-              waiting.set(id, res);
               signal.addEventListener("abort", () => res(false));
+              const t = setTimeout(() => { expired = true; res(false); }, ASK_TIMEOUT_MS);
+              signal.addEventListener("abort", () => clearTimeout(t));
+              waiting.set(id, (a) => { clearTimeout(t); res(a); });
             });
             waiting.delete(id);
-            put({ ...get(id)!, status: allow ? "allowed" : "denied" });
-            return allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "The owner declined this in cockpit." };
+            put({ ...get(id)!, status: allow ? "allowed" : expired ? "expired" : "denied" });
+            agentsChanged();
+            return allow ? { behavior: "allow", updatedInput: input }
+              : { behavior: "deny", message: expired ? `Nobody answered in cockpit within ${ASK_TIMEOUT_MS / 60_000} minutes, so it was declined. Ask in the chat if you still need it.` : "The owner declined this in cockpit." };
           },
           hooks: {
             // Edits in the workspace's other projects need the owner's yes (an Allow/Deny card),
@@ -303,7 +311,14 @@ export function createChat(root: string, project: string, terms: Terminals, inde
               try { turnStart(i as HookInput); } catch {}
               return {};
             }] }],
-            PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { edited = true; try { turnTool(i as HookInput); } catch {} return {}; }] }],
+            PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
+              edited = true;
+              try { turnTool(i as HookInput); } catch {}
+              // The agent changed the checks: trusted as it wrote them (guardrails.ts).
+              const f = i.tool_input?.file_path;
+              if (typeof f === "string" && resolve(root, f) === join(root, GUARDRAILS)) { const { g } = loadGuardrails(root); if (g) trust(root, g); }
+              return {};
+            }] }],
             Stop: [{ hooks: [async (i) => {
               // .cockpit/ must match the code: up to 3 rounds of "fix what the check found" per
               // turn, against the live index once it has caught up with the agent's edits. A round
@@ -342,6 +357,10 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     async function guard(): Promise<string | null> {
       const { g } = loadGuardrails(root);
       if (!g?.checks.length || !edited || gRounds >= 3) return null;
+      if (!isTrusted(root, g)) {
+        note("Guardrails: their checks weren't run, since they aren't trusted yet (they run commands from the project). Look at them in the guardrails tab.");
+        return null;
+      }
       note(`Running the guardrails' checks (${g.checks.map((c) => c.name).join(", ")})…`);
       const results = await runChecks(root, project, g, undefined, onChecks);
       const failed = results.filter((r) => !r.ok);

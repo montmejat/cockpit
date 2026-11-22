@@ -49,7 +49,7 @@ export interface CheckResult { id: string; ok: boolean; exit: number | null; at:
 export interface Instruction { path: string; lines: number; kind: "agents" | "skill" | "rules" }
 export type Guardrails =
   | { on: false; instructions: Instruction[] }
-  | { on: true; checks: Check[]; rules: Rule[]; problems: { where: string; problem: string }[]; results: Record<string, CheckResult>; running: string[]; instructions: Instruction[] };
+  | { on: true; checks: Check[]; rules: Rule[]; problems: { where: string; problem: string }[]; results: Record<string, CheckResult>; running: string[]; instructions: Instruction[]; trusted: boolean };
 // The workspace this project is in (src/workspace.ts): projects that work together.
 export interface Workspace { name: string; system: string | null; projects: { name: string; path: string; summary: string | null; here: boolean }[] }
 export interface MergeRequest { id: number; ref: string; title: string; source: string; target: string; author: string; url: string; draft: boolean; fork: boolean }

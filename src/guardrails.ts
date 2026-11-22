@@ -14,12 +14,18 @@
 //
 // Cockpit runs the checks when an agent finishes a turn that edited files (src/chat.ts), and keeps
 // the last result of each in its own state folder, not in the project.
+//
+// A check is a shell command written in the project, so a project you cloned or pulled could run
+// anything through it. Cockpit runs a project's checks only once you've trusted them, as they are:
+// when their commands change (a pull, a branch), it asks again. Changes made by cockpit's own
+// agent are trusted as it makes them (it can run commands itself anyway).
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { ARCH_DIR } from "./arch.ts";
-import { outDir } from "./turns.ts";
+import { outDir, STATE } from "./turns.ts";
 
 export const GUARDRAILS = `${ARCH_DIR}/guardrails.json`;
 export const LAYERS = ["design", "static", "verification", "prose"] as const;
@@ -87,6 +93,21 @@ export function instructions(root: string): Instruction[] {
   return out;
 }
 
+// ---- trusting the checks ---------------------------------------------------------------------
+
+const trustFile = () => join(STATE, "trusted-checks.json");
+const commandsKey = (g: Guardrails) => createHash("sha1").update(JSON.stringify(g.checks.map((c) => [c.id, c.run]))).digest("hex");
+const where = (root: string) => { try { return realpathSync(root); } catch { return root; } };
+const trusted = (): Record<string, string> => { try { return JSON.parse(readFileSync(trustFile(), "utf8")); } catch { return {}; } };
+// Whether these checks, with these exact commands, were trusted in this folder.
+export const isTrusted = (root: string, g: Guardrails) => !g.checks.length || trusted()[where(root)] === commandsKey(g);
+export function trust(root: string, g: Guardrails) {
+  const all = trusted();
+  all[where(root)] = commandsKey(g);
+  mkdirSync(STATE, { recursive: true });
+  writeFileSync(trustFile(), JSON.stringify(all, null, 1) + "\n");
+}
+
 // ---- running the checks ----------------------------------------------------------------------
 
 const resultsFile = (project: string) => join(outDir(project), "guardrails.json");
@@ -119,7 +140,9 @@ function runOne(root: string, c: Check): Promise<CheckResult> {
 // page show which are running.
 const running = new Map<string, Set<string>>();
 export const runningChecks = (project: string) => [...(running.get(project) ?? [])];
+// Nothing runs while the checks aren't trusted (isTrusted).
 export async function runChecks(root: string, project: string, g: Guardrails, only?: string[], onChange?: () => void): Promise<CheckResult[]> {
+  if (!isTrusted(root, g)) return [];
   const list = g.checks.filter((c) => !only || only.includes(c.id));
   const now = running.get(project) ?? new Set<string>();
   running.set(project, now);

@@ -243,7 +243,7 @@
         </div>
       {:else if it.kind === "ask"}
         <div class="cask {it.status}">
-          <div class="kicker">{it.status === "waiting" ? "the agent asks" : it.status}</div>
+          <div class="kicker">{it.status === "waiting" ? "the agent asks" : it.status === "expired" ? "no answer: declined" : it.status}</div>
           <div class="mono">{it.title}</div>
           {#if it.reason}<p class="muted">{it.reason}</p>{/if}
           {#if it.detail}<p class="muted">{it.detail}</p>{/if}
