@@ -70,7 +70,8 @@ main{flex:1;min-height:0;display:flex;position:relative}
 .sgrip::after{content:"";position:absolute;top:0;bottom:0;left:3px;width:1px;background:transparent;transition:background .15s}
 .sgrip:hover::after,.sgrip.dragging::after{background:var(--accent)}
 body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
-#sidebody{flex:1;overflow:auto}
+/* never sideways: long names end in "…" instead */
+#sidebody{flex:1;overflow-x:hidden;overflow-y:auto}
 /* actions over a sidebar list (collapse all): top right, left of the scrollbar, shown while the mouse is on the sidebar */
 .sfloat{position:absolute;top:calc(var(--bar-h) + 5px);z-index:3;opacity:0;transition:opacity .12s}
 #side:hover .sfloat,.sfloat:focus-within{opacity:1}.sfloat button.ibtn{background:var(--side);box-shadow:0 0 0 1px var(--line)}.sfloat button.ibtn:hover{background:var(--card)}
@@ -229,10 +230,10 @@ details.more>summary::before{content:"▸ "}details.more[open]>summary::before{c
 details.more>summary::-webkit-details-marker,details.row>summary::-webkit-details-marker{display:none}
 details.row{border-top:1px solid var(--line)}details.row>summary{cursor:pointer;list-style:none;display:flex;gap:8px;align-items:baseline;padding:4px 0}
 details.row>summary:hover{color:var(--accent)}
-.rname{flex-shrink:0}.rnote{color:var(--warn);font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.rcount{margin-left:auto;color:var(--muted);font-size:var(--fs-s)}
+.rname{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}details.row[open] .rname{white-space:normal}.rnote{color:var(--warn);font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.rcount{margin-left:auto;flex:none;color:var(--muted);font-size:var(--fs-s)}
 details.row[open]{padding-bottom:6px}details.row[open] .rnote{white-space:normal}
-.chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.chips{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}.chips .chip{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{border:1px solid var(--line);border-radius:var(--r-pill);padding:0 8px;font-size:var(--fs-s);color:var(--fg)}
 a.chip:hover{border-color:var(--accent);color:var(--accent)}.chip.chg{border-color:var(--warn)}.chip.chg::after{content:" ●";color:var(--warn)}
 .probs summary{cursor:pointer;color:var(--bad);font-size:var(--fs-s);list-style:none;margin-top:12px}.probs summary::-webkit-details-marker{display:none}
@@ -404,7 +405,7 @@ table.code tr.del td.c{background:var(--del-bg);opacity:.85;text-decoration:line
 /* map */
 #canvas.hide{display:none}
 button.chip,button.tname{border:1px solid var(--line);border-radius:var(--r-pill);padding:0 8px;font-size:var(--fs-s);color:var(--fg)}
-button.tname{display:block;border:0;padding:1px 0 1px 14px;color:var(--accent)}
+button.tname{display:block;border:0;padding:1px 0 1px 14px;color:var(--accent);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 button.chip:hover{border-color:var(--accent);color:var(--accent)}
 /* breadcrumb links: a soft rounded highlight on hover, like the other quiet buttons */
 #crumbs button.link{color:var(--muted);padding:1px 5px;margin:-1px -5px;border-radius:var(--r-m);transition:background .12s,color .12s}#crumbs button.link:hover{color:var(--fg);background:var(--btn-hover);text-decoration:none}
