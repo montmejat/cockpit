@@ -86,7 +86,26 @@
   </span>
 {/snippet}
 <header onmousedown={drag} role="presentation" class:wleft={!!win && wb.left.length > 0}>
+  <!-- three columns, the project's name in the middle like a GNOME title bar: what's going on
+       (review, failing checks) on the left, the agent and the toggles on the right -->
+  <div class="hside hl">
   {#if win && wb.left.length}{@render controls(wb.left)}{/if}
+  {#if S.review}
+    {@const r = S.review}
+    <span class="revpill" title={(r.mr ? r.mr.ref + " " + r.mr.title + "\n" : "") + r.branch + " → " + r.target + (r.base ? " (from " + r.base + ")" : "")}>
+      ◆ <button class="rt link" onclick={() => (ui.side = "git")}>{r.mr ? r.mr.ref + " " + r.mr.title : r.branch + " → " + r.target}</button>
+      <span class="muted">{r.files.length} files</span>
+      <button title="End the review" onclick={() => api.post("api/review/stop", { back: false })}>✕</button>
+    </span>
+  {/if}
+  <!-- Guardrails speak up only when a check fails; otherwise they live in the sidebar's project tab -->
+  {#if S.guardrails.on}
+    {@const gr = S.guardrails}
+    {@const fail = gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length}
+    {#if fail}<button class="pill gpill bad" title="Guardrails: {fail} of {gr.checks.length} checks failing" onclick={openGuardrails}>◈ {fail} failing</button>{/if}
+  {/if}
+  </div>
+  <div class="htitle">
   {#if S.workspace}
     <button class="wsbtn" class:on={wsOpen} title="Workspace {S.workspace.name}: the projects that work with this one" aria-expanded={wsOpen} onclick={() => { wsOpen = !wsOpen; wsNote = ""; }}>{S.workspace.name} ▾</button><span class="muted wssep">/</span>
   {/if}
@@ -120,21 +139,8 @@
       {#if wsNote}<div class="bad wsfoot">{wsNote}</div>{/if}
     </div>
   {/if}
-  {#if S.review}
-    {@const r = S.review}
-    <span class="revpill" title={(r.mr ? r.mr.ref + " " + r.mr.title + "\n" : "") + r.branch + " → " + r.target + (r.base ? " (from " + r.base + ")" : "")}>
-      ◆ <button class="rt link" onclick={() => (ui.side = "git")}>{r.mr ? r.mr.ref + " " + r.mr.title : r.branch + " → " + r.target}</button>
-      <span class="muted">{r.files.length} files</span>
-      <button title="End the review" onclick={() => api.post("api/review/stop", { back: false })}>✕</button>
-    </span>
-  {/if}
-  <!-- Guardrails speak up only when a check fails; otherwise they live in the sidebar's project tab -->
-  {#if S.guardrails.on}
-    {@const gr = S.guardrails}
-    {@const fail = gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length}
-    {#if fail}<button class="pill gpill bad" title="Guardrails: {fail} of {gr.checks.length} checks failing" onclick={openGuardrails}>◈ {fail} failing</button>{/if}
-  {/if}
-  <span class="grow"></span>
+  </div>
+  <div class="hside hr">
   {#if S.live}
     {@const who = S.live.chat ? "chat agent" : "Claude Code (terminal)"}
     {@const tip = `${S.live.chat ? "The chat's agent" : "A Claude Code session outside cockpit"} is working, for ${since(S.live.startedAt)}, on:\n${S.live.prompt.slice(0, 300)}${S.live.touched.length ? "\n\nChanged so far: " + S.live.touched.join(", ") : ""}`}
@@ -145,4 +151,5 @@
   {#if ui.help}<button onclick={ontoggleterm} title="Terminal  (Ctrl+`)">▭ terminal <span class="muted">Ctrl+`</span></button>
     <button onclick={() => toggleChat(true)} title="Chat  (Ctrl+L)">◧ chat <span class="muted">Ctrl+L</span></button>{/if}
   {#if win && wb.right.length}{@render controls(wb.right)}{/if}
+  </div>
 </header>

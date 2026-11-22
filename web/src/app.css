@@ -38,7 +38,10 @@ button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-off
 .muted{color:var(--muted)}.grow{flex:1}
 h4{margin:16px 0 6px;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500}
 
-header{display:flex;align-items:center;gap:14px;padding:7px 14px;border-bottom:1px solid var(--line);background:var(--head);flex-wrap:wrap}
+header{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:14px;padding:7px 14px;border-bottom:1px solid var(--line);background:var(--head)}
+header .hside{display:flex;align-items:center;gap:14px;min-width:0}header .hr{justify-content:flex-end}
+header .htitle{position:relative;display:flex;align-items:center;gap:14px;justify-self:center;min-width:0}
+header .htitle .wsmenu{left:50%;transform:translateX(-50%)}
 header h1{font-size:var(--fs-l);margin:0;font-weight:600}
 header{position:relative}header button.wsbtn{background:none;border:0;padding:0;font-size:var(--fs-m);color:var(--muted);font-weight:500}header button.wsbtn:hover,header button.wsbtn.on{color:var(--accent)}header .wssep{margin:0 -10px}
 .wsmenu{position:absolute;top:calc(100% + 4px);left:10px;z-index:40;width:min(440px,calc(100vw - 24px));background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shadow-pop);padding:6px 0;font-size:var(--fs-m)}
@@ -271,7 +274,7 @@ table.code tr.cur td.ln{color:var(--fg);font-weight:600}table.code tr.cur td.c{b
 .chg{color:var(--warn)}
 @media (prefers-reduced-motion:reduce){.zsnap{display:none}}
 /* desktop app: the header doubles as the title bar */
-body.desktop header{flex-wrap:nowrap;user-select:none;-webkit-user-select:none;padding:0 6px 0 14px;min-height:47px}
+body.desktop header{user-select:none;-webkit-user-select:none;padding:0 6px 0 14px;min-height:47px}
 body.desktop header.wleft{padding-left:6px}
 /* the window's buttons, as GNOME draws them: round, the ones your button layout lists, on its side */
 .winctl{display:flex;gap:12px;padding:0 6px;flex:none}
@@ -281,7 +284,7 @@ body.desktop header.wleft{padding-left:6px}
 .winctl svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
 /* right panel: chat and details */
 #right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--side);border-left:1px solid var(--line);min-height:0;position:relative}
-#chat{flex:1;min-height:0;display:flex;flex-direction:column}
+#chat{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
 #chat[hidden]{display:none}
 #msgs{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere;padding:12px 14px;font-size:var(--fs-m);line-height:1.5}
 #msgs > div{margin:0 0 8px}
@@ -414,7 +417,11 @@ button.chip:hover{border-color:var(--accent);color:var(--accent)}
 button.ctitle{min-width:0;max-width:100%;display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-m);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise);color:var(--fg);font-size:var(--fs-s);font-weight:500}
 button.ctitle .chev{color:var(--muted);font-size:var(--fs-xs)}button.ctitle:hover .chev,button.ctitle.on .chev{color:var(--fg)}
 .ctname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.clist{max-height:45%;overflow:auto;border-bottom:1px solid var(--line);padding:6px;background:var(--bg)}
+/* other agents at work: a small count by the title; "!" when one waits for an Allow/Deny */
+.cagents,.cstate{display:inline-flex;align-items:center;gap:4px;flex:none;font-size:var(--fs-xs);color:var(--hot)}
+.cagents.asking,.cstate.asking{color:var(--warn);font-weight:700}
+.cstate{width:22px;justify-content:center}
+.clist{position:absolute;z-index:30;top:calc(var(--bar-h) - 2px);left:8px;right:8px;max-height:60%;overflow:auto;padding:6px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shadow-pop)}
 .clist p{padding:4px 12px;margin:0}
 /* the conversations: rounded rows, the whole row lights up; the open one is raised like a tab */
 .csrow{display:flex;align-items:center;gap:4px;padding-right:8px;border-radius:var(--r-m)}.csrow+.csrow{margin-top:1px}.csrow:hover{background:var(--btn)}
@@ -640,7 +647,8 @@ button.stab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(-
 .sbadge{min-width:15px;height:15px;padding:0 4px;border-radius:var(--r-pill);background:var(--accent);color:var(--on-accent);font-size:9px;font-weight:600;line-height:15px;text-align:center}
 .stab.bad .sbadge{background:var(--bad)}
 /* the project tab: a grouped list, like iOS settings */
-.psum{color:var(--muted);font-size:var(--fs-s);line-height:1.45;margin:0 2px 12px}
+.lrow .pval.psum{display:block;min-width:0;flex:1;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#project .about{line-height:1.5;margin:0 0 10px}
 .plist{border:1px solid var(--line);border-radius:var(--r-l);background:var(--card);overflow:hidden}
 button.lrow,.lrow{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:0;background:none;text-align:left;font-weight:400}
 .lrow+.lrow{border-top:1px solid var(--line)}button.lrow:hover{background:var(--btn)}

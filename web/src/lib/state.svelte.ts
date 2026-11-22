@@ -148,7 +148,7 @@ export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map
 
 // ---- what is open ----------------------------------------------------------
 
-type Insp = "features" | "tests" | "problems" | null;
+type Insp = "about" | "features" | "tests" | "problems" | null;
 export type Side = "files" | "git" | "project";
 const saved = (): Tab[] => {
   try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff" || t.kind === "guardrails")); } catch { return []; }

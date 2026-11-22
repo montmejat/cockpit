@@ -1,12 +1,14 @@
 <script lang="ts">
   // The agent chat. Cockpit runs the agent itself (src/chat.ts); the panel follows it live:
   // replies stream in, tool calls show as one line each (click for more), auto mode's questions
-  // as Allow/Deny cards. Past conversations are a click away; the ring by "send" shows how full this
-  // conversation is, and hovering it, how much of your plan's limits you've used.
+  // as Allow/Deny cards. Past conversations are a click away, in a list over the messages; several
+  // agents can work at once (one per conversation), and the title says how many are working
+  // elsewhere or waiting for you. The ring by "send" shows how full this conversation is, and
+  // hovering it, how much of your plan's limits you've used.
   import { onMount, tick } from "svelte";
   import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
   import { openFile, S } from "../lib/state.svelte";
-  import type { ChatItem, ChatSession, Usage } from "../lib/types";
+  import type { ChatAgent, ChatItem, ChatSession, Usage } from "../lib/types";
   import IconButton from "./ui/IconButton.svelte";
   import Menu from "./ui/Menu.svelte";
 
@@ -16,6 +18,10 @@
   let busy = $state(false), model = $state("opus"), models: string[] = $state([]);
   let context = $state<{ used: number; max: number } | null>(null);
   let session: string | null = $state(null);
+  let agents: ChatAgent[] = $state([]);
+  // The agents working on other conversations, and those of them waiting for an Allow/Deny.
+  const others = $derived(agents.filter((a) => a.session !== session && (a.busy || a.asking)));
+  const othersAsking = $derived(others.filter((a) => a.asking).length);
   let text = $state("");
   let msgs: HTMLElement;
   // The composer grows with what's typed (whole pixels, up to its max-height) instead of scrolling:
@@ -32,7 +38,11 @@
   let usage: Usage | null = $state(null);
   let hover = $state(false), pinned = $state(false), ctxEl: HTMLElement;
   const ctxPct = $derived(context ? Math.min(100, (100 * context.used) / context.max) : null);
-  const unpin = (e: PointerEvent) => { if (pinned && !ctxEl?.contains(e.target as Node)) pinned = false; };
+  let listEl = $state<HTMLElement>(), titleEl = $state<HTMLElement>();
+  const unpin = (e: PointerEvent) => {
+    if (pinned && !ctxEl?.contains(e.target as Node)) pinned = false;
+    if (list && !listEl?.contains(e.target as Node) && !titleEl?.contains(e.target as Node)) list = null;
+  };
   const resolve = $derived(fileResolver(S.files ?? []));
   // Copy a code block; the button shows a tick for a moment.
   async function copy(button: HTMLElement, text: string) {
@@ -69,9 +79,15 @@
     es.onmessage = (m) => {
       const e = JSON.parse(m.data);
       if (e.type === "init") {
-        items = e.items; busy = e.busy; model = e.model; models = e.models; context = e.context; session = e.session;
+        items = e.items; busy = e.busy; model = e.model; models = e.models; context = e.context; session = e.session; agents = e.agents ?? [];
         stick(true);
       } else if (e.type === "state") { busy = e.busy; model = e.model; context = e.context; session = e.session; }
+      else if (e.type === "agents") {
+        const asked = e.agents.some((a: ChatAgent) => a.asking && a.session !== session && !agents.some((b) => b.session === a.session && b.asking));
+        agents = e.agents;
+        if (asked) onactivity(true); // another conversation's agent waits for an Allow/Deny
+        if (list) refreshList();
+      }
       else if (e.type === "delta") {
         // A streamed reply's new text: gathered, and shown once per frame.
         pending.set(e.id, (pending.get(e.id) ?? "") + e.text);
@@ -140,8 +156,11 @@
   async function showList() {
     if (list) { list = null; return; }
     list = [];
-    list = await api.get<ChatSession[]>("api/chat/sessions");
+    await refreshList();
   }
+  async function refreshList() { const l = await api.get<ChatSession[]>("api/chat/sessions").catch(() => null); if (l && list) list = l; }
+  // Agents started here whose conversation Claude Code doesn't list yet (no transcript so far).
+  const unlisted = $derived(list ? others.filter((a) => !a.session || !list!.some((s) => s.id === a.session)) : []);
   async function openSession(id: string) { list = null; await post("open", { id }); }
   // The open conversation's name ("Chat 3", or its /rename title), looked up when it changes.
   let names = $state<ChatSession[]>([]);
@@ -171,28 +190,37 @@
   const title = $derived(session ? ((list ?? names).find((x) => x.id === session)?.title ?? "Chat") : "New chat");
 </script>
 
-<svelte:window onpointerdown={unpin} onkeydown={(e) => e.key === "Escape" && (pinned = false)} />
+<svelte:window onpointerdown={unpin} onkeydown={(e) => { if (e.key === "Escape") { pinned = false; list = null; } }} />
 
 <section id="chat" class:hide={hidden}>
   <div class="ctools">
-    <button class="ctitle" class:on={!!list} onclick={showList} title="Your conversations in this project">
-      <span class="ctname">{title}</span><span class="chev" aria-hidden="true">▾</span>
+    <button class="ctitle" class:on={!!list} bind:this={titleEl} onclick={showList} title="Your conversations in this project">
+      <span class="ctname">{title}</span>
+      {#if others.length}<span class="cagents" class:asking={othersAsking > 0} title={othersAsking ? `${othersAsking} waiting for you` : `${others.length} more working`}>{#if othersAsking}!{:else}<span class="spin"></span>{/if}{others.length}</span>{/if}
+      <span class="chev" aria-hidden="true">▾</span>
     </button>
     <span class="grow"></span>
-    <IconButton label="New conversation (this one stays in the list)" onclick={() => post("new")}>
+    <IconButton label="New conversation (this one stays in the list, and keeps working if it is)" onclick={() => { list = null; post("new"); }}>
       <path d="M8 3.5v9M3.5 8h9" />
     </IconButton>
   </div>
   {#if list}
-    <div class="clist">
-      {#if !list.length}<p class="muted">loading…</p>{/if}
+    <div class="clist" bind:this={listEl}>
+      {#if !list.length && !unlisted.length}<p class="muted">loading…</p>{/if}
+      {#each unlisted as a (a.session ?? a.preview)}
+        <div class="csrow"><button class="csess" disabled={!a.session} onclick={() => a.session && openSession(a.session)} title={a.preview}>
+          <span class="cst">New chat<span class="muted cwhen"> · {a.asking ? "waiting for you" : "working"}</span></span>
+          {#if a.preview}<span class="muted cprev">{a.preview}</span>{/if}
+        </button><span class="cstate" class:asking={a.asking}>{#if a.asking}!{:else}<span class="spin"></span>{/if}</span></div>
+      {/each}
       {#each list as s (s.id)}
         <div class="csrow" role="presentation" onmouseleave={() => { if (arming === s.id) arming = null; }}>
           <button class="csess" class:on={s.id === session} onclick={() => openSession(s.id)} title={s.preview}>
-            <span class="cst">{s.title}<span class="muted cwhen"> · {ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span></span>
+            <span class="cst">{s.title}<span class="muted cwhen"> · {s.asking ? "waiting for you" : s.busy ? "working" : ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span></span>
             {#if s.preview}<span class="muted cprev">{s.preview}</span>{/if}
           </button>
-          {#if s.id !== session}
+          {#if s.busy || s.asking}<span class="cstate" class:asking={s.asking}>{#if s.asking}!{:else}<span class="spin"></span>{/if}</span>{/if}
+          {#if s.id !== session && !s.busy}
             {#if arming === s.id}<button class="cdel armed" onclick={() => remove(s.id)} title="Click to delete it for good (Claude Code's copy too)">Delete</button>
             {:else}<button class="cdel" onclick={() => remove(s.id)} title="Delete this conversation" aria-label="Delete this conversation">
               <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></svg></button>{/if}

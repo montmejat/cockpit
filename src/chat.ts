@@ -9,6 +9,12 @@
 // What the page gets is a list of items, each added once and then replaced by id as it changes:
 //   user · text (grows while the agent writes) · tool (running → ok/error) · ask (an Allow/Deny
 //   card, when auto mode wants the user) · done (one per turn) · note
+//
+// Several agents can work at once: each conversation has its own Claude Code process while it
+// works. The page shows one (the open one); opening another or starting a new one leaves the
+// others running, and the page gets a short list of them (working, waiting for you). An agent
+// that finishes its turn while you look elsewhere is put away (its process ends); opening it
+// again resumes its session.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -30,11 +36,14 @@ export type Item = { id: string; kind: string; at: string; [k: string]: unknown 
 export type Image = { media: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string; thumb: string };
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 type Context = { used: number; max: number } | null;
+// What runs besides the open conversation: every agent cockpit holds, the open one included.
+export type AgentInfo = { session: string | null; busy: boolean; asking: boolean; preview: string };
 type Event =
   | { type: "item"; item: Item }
   | { type: "delta"; id: string; text: string } // more text for a streamed reply
   | { type: "state"; busy: boolean; model: string; context: Context; session: string | null }
-  | { type: "init"; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null };
+  | { type: "agents"; agents: AgentInfo[] }
+  | { type: "init"; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null; agents: AgentInfo[] };
 
 export const MODELS = ["haiku", "sonnet", "opus"];
 const DEFAULT_MODEL = "opus"; // until a model is picked in the chat; the pick is kept per project
@@ -157,257 +166,324 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       renameSync(legacy, legacy + ".old");
     } catch {}
   }
-  const meta = existsSync(metaFile) ? JSON.parse(readFileSync(metaFile, "utf8")) : {};
-  let session: string | null = meta.session ?? null;
-  let model: string = meta.model ?? DEFAULT_MODEL;
-  let items: Item[] = [];
-  let context: Context = null;
-  if (session && existsSync(fileOf(session))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(session), "utf8")) });
-
-  let busy = false;
-  let q: Query | null = null;
-  let box: ReturnType<typeof inbox> | null = null;
-  let abort: AbortController | null = null;
+  const meta = (() => { try { return JSON.parse(readFileSync(metaFile, "utf8")); } catch { return {}; } })();
+  let model: string = MODELS.includes(meta.model) ? meta.model : DEFAULT_MODEL;
   const listeners = new Set<(e: Event) => void>();
-  const waiting = new Map<string, (allow: boolean) => void>();
-  // Streaming text: which item each text block of a message goes to.
-  const textSeen = new Map<string, number>(), textDone = new Map<string, number>();
-  let streamMsg = "";
-  let checks = 0; // times the .cockpit/ check sent the agent back this turn
-  let lastProblems = ""; // what that check found last time (this turn or an earlier one): the same list again means a round fixed nothing
-  // Guardrails (src/guardrails.ts), only in a project that has .cockpit/guardrails.json. A turn that
-  // edited files runs its checks; the agent is sent back only for checks that passed before the
-  // turn (a failure that was already there is shown in cockpit, not pinned on this agent).
-  let edited = false, gRounds = 0, gLast = "";
-  let passedBefore = new Set<string>();
-
-  let saveTimer: NodeJS.Timeout | null = null;
-  const save = () => {
-    if (saveTimer) return;
-    saveTimer = setTimeout(() => {
-      saveTimer = null;
-      writeFileSync(metaFile, JSON.stringify({ session, model }));
-      if (session) writeFileSync(fileOf(session), JSON.stringify({ items, context }));
-    }, 300);
-  };
   const emit = (e: Event) => { for (const l of listeners) l(e); };
-  const state = () => emit({ type: "state", busy, model, context, session });
-  const snapshot = () => ({ items, busy, model, models: MODELS, context, session });
-  const put = (item: Item) => {
-    const i = items.findIndex((x) => x.id === item.id);
-    if (i >= 0) items[i] = item; else items.push(item);
-    emit({ type: "item", item });
-    save();
-  };
-  const get = (id: string) => items.find((x) => x.id === id);
 
-  // A conversation cockpit hasn't measured yet: its size from the last reply's token counts, out
-  // of the window the model had then (from the session's own record, else the model's usual one).
-  const WINDOW: Record<string, number> = {};
-  async function estimate() {
-    const id = session;
-    if (!id || context) return;
-    try {
-      const msgs = await getSessionMessages(id, { dir: root });
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        const m = msgs[i].message as any;
-        if (msgs[i].type !== "assistant" || !m?.usage || msgs[i].parent_tool_use_id) continue;
-        const u = m.usage, used = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
-        const max = WINDOW[m.model] ?? await windowOf(m.model);
-        if (session === id && !context && max) { context = { used, max }; save(); state(); }
-        return;
+  // ---- one agent: a conversation, and its Claude Code process while it works ----------------
+
+  type Agent = ReturnType<typeof agent>;
+  const agents: Agent[] = [];
+  let current: Agent;
+  const saveMeta = () => writeFileSync(metaFile, JSON.stringify({ session: current.session, model }));
+  const info = (): AgentInfo[] => agents.map((a) => ({ session: a.session, busy: a.busy, asking: a.asking(), preview: a.preview() }));
+  let lastInfo = "";
+  const agentsChanged = () => { const j = JSON.stringify(info()); if (j !== lastInfo) { lastInfo = j; emit({ type: "agents", agents: info() }); } };
+
+  // `from`: what to show of a session cockpit didn't run (read from Claude Code's record).
+  function agent(startSession: string | null, from: Item[] = []) {
+    let session = startSession;
+    let items: Item[] = from;
+    let context: Context = null;
+    if (session) {
+      try { if (existsSync(fileOf(session))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(session), "utf8")) }); } catch {}
+    }
+    let busy = false;
+    let q: Query | null = null;
+    let box: ReturnType<typeof inbox> | null = null;
+    let abort: AbortController | null = null;
+    const waiting = new Map<string, (allow: boolean) => void>();
+    // Streaming text: which item each text block of a message goes to.
+    const textSeen = new Map<string, number>(), textDone = new Map<string, number>();
+    let streamMsg = "";
+    let checks = 0; // times the .cockpit/ check sent the agent back this turn
+    let lastProblems = ""; // what that check found last time (this turn or an earlier one): the same list again means a round fixed nothing
+    // Guardrails (src/guardrails.ts), only in a project that has .cockpit/guardrails.json. A turn that
+    // edited files runs its checks; the agent is sent back only for checks that passed before the
+    // turn (a failure that was already there is shown in cockpit, not pinned on this agent).
+    let edited = false, gRounds = 0, gLast = "";
+    let passedBefore = new Set<string>();
+    let seq = 0; // for item ids made here (notes): two in the same millisecond must not collide
+    const uid = (p: string) => `${p}-${Date.now()}-${++seq}`;
+
+    const shown = () => current === self;
+    let saveTimer: NodeJS.Timeout | null = null;
+    const flush = () => {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      if (session) writeFileSync(fileOf(session), JSON.stringify({ items, context }));
+      if (shown()) saveMeta();
+    };
+    const save = () => { if (!saveTimer) saveTimer = setTimeout(flush, 300); };
+    const state = () => { if (shown()) emit({ type: "state", busy, model, context, session }); agentsChanged(); };
+    const put = (item: Item) => {
+      const i = items.findIndex((x) => x.id === item.id);
+      if (i >= 0) items[i] = item; else items.push(item);
+      if (shown()) emit({ type: "item", item });
+      if (item.kind === "ask") agentsChanged();
+      save();
+    };
+    const get = (id: string) => items.find((x) => x.id === id);
+    const note = (text: string, more: Partial<Item> = {}) => put({ id: uid("note"), kind: "note", at: now(), text, ...more });
+
+    // A conversation cockpit hasn't measured yet: its size from the last reply's token counts, out
+    // of the window the model had then (from the session's own record, else the model's usual one).
+    async function estimate() {
+      const id = session;
+      if (!id || context) return;
+      try {
+        const msgs = await getSessionMessages(id, { dir: root });
+        for (let i = msgs.length - 1; i >= 0; i--) {
+          const m = msgs[i].message as any;
+          if (msgs[i].type !== "assistant" || !m?.usage || msgs[i].parent_tool_use_id) continue;
+          const u = m.usage, used = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
+          const max = WINDOW[m.model] ?? await windowOf(m.model);
+          if (session === id && !context && max) { context = { used, max }; save(); state(); }
+          return;
+        }
+      } catch {}
+    }
+    // How full the conversation's context is, asked of the running session after each turn.
+    async function measure() {
+      try {
+        const c = await q?.getContextUsage({ detail: "summary" });
+        if (c) { context = { used: c.totalTokens, max: c.maxTokens }; save(); state(); }
+      } catch {}
+    }
+
+    function start() {
+      const ws = workspaceOf(root);
+      box = inbox();
+      abort = new AbortController();
+      q = query({
+        prompt: box,
+        options: {
+          cwd: root,
+          model,
+          permissionMode: "auto",
+          includePartialMessages: true,
+          abortController: abort,
+          // Not "local": that is where cockpit's hooks for outside Claude Code sessions live.
+          settingSources: ["user", "project"],
+          // In a workspace (workspace.ts) the agent also reads the other projects, and keeps the
+          // workspace's SYSTEM.md; the brief says what each project is. Read when a conversation
+          // starts, so a change to the workspace shows from the next one.
+          ...(ws ? { additionalDirectories: [...ws.projects.filter((p) => !p.here).map((p) => p.path), ws.dir] } : {}),
+          systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) + (ws ? "\n\n" + workspaceBrief(ws, COCKPIT) : "") },
+          disallowedTools: ["AskUserQuestion"], // the agent asks in the chat instead
+          mcpServers: { cockpit: cockpitTools(terms) },
+          allowedTools: ["mcp__cockpit__terminals"],
+          ...(session ? { resume: session } : {}),
+          canUseTool: async (tool, input, { signal, decisionReason }) => {
+            const id = "ask-" + Math.random().toString(36).slice(2, 10);
+            put({ id, kind: "ask", at: now(), tool, ...describe(root, tool, input), reason: decisionReason ?? null, status: "waiting" });
+            const allow = await new Promise<boolean>((res) => {
+              waiting.set(id, res);
+              signal.addEventListener("abort", () => res(false));
+            });
+            waiting.delete(id);
+            put({ ...get(id)!, status: allow ? "allowed" : "denied" });
+            return allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "The owner declined this in cockpit." };
+          },
+          hooks: {
+            // Edits in the workspace's other projects need the owner's yes (an Allow/Deny card),
+            // even in auto mode; the workspace's own notes (SYSTEM.md) don't.
+            PreToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
+              const f = i.tool_input?.file_path ?? i.tool_input?.notebook_path;
+              if (!ws || typeof f !== "string") return {};
+              const abs = isAbsolute(f) ? f : resolve(root, f);
+              const inside = (d: string) => abs === d || abs.startsWith(d + "/");
+              const other = ws.projects.find((p) => !p.here && inside(p.path));
+              if (!other || inside(root)) return {};
+              return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `edits ${other.name}, another project of the workspace` } };
+            }] }],
+            UserPromptSubmit: [{ hooks: [async (i) => {
+              checks = 0; edited = false; gRounds = 0;
+              passedBefore = new Set(Object.values(lastResults(project)).filter((r) => r.ok).map((r) => r.id));
+              try { turnStart(i as HookInput); } catch {}
+              return {};
+            }] }],
+            PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { edited = true; try { turnTool(i as HookInput); } catch {} return {}; }] }],
+            Stop: [{ hooks: [async (i) => {
+              // .cockpit/ must match the code: up to 3 rounds of "fix what the check found" per
+              // turn, against the live index once it has caught up with the agent's edits. A round
+              // that leaves exactly the same problems means the agent can't fix them (say, links into
+              // code cockpit doesn't index): stop there instead of sending it back again.
+              if (existsSync(join(root, ARCH_DIR)) && checks < 3) {
+                const problems = checkArch(loadArch(root), await index.fresh());
+                const sig = problems.map((x) => x.where + "\t" + x.problem).sort().join("\n");
+                if (problems.length && sig === lastProblems) {
+                  note(`${ARCH_DIR}/ still doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}), and the agent's last round changed nothing, so it wasn't sent back again.`,
+                    { error: true, detail: problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n") });
+                } else if (problems.length) {
+                  lastProblems = sig;
+                  checks++;
+                  const reason = `${ARCH_DIR}/ doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
+                    `Fix it before finishing, as described in ${ARCH_DIR}/README.md:\n` + problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");
+                  note(`${ARCH_DIR}/ doesn't match the code yet: sent the agent back to fix it.`, { detail: reason });
+                  return { decision: "block", reason };
+                }
+              }
+              const sent = await guard();
+              if (sent) return { decision: "block", reason: sent };
+              try { turnEnd(i as HookInput); } catch {}
+              return {};
+            }] }],
+          },
+        },
+      });
+      const mine = q;
+      pump(mine).catch((e) => { if (q === mine) note("The agent stopped: " + String(e?.message ?? e), { error: true }); })
+        .finally(() => { if (q === mine) { q = null; box = null; busy = false; state(); } });
+    }
+
+    // The guardrails' checks at the end of a turn that edited files. Returns what to send the agent
+    // back with, or null. At most 3 rounds, and not again when a round changed nothing.
+    async function guard(): Promise<string | null> {
+      const { g } = loadGuardrails(root);
+      if (!g?.checks.length || !edited || gRounds >= 3) return null;
+      note(`Running the guardrails' checks (${g.checks.map((c) => c.name).join(", ")})…`);
+      const results = await runChecks(root, project, g, undefined, onChecks);
+      const failed = results.filter((r) => !r.ok);
+      const broke = failed.filter((r) => passedBefore.has(r.id)), already = failed.filter((r) => !passedBefore.has(r.id));
+      const name = (id: string) => g.checks.find((c) => c.id === id)?.name ?? id;
+      if (already.length) note(`Already failing before this turn, not sent back: ${already.map((r) => name(r.id)).join(", ")}.`, { detail: failureReport(g, already) });
+      if (!broke.length) {
+        if (!failed.length) note(`Guardrails: ${results.length} check${results.length > 1 ? "s" : ""} pass.`);
+        return null;
       }
-    } catch {}
+      const sig = broke.map((r) => r.id + "\t" + r.output).join("\n");
+      if (sig === gLast) {
+        note(`Still failing after the agent's last round, which changed nothing: ${broke.map((r) => name(r.id)).join(", ")}. Not sent back again.`, { error: true, detail: failureReport(g, broke) });
+        return null;
+      }
+      gLast = sig; gRounds++;
+      const reason = `This turn broke ${broke.length > 1 ? "checks" : "a check"} that passed before it (${GUARDRAILS}). Fix the cause in the code, not the check; ` +
+        `if the check itself is wrong, say so instead of changing it.\n\n` + failureReport(g, broke);
+      note(`This turn broke ${broke.map((r) => name(r.id)).join(", ")}: sent the agent back to fix it.`, { detail: reason });
+      return reason;
+    }
+
+    async function pump(cur: Query) {
+      for await (const m of cur as AsyncIterable<SDKMessage>) {
+        if (cur !== q) return; // stopped
+        const mm = m as any;
+        if (mm.type === "system" && mm.subtype === "init") {
+          if (session !== mm.session_id) { session = mm.session_id; state(); }
+          save();
+          continue;
+        }
+        if (mm.type === "rate_limit_event") { lastUsage = null; continue; } // read it fresh next time
+        if (mm.parent_tool_use_id && mm.type !== "user" && mm.type !== "assistant") continue;
+        if (mm.type === "stream_event") {
+          if (mm.parent_tool_use_id) continue; // a subagent's own writing
+          const ev = mm.event;
+          if (ev.type === "message_start") streamMsg = ev.message.id;
+          else if (ev.type === "content_block_start" && ev.content_block.type === "text") {
+            const n = textSeen.get(streamMsg) ?? 0;
+            textSeen.set(streamMsg, n + 1);
+            put({ id: `${streamMsg}:${n}`, kind: "text", at: now(), text: "" });
+          } else if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
+            const it = get(`${streamMsg}:${(textSeen.get(streamMsg) ?? 1) - 1}`);
+            // Only the new text goes to the page: sending the whole reply again on every token made
+            // the bytes grow with the square of its length.
+            if (it) { it.text = String(it.text) + ev.delta.text; if (shown()) emit({ type: "delta", id: it.id, text: ev.delta.text }); }
+          }
+        } else if (mm.type === "assistant") {
+          const sub = !!mm.parent_tool_use_id, mid = mm.message.id;
+          for (const b of mm.message.content ?? []) {
+            if (b.type === "text" && !sub) {
+              const n = textDone.get(mid) ?? 0;
+              textDone.set(mid, n + 1);
+              put({ ...(get(`${mid}:${n}`) ?? { at: now() }), id: `${mid}:${n}`, kind: "text", text: b.text });
+            } else if (b.type === "tool_use") {
+              put({ id: b.id, kind: "tool", at: now(), tool: b.name, sub, status: "running", ...describe(root, b.name, b.input) });
+            }
+          }
+        } else if (mm.type === "user" && Array.isArray(mm.message?.content)) {
+          for (const b of mm.message.content) {
+            if (b.type !== "tool_result" || !get(b.tool_use_id)) continue;
+            put({ ...get(b.tool_use_id)!, status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
+          }
+        } else if (mm.type === "result") {
+          busy = false;
+          put({ id: "done-" + mm.uuid, kind: "done", at: now(), ms: mm.duration_ms, turns: mm.num_turns, error: mm.subtype !== "success" ? mm.subtype : null });
+          state();
+          lastUsage = null;
+          // Done while you look elsewhere: put away (opening it again resumes the session).
+          if (!shown()) { flush(); stop(); drop(self); }
+          else void measure();
+        }
+      }
+    }
+
+    function stop() {
+      for (const r of waiting.values()) r(false);
+      abort?.abort();
+      q = null; box = null; busy = false;
+    }
+
+    const self = {
+      get session() { return session; },
+      get busy() { return busy; },
+      get q() { return q; },
+      asking: () => items.some((x) => x.kind === "ask" && x.status === "waiting"),
+      // Its first message, for the list of running agents (a new one isn't in Claude Code's list yet).
+      preview: () => String(items.find((x) => x.kind === "user")?.text ?? "").slice(0, 200),
+      snapshot: () => ({ items, busy, model, models: MODELS, context, session }),
+      send(text: string, images: Image[]) {
+        put({ id: uid("u"), kind: "user", at: now(), text, ...(images.length ? { thumbs: images.map((i) => i.thumb) } : {}) });
+        if (!q) start();
+        const content = images.length
+          ? [...images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.media, data: i.data } })), ...(text.trim() ? [{ type: "text" as const, text }] : [])]
+          : text;
+        box!.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null } as SDKUserMessage);
+        busy = true;
+        state();
+      },
+      answer(id: string, allow: boolean) { const r = waiting.get(id); r?.(allow); return !!r; },
+      async interrupt() { for (const r of waiting.values()) r(false); await q?.interrupt().catch(() => {}); },
+      async setModel(m: string) { await q?.setModel(m).catch(() => {}); },
+      stop, flush, estimate,
+    };
+    return self;
   }
+
+  function drop(a: Agent) {
+    const i = agents.indexOf(a);
+    if (i >= 0 && a !== current) agents.splice(i, 1);
+    agentsChanged();
+  }
+  // Show `a`: the page gets its whole conversation. The one left keeps working if it is; idle, it
+  // is put away.
+  function show(a: Agent) {
+    const was = current;
+    current = a;
+    if (!agents.includes(a)) agents.push(a);
+    if (was && was !== a && !was.busy) { was.flush(); was.stop(); drop(was); }
+    saveMeta();
+    emit({ type: "init", ...a.snapshot(), agents: info() });
+    void a.estimate();
+  }
+
+  // ---- shared: context windows, plan usage -----------------------------------------------
+
   // The context window of a model, asked of a short-lived idle session (no message is sent).
+  const WINDOW: Record<string, number> = {};
   async function windowOf(model: string) {
     const probe = query({ prompt: never(), options: { cwd: root, model, settingSources: [] } });
     try { const c = await probe.getContextUsage({ detail: "summary" }); return (WINDOW[model] = c.maxTokens); }
     catch { return 0; } finally { probe.close(); }
   }
 
-  // How full the conversation's context is, asked of the running session after each turn.
-  async function measure() {
-    try {
-      const c = await q?.getContextUsage({ detail: "summary" });
-      if (c) { context = { used: c.totalTokens, max: c.maxTokens }; save(); state(); }
-    } catch {}
-  }
-
-  function start() {
-    const ws = workspaceOf(root);
-    box = inbox();
-    abort = new AbortController();
-    q = query({
-      prompt: box,
-      options: {
-        cwd: root,
-        model,
-        permissionMode: "auto",
-        includePartialMessages: true,
-        abortController: abort,
-        // Not "local": that is where cockpit's hooks for outside Claude Code sessions live.
-        settingSources: ["user", "project"],
-        // In a workspace (workspace.ts) the agent also reads the other projects, and keeps the
-        // workspace's SYSTEM.md; the brief says what each project is. Read when a conversation
-        // starts, so a change to the workspace shows from the next one.
-        ...(ws ? { additionalDirectories: [...ws.projects.filter((p) => !p.here).map((p) => p.path), ws.dir] } : {}),
-        systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) + (ws ? "\n\n" + workspaceBrief(ws, COCKPIT) : "") },
-        disallowedTools: ["AskUserQuestion"], // the agent asks in the chat instead
-        mcpServers: { cockpit: cockpitTools(terms) },
-        allowedTools: ["mcp__cockpit__terminals"],
-        ...(session ? { resume: session } : {}),
-        canUseTool: async (tool, input, { signal, decisionReason }) => {
-          const id = "ask-" + Math.random().toString(36).slice(2, 10);
-          put({ id, kind: "ask", at: now(), tool, ...describe(root, tool, input), reason: decisionReason ?? null, status: "waiting" });
-          const allow = await new Promise<boolean>((res) => {
-            waiting.set(id, res);
-            signal.addEventListener("abort", () => res(false));
-          });
-          waiting.delete(id);
-          put({ ...get(id)!, status: allow ? "allowed" : "denied" });
-          return allow ? { behavior: "allow", updatedInput: input } : { behavior: "deny", message: "The owner declined this in cockpit." };
-        },
-        hooks: {
-          // Edits in the workspace's other projects need the owner's yes (an Allow/Deny card),
-          // even in auto mode; the workspace's own notes (SYSTEM.md) don't.
-          PreToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
-            const f = i.tool_input?.file_path ?? i.tool_input?.notebook_path;
-            if (!ws || typeof f !== "string") return {};
-            const abs = isAbsolute(f) ? f : resolve(root, f);
-            const inside = (d: string) => abs === d || abs.startsWith(d + "/");
-            const other = ws.projects.find((p) => !p.here && inside(p.path));
-            if (!other || inside(root)) return {};
-            return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `edits ${other.name}, another project of the workspace` } };
-          }] }],
-          UserPromptSubmit: [{ hooks: [async (i) => {
-            checks = 0; edited = false; gRounds = 0;
-            passedBefore = new Set(Object.values(lastResults(project)).filter((r) => r.ok).map((r) => r.id));
-            try { turnStart(i as HookInput); } catch {}
-            return {};
-          }] }],
-          PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i) => { edited = true; try { turnTool(i as HookInput); } catch {} return {}; }] }],
-          Stop: [{ hooks: [async (i) => {
-            // .cockpit/ must match the code: up to 3 rounds of "fix what the check found" per
-            // turn, against the live index once it has caught up with the agent's edits. A round
-            // that leaves exactly the same problems means the agent can't fix them (say, links into
-            // code cockpit doesn't index): stop there instead of sending it back again.
-            if (existsSync(join(root, ARCH_DIR)) && checks < 3) {
-              const problems = checkArch(loadArch(root), await index.fresh());
-              const sig = problems.map((x) => x.where + "\t" + x.problem).sort().join("\n");
-              if (problems.length && sig === lastProblems) {
-                put({ id: "note-" + Date.now(), kind: "note", at: now(), error: true,
-                  text: `${ARCH_DIR}/ still doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}), and the agent's last round changed nothing, so it wasn't sent back again.`,
-                  detail: problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n") });
-              } else if (problems.length) {
-                lastProblems = sig;
-                checks++;
-                const reason = `${ARCH_DIR}/ doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
-                  `Fix it before finishing, as described in ${ARCH_DIR}/README.md:\n` + problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");
-                put({ id: "note-" + Date.now(), kind: "note", at: now(), text: `${ARCH_DIR}/ doesn't match the code yet: sent the agent back to fix it.`, detail: reason });
-                return { decision: "block", reason };
-              }
-            }
-            const sent = await guard();
-            if (sent) return { decision: "block", reason: sent };
-            try { turnEnd(i as HookInput); } catch {}
-            return {};
-          }] }],
-        },
-      },
-    });
-    const mine = q;
-    pump(mine).catch((e) => { if (q === mine) put({ id: "err-" + Date.now(), kind: "note", at: now(), text: "The agent stopped: " + String(e?.message ?? e), error: true }); })
-      .finally(() => { if (q === mine) { q = null; box = null; busy = false; state(); } });
-  }
-
-  // The guardrails' checks at the end of a turn that edited files. Returns what to send the agent
-  // back with, or null. At most 3 rounds, and not again when a round changed nothing.
-  async function guard(): Promise<string | null> {
-    const { g } = loadGuardrails(root);
-    if (!g?.checks.length || !edited || gRounds >= 3) return null;
-    put({ id: "note-" + Date.now(), kind: "note", at: now(), text: `Running the guardrails' checks (${g.checks.map((c) => c.name).join(", ")})…` });
-    const results = await runChecks(root, project, g, undefined, onChecks);
-    const failed = results.filter((r) => !r.ok);
-    const broke = failed.filter((r) => passedBefore.has(r.id)), already = failed.filter((r) => !passedBefore.has(r.id));
-    const name = (id: string) => g.checks.find((c) => c.id === id)?.name ?? id;
-    if (already.length) put({ id: "note-" + Date.now() + "a", kind: "note", at: now(),
-      text: `Already failing before this turn, not sent back: ${already.map((r) => name(r.id)).join(", ")}.`, detail: failureReport(g, already) });
-    if (!broke.length) {
-      if (!failed.length) put({ id: "note-" + Date.now() + "ok", kind: "note", at: now(), text: `Guardrails: ${results.length} check${results.length > 1 ? "s" : ""} pass.` });
-      return null;
-    }
-    const sig = broke.map((r) => r.id + "\t" + r.output).join("\n");
-    if (sig === gLast) {
-      put({ id: "note-" + Date.now(), kind: "note", at: now(), error: true, text: `Still failing after the agent's last round, which changed nothing: ${broke.map((r) => name(r.id)).join(", ")}. Not sent back again.`, detail: failureReport(g, broke) });
-      return null;
-    }
-    gLast = sig; gRounds++;
-    const reason = `This turn broke ${broke.length > 1 ? "checks" : "a check"} that passed before it (${GUARDRAILS}). Fix the cause in the code, not the check; ` +
-      `if the check itself is wrong, say so instead of changing it.\n\n` + failureReport(g, broke);
-    put({ id: "note-" + Date.now(), kind: "note", at: now(), text: `This turn broke ${broke.map((r) => name(r.id)).join(", ")}: sent the agent back to fix it.`, detail: reason });
-    return reason;
-  }
-
-  async function pump(cur: Query) {
-    for await (const m of cur as AsyncIterable<SDKMessage>) {
-      if (cur !== q) return; // another conversation was opened
-      const mm = m as any;
-      if (mm.type === "system" && mm.subtype === "init") {
-        if (session !== mm.session_id) { session = mm.session_id; state(); }
-        save();
-        continue;
-      }
-      if (mm.type === "rate_limit_event") { lastUsage = null; continue; } // read it fresh next time
-      if (mm.parent_tool_use_id && mm.type !== "user" && mm.type !== "assistant") continue;
-      if (mm.type === "stream_event") {
-        if (mm.parent_tool_use_id) continue; // a subagent's own writing
-        const ev = mm.event;
-        if (ev.type === "message_start") streamMsg = ev.message.id;
-        else if (ev.type === "content_block_start" && ev.content_block.type === "text") {
-          const n = textSeen.get(streamMsg) ?? 0;
-          textSeen.set(streamMsg, n + 1);
-          put({ id: `${streamMsg}:${n}`, kind: "text", at: now(), text: "" });
-        } else if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-          const it = get(`${streamMsg}:${(textSeen.get(streamMsg) ?? 1) - 1}`);
-          // Only the new text goes to the page: sending the whole reply again on every token made
-          // the bytes grow with the square of its length.
-          if (it) { it.text = String(it.text) + ev.delta.text; emit({ type: "delta", id: it.id, text: ev.delta.text }); }
-        }
-      } else if (mm.type === "assistant") {
-        const sub = !!mm.parent_tool_use_id, mid = mm.message.id;
-        for (const b of mm.message.content ?? []) {
-          if (b.type === "text" && !sub) {
-            const n = textDone.get(mid) ?? 0;
-            textDone.set(mid, n + 1);
-            put({ ...(get(`${mid}:${n}`) ?? { at: now() }), id: `${mid}:${n}`, kind: "text", text: b.text });
-          } else if (b.type === "tool_use") {
-            put({ id: b.id, kind: "tool", at: now(), tool: b.name, sub, status: "running", ...describe(root, b.name, b.input) });
-          }
-        }
-      } else if (mm.type === "user" && Array.isArray(mm.message?.content)) {
-        for (const b of mm.message.content) {
-          if (b.type !== "tool_result" || !get(b.tool_use_id)) continue;
-          put({ ...get(b.tool_use_id)!, status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
-        }
-      } else if (mm.type === "result") {
-        busy = false;
-        put({ id: "done-" + mm.uuid, kind: "done", at: now(), ms: mm.duration_ms, turns: mm.num_turns, error: mm.subtype !== "success" ? mm.subtype : null });
-        state();
-        void measure();
-        lastUsage = null;
-      }
-    }
-  }
-
-  // Plan usage (the numbers behind /usage), cached for a minute. Asked of the running session, or
+  // Plan usage (the numbers behind /usage), cached for a minute. Asked of a running session, or
   // of a short-lived idle one: no message is sent, so it costs nothing.
   let lastUsage: { at: number; data: unknown } | null = null;
   async function usage() {
     if (lastUsage && Date.now() - lastUsage.at < 60_000) return lastUsage.data;
     let probe: Query | null = null;
     try {
-      const src = q ?? (probe = query({ prompt: never(), options: { cwd: root, model, settingSources: [] } }));
+      const src = agents.find((a) => a.q)?.q ?? (probe = query({ prompt: never(), options: { cwd: root, model, settingSources: [] } }));
       const u = await src.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true });
       const w = (x: any) => (x && x.utilization != null ? { pct: x.utilization, resets: x.resets_at } : null);
       const r = u.rate_limits;
@@ -430,79 +506,71 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     }
   }
 
-  function stopRunning() {
-    for (const r of waiting.values()) r(false);
-    abort?.abort();
-    q = null; box = null; busy = false;
-  }
-
-  void estimate();
+  current = agent(typeof meta.session === "string" && SESSION_ID.test(meta.session) ? meta.session : null);
+  agents.push(current);
+  void current.estimate();
 
   return {
-    snapshot,
+    snapshot: () => ({ ...current.snapshot(), agents: info() }),
     subscribe(l: (e: Event) => void) { listeners.add(l); return () => { listeners.delete(l); }; },
-    // A message, with images pasted into it (sent to Claude as image blocks before the text; the
-    // chat keeps only small previews of them).
+    // A message to the open conversation, with images pasted into it (sent to Claude as image
+    // blocks before the text; the chat keeps only small previews of them).
     send(text: string, images: Image[] = []) {
       if (!text.trim() && !images.length) return;
-      put({ id: "u-" + Date.now(), kind: "user", at: now(), text, ...(images.length ? { thumbs: images.map((i) => i.thumb) } : {}) });
-      if (!q) start();
-      const content = images.length
-        ? [...images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.media, data: i.data } })), ...(text.trim() ? [{ type: "text" as const, text }] : [])]
-        : text;
-      box!.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null } as SDKUserMessage);
-      busy = true;
-      state();
+      current.send(text, images);
     },
-    answer(id: string, allow: boolean) { waiting.get(id)?.(allow); },
-    async stop() { for (const r of waiting.values()) r(false); await q?.interrupt().catch(() => {}); },
+    // An Allow/Deny card: whichever agent asked.
+    answer(id: string, allow: boolean) { for (const a of agents) if (a.answer(id, allow)) return; },
+    async stop() { await current.interrupt(); },
     async setModel(m: string) {
       if (!MODELS.includes(m)) return;
       model = m;
-      await q?.setModel(m).catch(() => {});
-      save(); state();
+      await current.setModel(m);
+      saveMeta();
+      const { busy, context, session } = current.snapshot();
+      emit({ type: "state", busy, model, context, session });
     },
     usage,
     // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere. Each is
-    // "Chat n", numbered in the order they were started (Claude Code's own titles are summaries), with its first
-    // message as a preview.
+    // "Chat n", numbered in the order they were started (Claude Code's own titles are summaries),
+    // with its first message as a preview, and whether its agent is working now.
     async sessions() {
       const list = await listSessions({ dir: root, limit: 500 });
       const born = (s: (typeof list)[number]) => s.createdAt ?? s.lastModified;
       const order = new Map([...list].sort((a, b) => born(a) - born(b)).map((s, i) => [s.sessionId, i + 1]));
-      return list.slice(0, 80).map((s) => ({
-        id: s.sessionId, n: order.get(s.sessionId)!, title: `Chat ${order.get(s.sessionId)}`,
-        preview: s.firstPrompt || s.summary || "", at: s.lastModified,
-        branch: s.gitBranch ?? null, here: existsSync(fileOf(s.sessionId)),
-      }));
+      return list.slice(0, 80).map((s) => {
+        const a = agents.find((x) => x.session === s.sessionId);
+        return {
+          id: s.sessionId, n: order.get(s.sessionId)!, title: `Chat ${order.get(s.sessionId)}`,
+          preview: s.firstPrompt || s.summary || "", at: s.lastModified,
+          branch: s.gitBranch ?? null, here: SESSION_ID.test(s.sessionId) && existsSync(fileOf(s.sessionId)),
+          busy: !!a?.busy, asking: !!a?.asking(),
+        };
+      });
     },
-    // Delete a past conversation: Claude Code's transcript and cockpit's copy. Not the open one.
+    // Delete a past conversation: Claude Code's transcript and cockpit's copy. Not the open one,
+    // nor one whose agent is working.
     async remove(id: string) {
-      fileOf(id); // checks the id
-      if (id === session) throw new Error("that conversation is open: start a new one first");
+      const f = fileOf(id); // checks the id
+      if (id === current.session) throw new Error("that conversation is open: start a new one first");
+      const a = agents.find((x) => x.session === id);
+      if (a?.busy) throw new Error("its agent is working: stop it first");
+      if (a) { a.stop(); drop(a); }
       await deleteSession(id, { dir: root });
-      rmSync(fileOf(id), { force: true });
+      rmSync(f, { force: true });
     },
-    // Open another conversation; the next message continues it.
+    // Open another conversation: its agent if one is running, else its record (the next message
+    // resumes it).
     async open(id: string) {
       fileOf(id); // checks the id
-      if (id === session) return;
-      stopRunning();
-      session = id; context = null; items = [];
-      if (existsSync(fileOf(id))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(id), "utf8")) });
-      else items = itemsFromTranscript(root, await getSessionMessages(id, { dir: root }));
-      save();
-      emit({ type: "init", ...snapshot() });
-      void estimate();
+      if (id === current.session) return;
+      const running = agents.find((x) => x.session === id);
+      if (running) return show(running);
+      show(existsSync(fileOf(id)) ? agent(id) : agent(id, itemsFromTranscript(root, await getSessionMessages(id, { dir: root }))));
     },
-    // The server is stopping: the agent's process goes with it.
-    close() { stopRunning(); },
-    // A fresh conversation. The old one stays in the list.
-    reset() {
-      stopRunning();
-      session = null; context = null; items = [];
-      save();
-      emit({ type: "init", ...snapshot() });
-    },
+    // A fresh conversation, with an agent of its own. The one left keeps working.
+    reset() { show(agent(null)); },
+    // The server is stopping: every agent's process goes with it.
+    close() { for (const a of agents) { a.flush(); a.stop(); } },
   };
 }

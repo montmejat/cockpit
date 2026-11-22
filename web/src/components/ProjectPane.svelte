@@ -1,6 +1,6 @@
 <script lang="ts">
   // The sidebar's project tab: what the project is and how it stands, things that rarely move.
-  // A list of rows (features, tests, out of date, guardrails, size); a row opens its section here,
+  // A list of rows (about, features, tests, out of date, guardrails, size); a row opens its section here,
   // guardrails open as a tab in the center.
   import { api } from "../lib/code";
   import { openFile, openGuardrails, plural, S, showChat, ui } from "../lib/state.svelte";
@@ -53,6 +53,10 @@
         {/each}
       {/if}
     {/each}
+  {:else if ui.insp === "about"}
+    <button class="back link" onclick={back}>← project</button>
+    <h2>{S.project}</h2><p class="about">{S.summary}</p>
+    <details class="more"><summary>where this comes from</summary><p class="hint">The agents write it in .cockpit/project.json, from the code and the project's own docs.</p></details>
   {:else if ui.insp === "problems"}
     <button class="back link" onclick={back}>← project</button>
     <h2>Out of date</h2><p class="lead">Where the agents’ description in .cockpit/ no longer matches the code.</p>
@@ -88,9 +92,12 @@
       </details>
     {/if}
   {:else}
-    {#if S.summary}<p class="psum">{S.summary}</p>{/if}
-    <!-- a grouped list, like iOS settings: one row per thing, its value on the right -->
+    <!-- a grouped list, like iOS settings: one row per thing, its value on the right; the
+         summary is a row too (its first words), read in full on its own page -->
     <div class="plist">
+      {#if S.summary}
+        <button class="lrow" onclick={() => (ui.insp = "about")} title={S.summary}><span>About</span><span class="pval psum">{S.summary}</span><span class="pchev">›</span></button>
+      {/if}
       {#if S.features.length}
         <button class="lrow" onclick={() => (ui.insp = "features")}><span>Features</span>
           <span class="pval">{#each fcount as c}<span class="pdot"><span class="dot st-{c.st}"></span>{c.n}</span>{/each}</span><span class="pchev">›</span></button>
