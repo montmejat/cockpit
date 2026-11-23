@@ -17,6 +17,7 @@
   import { projects } from "./lib/projects.svelte";
   import Grip, { savedWidth } from "./components/Grip.svelte";
   import { api } from "./lib/code";
+  import { tick } from "svelte";
 
   let rightWidth = $state(savedWidth("cockpit-right-width", 390, 280));
   let term: Terminal;
@@ -47,6 +48,17 @@
 
   // Ctrl+` goes to the terminal drawer and Ctrl+L to the chat (opening it; pressed again from
   // inside, closing it), Ctrl+K opens the ask line, F1 shows or hides the hints, anywhere.
+  // Focus the open file's editor; from another tab, go back to the last file tab first.
+  async function focusEditor() {
+    if (ui.tabs[ui.active]?.kind !== "file") {
+      const i = ui.tabs.findLastIndex((t) => t.kind === "file");
+      if (i < 0) return;
+      ui.active = i; ui.picked = null; saveTabs();
+      await tick();
+    }
+    (window as any).__cockpitEditor?.focus();
+  }
+
   function keys(e: KeyboardEvent) {
     const inEditor = !!(e.target as HTMLElement).closest?.(".cm-editor");
     // Ctrl+S saves the open file (and never opens the browser's "save page").
@@ -54,6 +66,8 @@
     if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") { e.preventDefault(); toggleChat(); }
     else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
+    // Ctrl+1, as in VS Code: back to the editor (by key position, so it works on AZERTY too).
+    else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === "Digit1") { e.preventDefault(); e.stopPropagation(); focusEditor(); }
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
     // (Not in the editor, where Ctrl+R is vim's redo.)
     else if (window.cockpitDesktop && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor))) { e.preventDefault(); location.reload(); }
