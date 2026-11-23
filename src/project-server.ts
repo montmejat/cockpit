@@ -6,7 +6,7 @@
 // --host 0.0.0.0 makes it reachable from other machines on the network. Either way only a page
 // opened with the server's token gets in (auth.ts): the link it prints, or the desktop app.
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { hostname } from "node:os";
@@ -270,15 +270,16 @@ function page() {
 // ---- routes --------------------------------------------------------------
 
 // The desktop's look, so the page can match the apps around it (GNOME): the accent color and
-// which window buttons go where. Read once; null fields when it isn't GNOME.
-let look: { accent: string | null; buttons: string | null } | null = null;
+// which window buttons go where. Read once at start, without waiting on it; null fields when it
+// isn't GNOME (or before gsettings has answered).
+let look: { accent: string | null; buttons: string | null } = { accent: null, buttons: null };
+{
+  const get = (schema: string, key: string) => new Promise<string | null>((done) =>
+    execFile("gsettings", ["get", schema, key], { encoding: "utf8", timeout: 2000 }, (err, out) => done(err ? null : out.trim().replace(/^'|'$/g, ""))));
+  void Promise.all([get("org.gnome.desktop.interface", "accent-color"), get("org.gnome.desktop.wm.preferences", "button-layout")]).then(([accent, buttons]) => { look = { accent, buttons }; });
+}
 function desktopLook() {
-  if (look) return look;
-  const get = (schema: string, key: string) => {
-    try { return execFileSync("gsettings", ["get", schema, key], { encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).trim().replace(/^'|'$/g, ""); }
-    catch { return null; }
-  };
-  return (look = { accent: get("org.gnome.desktop.interface", "accent-color"), buttons: get("org.gnome.desktop.wm.preferences", "button-layout") });
+  return look;
 }
 
 const routes: Record<string, Handler> = {

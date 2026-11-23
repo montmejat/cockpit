@@ -8,6 +8,7 @@
     { "id": "style-tokens", "name": "Style tokens", "run": "node .cockpit/checks/style.mjs", "timeout": 30 },
     { "id": "dialogs", "name": "No browser dialogs", "run": "node .cockpit/checks/dialogs.mjs", "timeout": 30 },
     { "id": "gated", "name": "Servers gated", "run": "node .cockpit/checks/gated.mjs", "timeout": 30 },
+    { "id": "sync-calls", "name": "No new sync commands", "run": "node .cockpit/checks/sync-calls.mjs", "timeout": 30 },
     { "id": "tests", "name": "Tests", "run": "out=$(npm test 2>&1); s=$?; echo \"$out\" | grep -E -A12 '^not ok' | head -60; echo \"$out\" | grep -E '^# (pass|fail)'; exit $s", "timeout": 120 }
   ],
   "rules": [
@@ -17,8 +18,8 @@
       "why": "a shell and an agent sit behind the server; checking Origin against Host alone let any site that points its name at 127.0.0.1 (DNS rebinding) in, and --host 0.0.0.0 had no login. The WebSocket check used to be written by hand in each server"
     },
     {
-      "id": "server-not-blocked", "layer": "prose", "since": "2026-11-22",
-      "rule": "The server doesn't run child processes synchronously on a request or a state refresh: git goes through src/git.ts (async), other tools through execFile",
+      "id": "server-not-blocked", "layer": "static", "checks": ["sync-calls"], "since": "2026-11-22",
+      "rule": "The server doesn't run child processes synchronously: git goes through src/git.ts (async), other tools through execFile. The places that still do are listed in .cockpit/checks/sync-calls.mjs, each with why, and may only shrink",
       "why": "the live state ran ~10 git commands one after another on every change; on a large repo that froze the terminals, the chat stream and the language servers, which share the server's one thread"
     },
     {
