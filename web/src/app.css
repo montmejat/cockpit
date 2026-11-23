@@ -499,7 +499,7 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 .confirm .cyes{background:var(--bad);border-color:var(--bad);color:var(--on-accent);font-weight:600}.confirm .cyes:hover{background:color-mix(in oklab,var(--bad) 88%,var(--shade))}
 
 .editor{flex:1;min-height:0;overflow:hidden}.editor .cm-editor{height:100%}
-.vimtoggle{color:var(--muted);opacity:.7;font-size:var(--fs-s);padding:0 6px}.esave{font-size:var(--fs-s);padding:0 6px;color:var(--accent);border-color:var(--accent)}.vimtoggle.on{color:var(--fg);opacity:1;border-color:var(--accent)}
+.vimtoggle{color:var(--muted);opacity:.7;font-size:var(--fs-s);padding:0 6px}.vimtoggle.on{color:var(--fg);opacity:1;border-color:var(--accent)}
 .econflict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px;background:color-mix(in oklab,var(--warn) 14%,var(--card));border-bottom:1px solid var(--line);font-size:var(--fs-m)}
 .econflict.bad{background:color-mix(in oklab,var(--bad) 14%,var(--card))}
 #tabbar .unsaved{color:var(--accent);font-size:10px;margin-left:4px}

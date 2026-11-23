@@ -229,7 +229,6 @@
     view?.focus();
   });
   export const isSaving = () => saving;
-  export function saveNow() { return save(); }
 
   // How many changes, and which one the cursor is on (the last one starting at or above it; 0 above all).
   function reportChanges() {

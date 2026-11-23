@@ -10,7 +10,7 @@
   import MiniMap from "./MiniMap.svelte";
   import FileEditor from "./FileEditor.svelte";
   import { api, parsePatch } from "../lib/code";
-  import { askAboutThread, cur, openFile, S, store, dirtyFiles } from "../lib/state.svelte";
+  import { askAboutThread, cur, openFile, S, store } from "../lib/state.svelte";
   import { projectNamed, split } from "../lib/projects.svelte";
   import { lspKey, lspStatus, serverOf } from "../lib/lsp.svelte";
   import type { Hunk } from "../lib/types";
@@ -103,7 +103,6 @@
     <div class="dhead">
       <span class="path">{path}</span>
       {#if statusOf(path)}<span class="mark {statusOf(path)}">{statusOf(path)}</span>{/if}
-      {#if dirtyFiles.has(path)}<button class="esave" title="Save (Ctrl+S, or :w in vim)" onclick={() => editor?.saveNow()}>● save</button>{/if}
       <span class="grow"></span>
       {#if threads.length}<span class="muted" title="Discussions on this file in the merge request, under their lines">💬 {threads.length}{threadsOpen < threads.length ? ` (${threadsOpen} open)` : ""}</span>{/if}
       {#if srv && lsp}<span class="lsp {lsp}" title={lsp === "ready" ? `${srv} language server: hover, completion, diagnostics; F12 / gd definition, Shift+F12 / gr references, F2 / Space rn rename, Shift+Alt+F / Space f format` : lsp === "missing" ? `No ${srv} language server installed (${LSPCMD[srv] ?? srv})` : `${srv} language server ${lsp}`}>{srv}{lsp === "ready" ? "" : lsp === "missing" ? " ×" : " …"}</span>{/if}
