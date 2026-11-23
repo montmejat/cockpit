@@ -3,6 +3,7 @@
   // changes (branch and changes are on the git tab, features and tests on the project tab), and the
   // terminal and chat toggles with the hints on. In the desktop app it is also the window's title bar.
   import { S, dirtyFiles, openGuardrails, plural, showChat, toggleChat, ui } from "../lib/state.svelte";
+  import { confirmLoss } from "../lib/confirm.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
   import { projects } from "../lib/projects.svelte";
@@ -69,7 +70,7 @@
     location.reload(); // the page learns its projects when it loads (the host's: src/workspace-host.ts)
   }
   async function openFolder(path?: string) {
-    if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Open another folder anyway?`)) return;
+    if (dirtyFiles.size && !await confirmLoss(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Open another folder anyway?`, "Open without saving")) return;
     projNote = "";
     try {
       const r = await win!.openProject(path ?? null);

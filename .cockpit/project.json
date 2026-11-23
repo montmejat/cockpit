@@ -14,7 +14,7 @@
         "cockpit/web/src/components/NodeCard", "cockpit/web/src/components/ProjectPane", "cockpit/web/src/components/ZoomCode", "cockpit/web/src/components/Header",
         "cockpit/web/src/components/TabBar", "cockpit/web/src/components/Sidebar", "cockpit/web/src/components/Grip",
         "cockpit/web/src/components/Palette",
-        "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu",
+        "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu", "cockpit/web/src/components/ui/Confirm",
         "cockpit/listpatch", "cockpit/web/src/lib/listmerge", "cockpit/http", "cockpit/live-turn", "cockpit/tests-of"
       ]
     },
@@ -28,7 +28,7 @@
         "cockpit/web/src/components/FileTree", "cockpit/web/src/components/FileEditor", "cockpit/web/src/components/CodeView",
         "cockpit/web/src/components/GitPane",
         "cockpit/web/src/lib/code", "cockpit/web/src/lib/editor", "cockpit/web/src/lib/fileicons", "cockpit/web/src/lib/graph",
-        "cockpit/web/src/lib/lang/zig","cockpit/web/src/lib/lsp.svelte", "cockpit/web/src/lib/smoothwheel"
+        "cockpit/web/src/lib/lang/zig","cockpit/web/src/lib/lsp.svelte", "cockpit/web/src/lib/smoothwheel", "cockpit/web/src/lib/confirm.svelte"
       ]
     },
     {

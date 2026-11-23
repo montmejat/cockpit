@@ -491,6 +491,13 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 #crumbs .cpmenu .mval{margin-left:auto;font-size:var(--fs-s)}
 /* the file editor (FileEditor.svelte) */
 .ewrap{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}.ewrap[hidden]{display:none}
+/* the confirmation for what a click would lose (ui/Confirm.svelte) */
+.confirm{position:fixed;inset:0;z-index:110;background:rgba(0,0,0,.18);display:flex;justify-content:center;align-items:flex-start;padding:20vh 16px 0}
+.confirm .cbox{width:min(400px,100%);padding:14px 16px 12px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shadow-modal)}
+.confirm p{margin:0 0 12px;font-size:var(--fs-m);overflow-wrap:anywhere}
+.confirm .cbtns{display:flex;justify-content:flex-end;gap:8px}
+.confirm .cyes{background:var(--bad);border-color:var(--bad);color:var(--on-accent);font-weight:600}.confirm .cyes:hover{background:color-mix(in oklab,var(--bad) 88%,var(--shade))}
+
 .editor{flex:1;min-height:0;overflow:hidden}.editor .cm-editor{height:100%}
 .vimtoggle{color:var(--muted);opacity:.7;font-size:var(--fs-s);padding:0 6px}.esave{font-size:var(--fs-s);padding:0 6px;color:var(--accent);border-color:var(--accent)}.vimtoggle.on{color:var(--fg);opacity:1;border-color:var(--accent)}
 .econflict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px;background:color-mix(in oklab,var(--warn) 14%,var(--card));border-bottom:1px solid var(--line);font-size:var(--fs-m)}

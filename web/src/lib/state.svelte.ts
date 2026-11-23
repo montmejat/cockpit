@@ -3,6 +3,7 @@
 
 import { SvelteSet } from "svelte/reactivity";
 import { api } from "./code";
+import { confirmLoss } from "./confirm.svelte";
 import { merge } from "./listmerge";
 import type { DiagramNode, Live, Review, Tab, TermMeta, Thread } from "./types";
 
@@ -246,12 +247,14 @@ export const openDiff = (path: string, staged: boolean) => openTab({ kind: "diff
 // Files with unsaved changes in the editor (FileEditor.svelte keeps the buffers).
 export const dirtyFiles = new SvelteSet<string>();
 
-export function closeTab(i: number) {
+export async function closeTab(i: number) {
   if (i === 0) return; // the map stays
   const t = ui.tabs[i];
   if (t?.kind === "file" && dirtyFiles.has(t.path)) {
-    if (!confirm(`${t.path} has unsaved changes. Close it and lose them?`)) return;
+    if (!await confirmLoss(`${t.path} has unsaved changes. Close it and lose them?`, "Close without saving")) return;
     dirtyFiles.delete(t.path); // the editor drops the buffer when it sees it's no longer dirty
+    i = ui.tabs.indexOf(t); // the tabs may have moved while it asked
+    if (i < 1) return;
   }
   ui.tabs.splice(i, 1);
   if (i < ui.active || ui.active >= ui.tabs.length) ui.active = Math.max(0, ui.active - 1);

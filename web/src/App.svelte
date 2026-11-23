@@ -10,6 +10,7 @@
   import CodeView from "./components/CodeView.svelte";
   import Terminal from "./components/Terminal.svelte";
   import Palette from "./components/Palette.svelte";
+  import Confirm from "./components/ui/Confirm.svelte";
   import Chats from "./components/Chats.svelte";
   import Guardrails from "./components/Guardrails.svelte";
   import { byId, homeOf, M, openCommit, openDiagram, openFile, openGuardrails, showChat, showProject, ui, cur, mapTab, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
@@ -76,6 +77,7 @@
 <svelte:window onkeydowncapture={keys} onclickcapture={outLink} onauxclickcapture={outLink} />
 
 <Palette bind:this={palette} />
+<Confirm />
 <Header ontoggleterm={() => term?.toggle(true)} />
 <main>
   <Sidebar />

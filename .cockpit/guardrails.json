@@ -6,6 +6,7 @@
     { "id": "desktop", "name": "Desktop app builds", "run": "cd desktop && cargo build --release --quiet", "timeout": 600 },
     { "id": "boundaries", "name": "Page/server boundary", "run": "node .cockpit/checks/boundaries.mjs", "timeout": 30 },
     { "id": "style-tokens", "name": "Style tokens", "run": "node .cockpit/checks/style.mjs", "timeout": 30 },
+    { "id": "dialogs", "name": "No browser dialogs", "run": "node .cockpit/checks/dialogs.mjs", "timeout": 30 },
     { "id": "tests", "name": "Tests", "run": "out=$(npm test 2>&1); s=$?; echo \"$out\" | grep -E -A12 '^not ok' | head -60; echo \"$out\" | grep -E '^# (pass|fail)'; exit $s", "timeout": 120 }
   ],
   "rules": [
@@ -65,9 +66,9 @@
       "why": "the chat toolbar gave the model switch (almost never changed) as much room as the conversation title"
     },
     {
-      "id": "one-click", "layer": "prose", "since": "2026-11-23",
-      "rule": "An action acts in one click: no confirmation step (no two-click buttons), and no confirm(), alert() or prompt()",
-      "why": "the owner prefers one click to a confirmation (revert, deleting a conversation); the browser's dialog is huge, blocks the whole window and looks foreign. Two older ones remain, guarding unsaved files on switching folder or closing a tab"
+      "id": "one-click", "layer": "static", "checks": ["dialogs"], "since": "2026-11-23",
+      "rule": "An action acts in one click: no confirmation step (no two-click buttons). Only a click that would lose unsaved edits asks first, with confirmLoss() (web/src/lib/confirm.svelte.ts); never confirm(), alert() or prompt()",
+      "why": "the owner prefers one click to a confirmation (revert, deleting a conversation), but wants to be asked before unsaved work is lost; the browser's dialog is huge, blocks the whole window and looks foreign"
     }
   ]
 }
