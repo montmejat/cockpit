@@ -219,3 +219,6 @@ export const api = {
   get: <T = any>(path: string): Promise<T> => fetch(path).then((r) => replyOf<T>(r, path)),
   post: <T = any>(path: string, body: unknown = {}): Promise<T> => fetch(path, { method: "POST", body: JSON.stringify(body) }).then((r) => replyOf<T>(r, path)),
 };
+// A WebSocket's address, relative to the page like the API's: in a workspace the page is at
+// /p/<name>/ and its sockets go to that project's server.
+export const wsUrl = (path: string) => { const u = new URL(path, location.href); u.protocol = u.protocol === "https:" ? "wss:" : "ws:"; return u.href; };

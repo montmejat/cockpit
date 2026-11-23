@@ -5,6 +5,7 @@
   import { S, dirtyFiles, openGuardrails, plural, showChat, toggleChat, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
+  import { viewProject } from "../lib/projects.svelte";
 
   let { ontoggleterm }: { ontoggleterm: () => void } = $props();
 
@@ -54,9 +55,9 @@
     projNote = "";
     const path = win ? await win.pickFolder() : null;
     if (!path) return;
-    const r = await api.post<{ error?: string }>("api/workspace/add", { path }).catch((e) => ({ error: String(e) }));
+    const r = await api.post<{ error?: string }>("/api/workspace/add", { path }).catch((e) => ({ error: String(e) }));
     if (r?.error) { projNote = r.error; return; }
-    location.reload(); // the page learns its projects when it loads
+    location.reload(); // the page learns its projects when it loads (the host's: src/workspace-host.ts)
   }
   async function openFolder(path?: string) {
     if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Open another folder anyway?`)) return;
@@ -117,7 +118,7 @@
   </div>
   <div class="htitle">
   {#if S.workspace}
-    <button class="wsbtn" class:on={wsOpen} title="Workspace {S.workspace.name}: the projects that work with this one" aria-expanded={wsOpen} onclick={() => { wsOpen = !wsOpen; wsNote = ""; }}>{S.workspace.name} ▾</button><span class="muted wssep">/</span>
+    <button class="wsbtn" class:on={wsOpen} title="Workspace {S.workspace.name}: switch to another of its projects" aria-expanded={wsOpen} onclick={() => { wsOpen = !wsOpen; wsNote = ""; }}>{S.workspace.name} ▾</button><span class="muted wssep">/</span>
   {/if}
   {#if win}
     <button class="projbtn" class:on={projOpen} title="Open another folder  (Ctrl+O)" aria-expanded={projOpen} aria-haspopup="menu" onclick={toggleProj}>
@@ -155,12 +156,12 @@
   {/if}
   {#if wsOpen && S.workspace}
     <div class="wsmenu">
-      <div class="muted wshead">workspace <b>{S.workspace.name}</b>: its projects, all in this window</div>
+      <div class="muted wshead">workspace <b>{S.workspace.name}</b>: files and git show every project; the map, terminals and chat are the one you view</div>
       {#each S.workspace.projects as p (p.path)}
-        <div class="wsrow" class:here={p.here}>
-          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · its map, terminals and chat</span>{/if}</div>
+        <button class="wsrow" class:here={p.here} disabled={p.here} title={p.here ? "viewing" : `View ${p.name}`} onclick={() => viewProject(p.name)}>
+          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · viewing</span>{/if}</div>
           {#if p.summary}<div class="muted wssum">{p.summary}</div>{/if}
-        </div>
+        </button>
       {/each}
       <div class="muted wsfoot" title="the workspace's file: which projects it holds">{S.workspace.dir.replace(/^\/home\/[^/]+/, "~")}/workspace.json</div>
       <div class="muted wsfoot" title={S.workspace.system ?? ""}>{S.workspace.system ? "how they fit together: SYSTEM.md, kept by the agents" : "no SYSTEM.md yet: the agent writes one when it first needs it"}</div>

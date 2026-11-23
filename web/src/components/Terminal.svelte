@@ -5,7 +5,7 @@
   import { onMount } from "svelte";
   import { Terminal as XTerm } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
-  import { api } from "../lib/code";
+  import { api, wsUrl } from "../lib/code";
   import { initialTerminals, S, store } from "../lib/state.svelte";
   import type { TermMeta } from "../lib/types";
 
@@ -34,7 +34,7 @@
     const term = new XTerm({ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 12.5, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, theme: theme(), allowProposedApi: true });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/api/term/ws?id=" + encodeURIComponent(meta.id));
+    const ws = new WebSocket(wsUrl("api/term/ws?id=" + encodeURIComponent(meta.id)));
     const v: View = { id: meta.id, meta, el, term, fit, ws, opened: false, size: "" };
     // Ctrl+Shift+C copies; Ctrl+Shift+V is left to the browser, which pastes into the terminal.
     term.attachCustomKeyEventHandler((e) => {
@@ -80,7 +80,7 @@
     requestAnimationFrame(() => { fitView(v); if (open) v?.term.focus(); });
   }
   async function newTerm() {
-    const { id } = await api.post("/api/term/new", { cols: 100, rows: 20 });
+    const { id } = await api.post("api/term/new", { cols: 100, rows: 20 });
     view({ id, n: 0, cwd: "", running: null, last: null });
     showView(id);
   }
@@ -148,7 +148,7 @@
     if (waiting) return;
     waiting = true; asked = text; picks = []; note = ""; status = "thinking…";
     try {
-      const r = await api.post("/api/term/ask", { id: active, text });
+      const r = await api.post("api/term/ask", { id: active, text });
       if (r.error) throw new Error(r.error);
       picks = r.suggestions; sel = 0; note = r.note ?? "";
       status = (r.ms / 1000).toFixed(1) + " s";
@@ -169,7 +169,7 @@
         <span class="ttab" class:on={m.id === active} title={m.running ?? m.cwd} role="tab" tabindex="0" aria-selected={m.id === active} onclick={() => showView(m.id)} onkeydown={(e) => e.key === "Enter" && showView(m.id)}>
           {#if m.running}<span class="trun" title="running">●</span>{:else if m.last && m.last.exit !== 0 && m.last.exit !== undefined}<span class="tbad" title="last command failed (exit {m.last.exit})">✕</span>{/if}
           {label(m)}
-          <button class="tx" title="Close this terminal" onclick={(e) => { e.stopPropagation(); api.post("/api/term/close", { id: m.id }); }}>×</button>
+          <button class="tx" title="Close this terminal" onclick={(e) => { e.stopPropagation(); api.post("api/term/close", { id: m.id }); }}>×</button>
         </span>
       {/each}
     </span>

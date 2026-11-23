@@ -1,6 +1,6 @@
 <script lang="ts">
   // Ctrl+P opens a file by name (letters in order, not necessarily together: "srvts" finds
-  // src/serve.ts); Ctrl+Shift+F searches the whole project (ripgrep), as text or as a regex.
+  // src/project-server.ts); Ctrl+Shift+F searches the whole project (ripgrep), as text or as a regex.
   // ↑ ↓ choose, Enter opens, Esc closes.
   import { tick } from "svelte";
   import { api, esc } from "../lib/code";

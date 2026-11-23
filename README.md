@@ -154,11 +154,15 @@ projects in one window; opening one of its projects opens just that one.
 - Open one from the project menu (the name at the top: **Workspaces**), or open its folder:
   `cockpit ~/.config/cockpit/workspaces/<name>`. **New Workspace…** makes one from what the window
   shows, **Add Folder to Workspace…** adds a project to the open one.
+- No project is the workspace's own: the window views one at a time, its map, diagrams,
+  terminals and chat, and the workspace name at the top (**<name> ▾**) switches to another. The
+  window opens on the project you viewed last; terminals and conversations stay where they are
+  while you look at another project.
 - Files: a root folder per project. Git: a section per project (fold it by its name). Quick open
   and search cover them all; the editor saves each file in its project, with that project's
-  language server. Each other project runs its own server, started by the window's and stopped
-  with it. The map, terminals and chat are the first project's.
-- The chat's agent can **read** the other projects, and its brief lists them with a line on each
+  language server. Behind the window, the workspace's host (`src/workspace-host.ts`) runs a server
+  per project, started with it and stopped with it.
+- The chat is the viewed project's. Its agent can **read** the other projects, and its brief lists them with a line on each
   (from their `.cockpit/project.json`, else their README). An **edit** in another project needs
   your yes, on an Allow/Deny card, even in auto mode.
 - `SYSTEM.md` says which project owns what, who calls whom and through what, and how they are built

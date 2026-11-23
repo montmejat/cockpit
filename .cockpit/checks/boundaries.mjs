@@ -10,8 +10,8 @@ const imports = (f) => [...readFileSync(join(root, f), "utf8").matchAll(/(?:impo
 
 const bad = [];
 for (const f of files("web/src")) for (const i of imports(f)) {
-  if (i.startsWith("node:")) bad.push(`${f}: imports ${i}. The page runs in the browser: ask the server for it (a route in src/serve.ts, called with api.get/api.post).`);
-  else if (i.startsWith(".") && relative(root, resolve(root, f, "..", i)).startsWith("src/")) bad.push(`${f}: imports server code ${i}. Share the shape in web/src/lib/types.ts and get the data from a route in src/serve.ts.`);
+  if (i.startsWith("node:")) bad.push(`${f}: imports ${i}. The page runs in the browser: ask the server for it (a route in src/project-server.ts, called with api.get/api.post).`);
+  else if (i.startsWith(".") && relative(root, resolve(root, f, "..", i)).startsWith("src/")) bad.push(`${f}: imports server code ${i}. Share the shape in web/src/lib/types.ts and get the data from a route in src/project-server.ts.`);
 }
 for (const f of files("src")) for (const i of imports(f)) {
   if (i.startsWith(".") && relative(root, resolve(root, f, "..", i)).startsWith("web/")) bad.push(`${f}: imports page code ${i}. The server doesn't load the page's modules: move what both need into src/ and send it to the page in the live state.`);

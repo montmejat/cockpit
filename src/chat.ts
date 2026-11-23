@@ -148,7 +148,7 @@ function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSe
   return items;
 }
 
-// `workspace`: the workspace this window shows, when it was opened as one (workspace.ts).
+// `workspace`: the workspace this project is viewed in, if any (workspace.ts).
 export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, onChecks?: () => void, workspace: () => Workspace | null = () => null) {
   const dir = join(outDir(project), "chats");
   mkdirSync(dir, { recursive: true });

@@ -22,7 +22,7 @@ declare global { interface Window { INIT: Live & { terminals: TermMeta[] }; cock
 const boot = window.INIT;
 export const initialTerminals: TermMeta[] = boot.terminals ?? [];
 
-// Live data. The server sends it whole once, then only the parts that changed (src/serve.ts).
+// Live data. The server sends it whole once, then only the parts that changed (src/project-server.ts).
 // Each part is reactive as a whole and never deeply: parts are only ever replaced, and some are
 // big (a large project's modules and tests are ~1 MB, sent again on every save as lines shift),
 // so deep proxies made every push stall the page for ~170 ms.
@@ -47,7 +47,7 @@ export function connectLive() {
     // The whole state comes on (re)connecting, usually the same as the page's (it just loaded
     // with it): unchanged parts are left alone, so nothing is redrawn or fetched again for them.
     for (const k of Object.keys(parts)) if (e.type !== "full" || JSON.stringify((S as any)[k]) !== JSON.stringify(parts[k])) (S as any)[k] = parts[k];
-    // Big lists come as their changed entries (src/serve.ts, listPatch).
+    // Big lists come as their changed entries (src/project-server.ts, listPatch).
     const l = e.lists ?? {};
     if (l.modules) S.modules = merge(S.modules, l.modules, (m) => m.id);
     if (l["tests.unit"] || l["tests.integration"]) S.tests = {

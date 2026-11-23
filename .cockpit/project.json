@@ -7,7 +7,7 @@
       "status": "working",
       "description": "Agent-written diagrams (loop, pipeline, dataflow, zones) drawn from .cockpit/, explained on hover and in a card over the map when a box is clicked, zoomable down to the code of a box, with boxes of uncommitted or in-progress code marked. Boxes can be dragged anywhere (with Shift they snap into line with other boxes, guides shown) or nudged with the arrow keys, and stay where you put them.",
       "modules": [
-        "cockpit/arch", "cockpit/serve",
+        "cockpit/arch", "cockpit/serve", "cockpit/project-server",
         "cockpit/web/src/App", "cockpit/web/src/main", "cockpit/web/vite.config",
         "cockpit/web/src/lib/state.svelte", "cockpit/web/src/lib/types", "cockpit/web/src/lib/diagram",
         "cockpit/web/src/components/MapView", "cockpit/web/src/components/MiniMap", "cockpit/web/src/components/DiagramList",
@@ -70,9 +70,9 @@
       "id": "private-and-workspaces",
       "name": "Private descriptions and workspaces",
       "status": "partial",
-      "description": "A project's .cockpit/ can be kept out of its repo, per branch, and synced between machines through a private repo; a workspace (a folder in cockpit's settings with a workspace.json; listed, created and extended from the project menu) opens all its projects in one window, like an editor's multi-root workspace, while opening one of its projects opens just that one: every project's files (a root folder each), git (a section each), quick open and search, from their own servers passed through this one.",
-      "note": "Terminals and diagrams are the window's own project's only; the chat agent still asks before editing another project",
-      "modules": ["cockpit/private", "cockpit/workspace", "cockpit/workspace-servers", "cockpit/web/src/lib/projects.svelte"]
+      "description": "A project's .cockpit/ can be kept out of its repo, per branch, and synced between machines through a private repo; a workspace (a folder in cockpit's settings with a workspace.json; listed, created and extended from the project menu) opens all its projects in one window, like an editor's multi-root workspace, while opening one of its projects opens just that one. The workspace's host is none of its projects: it runs a server per project and the window views one at a time (its map, terminals and chat), switched from the workspace name at the top, with every project's files (a root folder each), git (a section each), quick open and search.",
+      "note": "Switching project reloads the page (open files and terminals come back; unsaved edits are asked about); the chat agent still asks before editing another project",
+      "modules": ["cockpit/private", "cockpit/workspace", "cockpit/workspace-servers", "cockpit/workspace-host", "cockpit/web/src/lib/projects.svelte"]
     },
     {
       "id": "code-index",

@@ -1,14 +1,14 @@
 // Workspaces: projects that work together, like an editor's multi-root workspace. Opening a
-// workspace (its folder, below, or from the project menu) shows all its projects in one window:
-// files and git side by side (src/workspace-servers.ts), and a chat whose agent knows what each one
-// is and keeps one shared note on how they fit together. Opening one of its projects alone opens
-// just that project.
+// workspace (its folder, below, or from the project menu) shows all its projects in one window,
+// none of them first: a host (workspace-host.ts) runs a server per project, the window views one
+// at a time (its map, terminals and chat) and switches between them, and files and git show them
+// all side by side. Each project's chat agent knows what the others are and keeps one shared note
+// on how they fit together. Opening one of its projects alone opens just that project.
 //
 // A workspace is a folder in your settings, outside every repo (and outside this one):
 //   ~/.config/cockpit/workspaces/<name>/workspace.json   { "projects": ["~/src/engine", "~/src/tools"] }
 //   ~/.config/cockpit/workspaces/<name>/SYSTEM.md        how the projects fit together
-// Paths are absolute or start with ~. The first project is the window's own (its diagrams, its
-// terminals, its chat).
+// Paths are absolute or start with ~.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -43,11 +43,11 @@ const pathsIn = (dir: string): string[] | null => {
 // A folder holding a workspace.json is a workspace.
 export const isWorkspace = (dir: string) => existsSync(join(dir, FILE));
 
-// The workspace in `dir`, seen from `here` (one of its projects; its first by default).
+// The workspace in `dir`, seen from `here` (one of its projects), or from none of them.
 export function loadWorkspace(dir: string, here?: string): Workspace | null {
   const paths = pathsIn(dir);
   if (!paths?.length) return null;
-  const me = here ? real(here) : paths[0];
+  const me = here ? real(here) : null;
   return {
     name: basename(dir), dir, system: join(dir, "SYSTEM.md"),
     projects: paths.map((p) => ({ name: basename(p), path: p, summary: summaryOf(p), here: p === me })),
@@ -63,7 +63,7 @@ export function listWorkspaces() {
   });
 }
 
-// A new workspace with these projects (the first one is the window's own).
+// A new workspace with these projects.
 export function createWorkspace(name: string, paths: string[]) {
   if (!/^[\w.-]{1,60}$/.test(name)) throw new Error("a name of letters, digits, dots, dashes or underscores");
   const dir = join(WORKSPACES, name);

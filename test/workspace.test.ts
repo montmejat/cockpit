@@ -26,6 +26,7 @@ test("create a workspace, add a project, load it from its folder", async (t) => 
 
   const w = loadWorkspace(dir)!;
   assert.equal(w.name, "both");
-  assert.deepEqual(w.projects.map((p) => [p.name, p.here]), [["a", true], ["b", false]]);
+  assert.deepEqual(w.projects.map((p) => [p.name, p.here]), [["a", false], ["b", false]]); // the host's view: none is its own
+  assert.deepEqual(loadWorkspace(dir, b)!.projects.map((p) => [p.name, p.here]), [["a", false], ["b", true]]);
   assert.deepEqual(listWorkspaces().map((x) => x.name), ["both"]);
 });

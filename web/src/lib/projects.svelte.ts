@@ -1,13 +1,13 @@
-// The projects shown in this window. Alone, just this one. In a workspace (src/workspace.ts), its
-// other projects too, side by side like an editor's multi-root workspace: their files and git, from
-// their own servers, which this window's server passes through under p/<name>/
-// (src/workspace-servers.ts).
+// The projects shown in this window. Alone, just this one. In a workspace (src/workspace.ts), the
+// page is the viewed project's, at /p/<name>/, and the workspace's other projects are there too,
+// side by side like an editor's multi-root workspace: their files and git, from their own servers,
+// which the workspace's host passes through under /p/<name>/ (src/workspace-servers.ts).
 //
 // A file of another project is written "@<name>/<path>" everywhere on the page (tabs, the tree,
 // links), so the rest of the page keeps one string per file; `split` says which project it is in,
 // its path there, and where to ask for it.
 
-import { S } from "./state.svelte";
+import { dirtyFiles, S } from "./state.svelte";
 import type { Live } from "./types";
 
 // What the page needs of a project's live state to show its files and git.
@@ -19,7 +19,7 @@ export class Project {
   data = $state.raw<Lite>({ project: "", files: [], status: [], fileRevs: {}, git: { branch: null, head: "", upstream: null, ahead: 0, behind: 0 }, review: null, private: null as any, root: "" });
   constructor(name: string, path: string, here: boolean) {
     this.name = name; this.path = path; this.here = here;
-    this.base = here ? "" : `p/${encodeURIComponent(name)}/`;
+    this.base = here ? "" : `/p/${encodeURIComponent(name)}/`;
     this.prefix = here ? "" : `@${name}/`;
     if (!here) this.connect();
   }
@@ -36,13 +36,18 @@ export class Project {
   }
 }
 
-// This project first, then the workspace's others in its order.
-export const projects: Project[] = [
-  new Project(S.project, S.root ?? "", true),
-  ...(S.workspace?.projects ?? []).filter((p) => !p.here).map((p) => new Project(p.name, p.path, false)),
-];
+// The workspace's projects in its order, this one among them; alone, just this one.
+export const projects: Project[] = S.workspace?.projects.some((p) => p.here)
+  ? S.workspace.projects.map((p) => new Project(p.here ? S.project : p.name, p.here ? S.root ?? p.path : p.path, p.here))
+  : [new Project(S.project, S.root ?? "", true)];
 export const many = projects.length > 1;
-export const here = projects[0];
+export const here = projects.find((p) => p.here)!;
+
+// View another project of the workspace: its page, from its server (the host serves it at /p/<name>/).
+export function viewProject(name: string) {
+  if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Switch to ${name} anyway?`)) return;
+  location.href = `/p/${encodeURIComponent(name)}/`;
+}
 
 // Which project a page path is in, and its path there.
 export function split(path: string): { p: Project; path: string } {

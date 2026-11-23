@@ -9,6 +9,7 @@
 import type { Extension, Text } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { LSPClient, LSPPlugin, Workspace, languageServerExtensions, type Transport, type WorkspaceFile } from "@codemirror/lsp-client";
+import { wsUrl } from "./code";
 
 const ext = (path: string) => path.split(".").pop()?.toLowerCase() ?? "";
 // Which language server, and the LSP language id, for a file.
@@ -83,7 +84,7 @@ export const onLsp = (fn: (server: string) => void) => { onReady = fn; };
 
 export const lspKey = (base: string, server: string) => base + server;
 function connect(name: string, s: Server, base: string, lang: string) {
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/" + base + "api/lsp?lang=" + lang);
+  const ws = new WebSocket(wsUrl(base + "api/lsp?lang=" + lang));
   const handlers = new Set<(v: string) => void>();
   const transport: Transport = {
     send(m) { if (ws.readyState !== WebSocket.OPEN) throw new Error("language server connection closed"); ws.send(m); },

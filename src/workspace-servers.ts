@@ -1,11 +1,11 @@
-// The other projects of a workspace, in this window: like an editor's multi-root workspace, the
-// page shows every project's files and git side by side. Each other project keeps a server of its
-// own (its index, git, watchers, as when opened alone), started here as a child on a free port,
-// and the page reaches it through this server under /p/<name>/…: requests, live events and
-// WebSockets (terminals, language servers) are passed through with the child's own token.
+// The projects of a workspace, behind its host (workspace-host.ts): each keeps a server of its
+// own (its index, git, watchers, terminals, chat, as when opened alone), started here as a child
+// on a free port with --workspace, and the page reaches it under /p/<name>/…: requests, live
+// events and WebSockets (terminals, language servers) are passed through with the child's own
+// token. The page of /p/<name>/ is that project's, viewed in the workspace.
 //
-// The children run with COCKPIT_CHILD=1, so they don't start servers for the workspace again, and
-// stop when their stdin closes: this server is gone, however it ended.
+// The children run with COCKPIT_CHILD=1 and stop when their stdin closes: the host is gone,
+// however it ended.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -37,13 +37,12 @@ function listening(port: number, proc: ChildProcess) {
   });
 }
 
-export function createWorkspaceServers(ws: Workspace | null) {
+export function createWorkspaceServers(ws: Workspace) {
   const children = new Map<string, Child>();
-  const others = ws && !process.env.COCKPIT_CHILD ? ws.projects.filter((p) => !p.here) : [];
 
   async function start(name: string, path: string) {
     const port = await freePort(), token = randomBytes(24).toString("base64url");
-    const proc = spawn(process.execPath, ["--import", "tsx", "src/serve.ts", path, "--port", String(port)], {
+    const proc = spawn(process.execPath, ["--import", "tsx", "src/serve.ts", path, "--port", String(port), "--workspace", ws.dir], {
       cwd: COCKPIT, env: { ...process.env, COCKPIT_TOKEN: token, COCKPIT_CHILD: "1" }, stdio: ["pipe", "pipe", "pipe"], // stdin: closes when this server goes
     });
     for (const s of [proc.stdout!, proc.stderr!]) s.on("data", (d) => process.stderr.write(String(d).replace(/^(?=.)/gm, `[${name}] `)));
@@ -51,7 +50,7 @@ export function createWorkspaceServers(ws: Workspace | null) {
     c.ready.catch((e) => console.error(`[${name}] server: ${e.message}`));
     children.set(name, c);
   }
-  for (const p of others) void start(p.name, p.path);
+  for (const p of ws.projects) void start(p.name, p.path);
 
   // The request as the child expects it: its own host, origin and token.
   const headersFor = (c: Child, h: IncomingMessage["headers"]) => {
@@ -66,7 +65,6 @@ export function createWorkspaceServers(ws: Workspace | null) {
   };
 
   return {
-    // The other projects, for the page: name, folder, and whether its server answers yet.
     // An HTTP request under /p/<name>/: passed through, answer streamed back (live events too).
     async http(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
       const r = route(req.url ?? "");
@@ -99,7 +97,8 @@ export function createWorkspaceServers(ws: Workspace | null) {
       return true;
     },
     // A project added to the workspace while the window is open.
-    add(name: string, path: string) { if (!children.has(name) && ws && !process.env.COCKPIT_CHILD) void start(name, path); },
+    add(name: string, path: string) { if (!children.has(name)) void start(name, path); },
+    has: (name: string) => children.has(name),
     stopAll() { for (const c of children.values()) c.proc.kill("SIGTERM"); },
   };
 }

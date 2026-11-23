@@ -1,5 +1,5 @@
 // Matching the desktop (GNOME): its accent color, and its window buttons (which, on which side).
-// The server reads them from gsettings (src/serve.ts, desktopLook).
+// The server reads them from gsettings (src/project-server.ts, desktopLook).
 
 import { S } from "./state.svelte";
 

@@ -1,4 +1,4 @@
-// What the server sends (src/serve.ts state()), and the shapes the page passes around.
+// What the server sends (src/project-server.ts state()), and the shapes the page passes around.
 
 export interface DiagramNode {
   id: string; label: string; tldr?: string; explain: string; anchors?: string[];
