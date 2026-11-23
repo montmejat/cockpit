@@ -615,7 +615,7 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 .gitrow .gname{flex:none}.gitrow .gdir{color:var(--muted);font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;min-width:0}
 .gitrow .gnum{margin-left:auto;flex:none;font-size:var(--fs-xs);display:flex;gap:4px;padding-left:6px}.gnum i{font-style:normal}.gnum .a{color:var(--add)}.gnum .d{color:var(--del)}
 .gitrow .mark{margin-left:0;width:10px;flex:none}
-.gact{display:none;flex:none;width:22px;padding:0;margin-right:8px;font-size:var(--fs-m);line-height:16px;border-radius:var(--r-s)}
+.gact{display:none;flex:none;width:22px;height:20px;padding:0;margin-right:8px;font-size:var(--fs-m);line-height:16px;border-radius:var(--r-s)}
 /* the counts sit at the far right; on hover the buttons come in and push them left */
 .gitrow .gitfile{padding-right:10px}.gitrow:hover .gitfile{padding-right:4px}
 .gitrow:hover .gact{display:grid;place-items:center}
