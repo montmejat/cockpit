@@ -619,8 +619,6 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 /* the counts sit at the far right; on hover the buttons come in and push them left */
 .gitrow .gitfile{padding-right:10px}.gitrow:hover .gitfile{padding-right:4px}
 .gitrow:hover .gact{display:grid;place-items:center}
-.gitrow:has(.armed) .gact{display:grid;place-items:center}
-.gact.grev.armed{width:auto;padding:0 7px;background:var(--bad);color:var(--on-accent);font-size:var(--fs-s);font-weight:600}.gact.grev.armed:hover{background:color-mix(in oklab,var(--bad) 88%,var(--shade));color:var(--on-accent)}
 .gact.grev{margin-right:2px;color:var(--muted)}.gact.grev:hover{color:var(--bad)}.gact.grev svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
 /* history: graph, refs, subject (hash, date and all refs in the tooltip) */
 .grow-row{gap:2px}
