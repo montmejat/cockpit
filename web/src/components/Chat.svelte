@@ -167,14 +167,19 @@
     list = names;
     await refreshList();
   }
-  async function refreshList() { const l = await api.get<ChatSession[]>("api/chat/sessions").catch(() => null); if (l) { names = l; listed = true; if (list) list = l; } }
+  // Never left on "loading…": once asked, the list is either there (maybe empty) or says why not.
+  async function refreshList() {
+    try { const l = await api.get<ChatSession[]>("api/chat/sessions"); names = Array.isArray(l) ? l : []; listErr = ""; if (list) list = names; }
+    catch (e) { listErr = String(e instanceof Error ? e.message : e); }
+    listed = true;
+  }
   // Agents started here whose conversation Claude Code doesn't list yet (no transcript so far).
   const unlisted = $derived(list ? others.filter((a) => !a.session || !list!.some((s) => s.id === a.session)) : []);
   async function openSession(id: string) { list = null; await post("open", { id }); }
   // The open conversation's name ("Chat 3", or its /rename title), looked up once when it changes
   // (a new conversation isn't listed until its first reply: asked again when a turn ends).
   let names = $state<ChatSession[]>([]);
-  let listed = $state(false); // fetched at least once: an empty list then means no conversations yet
+  let listed = $state(false), listErr = $state(""); // asked at least once: an empty list then means no conversations yet
   let namedFor: string | null = null;
   $effect(() => {
     const s = session;
@@ -229,7 +234,7 @@
   </div>
   {#if list}
     <div class="clist" bind:this={listEl}>
-      {#if !list.length && !unlisted.length}<p class="muted">{listed ? "No conversations yet." : "loading…"}</p>{/if}
+      {#if !list.length && !unlisted.length}<p class="muted">{!listed ? "loading…" : listErr ? "Couldn't list the conversations: " + listErr : "No conversations yet."}</p>{/if}
       {#each unlisted as a (a.session ?? a.preview)}
         <div class="csrow"><button class="csess" disabled={!a.session} onclick={() => a.session && openSession(a.session)} title={a.preview}>
           <span class="cst">New chat<span class="muted cwhen"> · {a.asking ? "waiting for you" : "working"}</span></span>
