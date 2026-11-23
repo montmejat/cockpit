@@ -6,9 +6,8 @@
 // reopened and continued. Cockpit keeps its own view of each one (the items below) in
 // out/<project>/chats/<session>.json; a session it didn't run is read from Claude Code's record.
 //
-// What the page gets is a list of items, each added once and then replaced by id as it changes:
-//   user · text (grows while the agent writes) · tool (running → ok/error) · ask (an Allow/Deny
-//   card, when auto mode wants the user) · done (one per turn) · note
+// What the page gets is a list of items (chat-items.ts). The agent's turns are recorded and checked
+// at their end by chat-turn.ts; its brief is chat-brief.ts; plan usage is chat-usage.ts.
 //
 // Several agents can work at once: each conversation has its own Claude Code process while it
 // works. The page shows them in panes, stacked (one by default; split to add one below): each
@@ -18,25 +17,23 @@
 // resumes its session.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
-import { execFile } from "node:child_process";
+import { join } from "node:path";
 import {
   createSdkMcpServer, deleteSession, getSessionMessages, listSessions, query, tool,
   type Query, type SDKMessage, type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
-import { ARCH_DIR, checkArch, loadArch } from "./arch.ts";
-import { GUARDRAILS, failureReport, isTrusted, lastResults, loadGuardrails, runChecks, trust } from "./guardrails.ts";
 import type { createIndex } from "./codeindex.ts";
-import { turnEnd, turnStart, turnTool, type HookInput } from "./recorder.ts";
+import type { HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
 import type { Terminals } from "./term.ts";
 import { workspaceBrief, type Workspace } from "./workspace.ts";
+import { brief } from "./chat-brief.ts";
+import { describe, itemsFromTranscript, now, streamItems, type Image, type Item } from "./chat-items.ts";
+import { turnChecks } from "./chat-turn.ts";
+import { createUsage } from "./chat-usage.ts";
 
-export type Item = { id: string; kind: string; at: string; [k: string]: unknown };
-// A pasted image: what Claude gets (media type, base64), and a small preview for the chat.
-export type Image = { media: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string; thumb: string };
-export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+export { IMAGE_TYPES, type Image, type Item } from "./chat-items.ts";
 type Context = { used: number; max: number } | null;
 // What runs besides the open conversation: every agent cockpit holds, the open one included.
 // `pane`: the pane showing it, if one does.
@@ -53,6 +50,7 @@ type Event =
   | { type: "init"; panes: PaneSnap[]; agents: AgentInfo[] };
 
 const MAX_PANES = 4;
+const EDITS = "Edit|Write|MultiEdit|NotebookEdit";
 export const MODELS = ["haiku", "sonnet", "opus"];
 // An Allow/Deny card left unanswered this long is denied, so a turn doesn't wait forever (the
 // agent is told, and can ask again or go another way).
@@ -73,88 +71,6 @@ function inbox() {
     },
   };
 }
-async function* never(): AsyncGenerator<SDKUserMessage> { await new Promise(() => {}); }
-
-// The guardrails' checks that passed when they last ran in a project.
-const passing = (name: string) => new Set(Object.values(lastResults(name)).filter((r) => r.ok).map((r) => r.id));
-
-// The workspace's other project a file is in, if it is in one (not this one).
-function otherOf(ws: Workspace | null, file: unknown) {
-  if (!ws || typeof file !== "string" || !isAbsolute(file)) return null;
-  const inside = (d: string) => file === d || file.startsWith(d + "/");
-  const here = ws.projects.find((p) => p.here);
-  return ws.projects.find((p) => !p.here && inside(p.path) && !(here && inside(here.path))) ?? null;
-}
-
-// Another project's .cockpit/ against its code, by the check-arch command (its own index, cached on
-// disk, rebuilt only if the code changed), so this server neither indexes it nor waits on it.
-function archProblems(path: string, name: string): Promise<{ where: string; problem: string }[]> {
-  return new Promise((done) => {
-    execFile(process.execPath, ["--import", "tsx", "src/check-arch.ts", path], { cwd: COCKPIT, maxBuffer: 16 << 20, timeout: 300_000 }, (err, out) => {
-      if (err && (err as any).code !== 1) { done([]); return; } // it couldn't run: nothing to send back
-      done(String(out).split("\n").filter((l) => l.startsWith("- ")).map((l) => {
-        const i = l.indexOf(": ");
-        return { where: `${name}: ${l.slice(2, i)}`, problem: l.slice(i + 2) };
-      }));
-    });
-  });
-}
-
-// What .cockpit/ says, in short, so the agent knows the project and where its parts live without
-// reading the folder: the summary, each feature (status, note, modules) and each diagram's tldr.
-function overview(root: string) {
-  const { arch } = loadArch(root);
-  if (!arch) return "";
-  // The modules only while that stays small (about 2k tokens): a big project lists hundreds.
-  const line = (f: (typeof arch.features)[number], mods: boolean) => `- ${f.name} [${f.id}, ${f.status}]${f.note ? ": " + f.note : ""}${mods && f.modules.length ? " · " + f.modules.join(", ") : ""}`;
-  let feats = arch.features.map((f) => line(f, true));
-  if (feats.join("\n").length > 8000) feats = arch.features.map((f) => line(f, false));
-  const diags = arch.diagrams.map((d) => `- ${d.id}: ${d.tldr ?? d.question ?? ""}`);
-  return `\n\nWhat it says now:\n${arch.summary}\n\nFeatures:\n${feats.join("\n")}` + (diags.length ? `\n\nDiagrams (${ARCH_DIR}/diagrams/<id>.json):\n${diags.join("\n")}` : "");
-}
-
-// The brief added to Claude Code's own system prompt.
-function brief(root: string) {
-  const has = existsSync(join(root, ARCH_DIR, "README.md"));
-  return [
-    "You are working inside cockpit. Its owner watches live diagrams of this code while you work, and reads your replies in a narrow chat panel: keep replies short, outcome first, details only if asked.",
-    "Create and change files with the Write and Edit tools, not shell commands: cockpit follows those tools to show your changes as you make them.",
-    "The owner also works in terminals inside cockpit (build, run, the project's CLI). When they mention a command, its output, an error, or say \"that\" about something they ran, read their terminals with the mcp__cockpit__terminals tool instead of asking them to paste it.",
-    "The owner reviews merge requests in cockpit too. When they ask about the review, a comment, or what a reviewer said or meant, read the review and its discussions (every comment, with file, line and replies) with the mcp__cockpit__review_threads tool, then check what is said against the code.",
-    `To list every module and item cockpit knows, written exactly as ${ARCH_DIR}/ links them, run: cd ${COCKPIT} && npm run -s modules -- ${root} [filter]`,
-    `To check ${ARCH_DIR}/ against the code yourself, run: cd ${COCKPIT} && npm run -s check-arch -- ${root}`,
-    has
-      ? `The project is described in ${ARCH_DIR}/ (features and diagrams). Take it as up to date: don't re-check it against the code or read it unless the task needs it. When your own change makes something there wrong (a feature's status or description, a diagram's boxes or links), update just that, reading ${ARCH_DIR}/README.md first for its format. A check at the end of your turn catches broken links and modules in no feature; fix what it lists.` + overview(root)
-      : `This project has no ${ARCH_DIR}/ yet. When the owner asks you to describe the project, or with your first change, create it: copy ${join(COCKPIT, "templates", "cockpit-README.md")} to ${ARCH_DIR}/README.md and follow it.`,
-    existsSync(join(root, GUARDRAILS))
-      ? `This project has guardrails: ${GUARDRAILS} (checks run when you finish a turn that edited files, and rules with why). Read ${join(COCKPIT, "templates", "guardrails.md")} once, before you change them or when the owner corrects how code is written.`
-      : `Guardrails (checks and rules in ${GUARDRAILS}) are off in this project. Set them up only when the owner asks, following ${join(COCKPIT, "templates", "guardrails.md")}.`,
-  ].join("\n\n");
-}
-
-// A short line for a tool call, and the file it is about, if any.
-function describe(root: string, name: string, input: any): { title: string; detail?: string; file?: string } {
-  const rel = (p?: string) => (p ? (p.startsWith(root + "/") ? relative(root, p) : p) : "");
-  const file = input?.file_path ?? input?.notebook_path;
-  switch (name) {
-    case "Edit": case "MultiEdit": case "NotebookEdit": return { title: "edit " + rel(file), file: rel(file) };
-    case "Write": return { title: "write " + rel(file), file: rel(file) };
-    case "Read": return { title: "read " + rel(file), file: rel(file) };
-    case "Bash": return { title: "$ " + String(input?.command ?? "").split("\n")[0], detail: input?.description };
-    case "Grep": return { title: "search " + JSON.stringify(input?.pattern ?? "") + (input?.path ? " in " + rel(input.path) : "") };
-    case "Glob": return { title: "find " + (input?.pattern ?? "") };
-    case "Task": case "Agent": return { title: "agent: " + (input?.description ?? ""), detail: input?.prompt };
-    case "WebFetch": return { title: "fetch " + (input?.url ?? "") };
-    case "WebSearch": return { title: "search the web: " + (input?.query ?? "") };
-    case "mcp__cockpit__terminals": return { title: "read your terminal" + (input?.terminal ? " " + input.terminal : "s") };
-    case "mcp__cockpit__review_threads": return { title: "read the review's discussions" };
-    case "TodoWrite": return { title: "plan", detail: (input?.todos ?? []).map((t: any) => (t.status === "completed" ? "✓ " : t.status === "in_progress" ? "▸ " : "· ") + t.content).join("\n") };
-    default: return { title: name, detail: JSON.stringify(input ?? {}).slice(0, 400) };
-  }
-}
-
-const now = () => new Date().toISOString();
-const textOf = (c: any): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map((x: any) => (x.type === "text" ? x.text ?? "" : "")).join("\n") : "");
 
 // Tools cockpit gives the agent: read the owner's terminals, and the review in progress with its
 // merge request's discussions.
@@ -175,32 +91,6 @@ function cockpitTools(terms: Terminals, review: () => Promise<string>) {
       { annotations: { readOnlyHint: true } },
     )],
   });
-}
-
-// A Claude Code session cockpit didn't run (or ran before it kept items), as chat items.
-function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSessionMessages>>): Item[] {
-  const items: Item[] = [], byTool = new Map<string, Item>();
-  for (const m of msgs) {
-    if (m.parent_tool_use_id) continue;
-    const msg = m.message as any, at = now();
-    if (m.type === "user") {
-      if (typeof msg?.content === "string") {
-        if (!msg.content.startsWith("<")) items.push({ id: m.uuid, kind: "user", at, text: msg.content }); // "<command-…>" and the like are Claude Code's own
-        continue;
-      }
-      for (const b of msg?.content ?? []) {
-        if (b.type === "text" && !String(b.text).startsWith("<")) items.push({ id: m.uuid + ":t", kind: "user", at, text: b.text });
-        else if (b.type === "image") items.push({ id: m.uuid + ":i" + items.length, kind: "user", at, text: "", images: 1 });
-        else if (b.type === "tool_result" && byTool.has(b.tool_use_id)) Object.assign(byTool.get(b.tool_use_id)!, { status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
-      }
-    } else if (m.type === "assistant") {
-      (msg?.content ?? []).forEach((b: any, i: number) => {
-        if (b.type === "text" && b.text.trim()) items.push({ id: `${m.uuid}:${i}`, kind: "text", at, text: b.text });
-        else if (b.type === "tool_use") { const it = { id: b.id, kind: "tool", at, tool: b.name, sub: false, status: "ok", ...describe(root, b.name, b.input) }; byTool.set(b.id, it); items.push(it); }
-      });
-    }
-  }
-  return items;
 }
 
 // `workspace`: the workspace this project is viewed in, if any (workspace.ts). `review`: the review
@@ -268,21 +158,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     let box: ReturnType<typeof inbox> | null = null;
     let abort: AbortController | null = null;
     const waiting = new Map<string, (allow: boolean) => void>();
-    // Streaming text: which item each text block of a message goes to.
-    const textSeen = new Map<string, number>(), textDone = new Map<string, number>();
-    let streamMsg = "";
-    let checks = 0; // times the .cockpit/ check sent the agent back this turn
-    let lastProblems = ""; // what that check found last time (this turn or an earlier one): the same list again means a round fixed nothing
-    // Guardrails (src/guardrails.ts), only in a project that has .cockpit/guardrails.json. A turn that
-    // edited files runs its checks; the agent is sent back only for checks that passed before the
-    // turn (a failure that was already there is shown in cockpit, not pinned on this agent).
-    let edited = false, gRounds = 0;
-    const gLast = new Map<string, string>(); // per project: what its checks failed with last time
-    let passedBefore = new Set<string>();
-    // The workspace's other projects this turn edited: a turn is open in each, and their
-    // .cockpit/ and guardrails are checked at its end too.
-    const others = new Map<string, { name: string; passedBefore: Set<string> }>();
-    let prompt = "";
+    let ws: Workspace | null = null; // the workspace its session started in
     let seq = 0; // for item ids made here (notes): two in the same millisecond must not collide
     const uid = (p: string) => `${p}-${Date.now()}-${++seq}`;
 
@@ -308,6 +184,8 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     };
     const get = (id: string) => items.find((x) => x.id === id);
     const note = (text: string, more: Partial<Item> = {}) => put({ id: uid("note"), kind: "note", at: now(), text, ...more });
+    const stream = streamItems(root, { put, get, delta: (id, text) => toPanes({ type: "delta", id, text }) });
+    const turn = turnChecks({ root, project, index, workspace: () => ws, note, onChecks });
 
     // A conversation cockpit hasn't measured yet: its size from the last reply's token counts, out
     // of the window the model had then (from the session's own record, else the model's usual one).
@@ -320,7 +198,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           const m = msgs[i].message as any;
           if (msgs[i].type !== "assistant" || !m?.usage || msgs[i].parent_tool_use_id) continue;
           const u = m.usage, used = (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.output_tokens ?? 0);
-          const max = WINDOW[m.model] ?? await windowOf(m.model);
+          const max = await plan.windowOf(m.model);
           if (session === id && !context && max) { context = { used, max }; save(); state(); }
           return;
         }
@@ -335,7 +213,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     }
 
     function start() {
-      const ws = workspace();
+      ws = workspace();
       box = inbox();
       abort = new AbortController();
       q = query({
@@ -374,107 +252,16 @@ export function createChat(root: string, project: string, terms: Terminals, inde
               : { behavior: "deny", message: expired ? `Nobody answered in cockpit within ${ASK_TIMEOUT_MS / 60_000} minutes, so it was declined. Ask in the chat if you still need it.` : "The owner declined this in cockpit." };
           },
           hooks: {
-            UserPromptSubmit: [{ hooks: [async (i) => {
-              checks = 0; edited = false; gRounds = 0; prompt = (i as HookInput).prompt ?? "";
-              others.clear();
-              passedBefore = passing(project);
-              try { turnStart(i as HookInput); } catch {}
-              return {};
-            }] }],
-            // The first edit in another project of the workspace opens a turn there too, snapshot
-            // first, so its own map lights up and its history has the turn.
-            PreToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
-              const p = otherOf(ws, i.tool_input?.file_path ?? i.tool_input?.notebook_path);
-              if (p && !others.has(p.path)) {
-                others.set(p.path, { name: p.name, passedBefore: passing(p.name) });
-                try { turnStart({ ...(i as HookInput), cwd: p.path, prompt }); } catch {}
-              }
-              return {};
-            }] }],
-            PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
-              const f = i.tool_input?.file_path ?? i.tool_input?.notebook_path;
-              const p = otherOf(ws, f), at = p?.path ?? root;
-              if (!p) edited = true;
-              try { turnTool({ ...(i as HookInput), cwd: at }); } catch {}
-              // The agent changed the checks: trusted as it wrote them (guardrails.ts).
-              if (typeof f === "string" && resolve(root, f) === join(at, GUARDRAILS)) { const { g } = loadGuardrails(at); if (g) trust(at, g); }
-              return {};
-            }] }],
-            Stop: [{ hooks: [async (i) => {
-              // .cockpit/ must match the code, here and in each other project this turn edited: up
-              // to 3 rounds of "fix what the check found" per turn, here against the live index once
-              // it has caught up with the agent's edits. A round that leaves exactly the same
-              // problems means the agent can't fix them (say, links into code cockpit doesn't
-              // index): stop there instead of sending it back again.
-              const there = [...others].filter(([path]) => existsSync(join(path, ARCH_DIR)));
-              if ((existsSync(join(root, ARCH_DIR)) || there.length) && checks < 3) {
-                const problems = [
-                  ...(existsSync(join(root, ARCH_DIR)) ? checkArch(loadArch(root), await index.fresh()) : []),
-                  ...(await Promise.all(there.map(([path, o]) => archProblems(path, o.name)))).flat(),
-                ];
-                const sig = problems.map((x) => x.where + "\t" + x.problem).sort().join("\n");
-                if (problems.length && sig === lastProblems) {
-                  note(`${ARCH_DIR}/ still doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}), and the agent's last round changed nothing, so it wasn't sent back again.`,
-                    { error: true, detail: problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n") });
-                } else if (problems.length) {
-                  lastProblems = sig;
-                  checks++;
-                  const reason = `${ARCH_DIR}/ doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}). ` +
-                    `Fix it before finishing, as described in ${ARCH_DIR}/README.md:\n` + problems.slice(0, 30).map((x) => `- ${x.where}: ${x.problem}`).join("\n");
-                  note(`${ARCH_DIR}/ doesn't match the code yet: sent the agent back to fix it.`, { detail: reason });
-                  return { decision: "block", reason };
-                }
-              }
-              if (gRounds < 3) {
-                // One project after another: their checks may build the same things.
-                const sent: string[] = [];
-                if (edited) { const r = await guard(root, project, passedBefore, false); if (r) sent.push(r); }
-                for (const [path, o] of others) { const r = await guard(path, o.name, o.passedBefore, true); if (r) sent.push(r); }
-                if (sent.length) { gRounds++; return { decision: "block", reason: sent.join("\n\n") }; }
-              }
-              try { turnEnd(i as HookInput); } catch {}
-              for (const path of others.keys()) try { turnEnd({ ...(i as HookInput), cwd: path }); } catch {}
-              return {};
-            }] }],
+            UserPromptSubmit: [{ hooks: [async (i) => { turn.begin(i as HookInput); return {}; }] }],
+            PreToolUse: [{ matcher: EDITS, hooks: [async (i) => { turn.beforeEdit(i as HookInput); return {}; }] }],
+            PostToolUse: [{ matcher: EDITS, hooks: [async (i) => { turn.afterEdit(i as HookInput); return {}; }] }],
+            Stop: [{ hooks: [async (i) => { const reason = await turn.end(i as HookInput); return reason ? { decision: "block", reason } : {}; }] }],
           },
         },
       });
       const mine = q;
       pump(mine).catch((e) => { if (q === mine) note("The agent stopped: " + String(e?.message ?? e), { error: true }); })
         .finally(() => { if (q === mine) { q = null; box = null; busy = false; state(); } });
-    }
-
-    // The guardrails' checks of one project (this one, or another of the workspace that the turn
-    // edited) at the end of a turn. Returns what to send the agent back with, or null. Not again
-    // when a round changed nothing.
-    async function guard(at: string, name: string, before: Set<string>, other: boolean): Promise<string | null> {
-      const { g } = loadGuardrails(at);
-      if (!g?.checks.length) return null;
-      const where = other ? ` of ${name}` : "";
-      if (!isTrusted(at, g)) {
-        note(`Guardrails${where}: their checks weren't run, since they aren't trusted yet (they run commands from the project). Look at them in the guardrails tab${other ? " of " + name : ""}.`);
-        return null;
-      }
-      note(`Running the guardrails' checks${where} (${g.checks.map((c) => c.name).join(", ")})…`);
-      const results = await runChecks(at, name, g, undefined, other ? undefined : onChecks);
-      const failed = results.filter((r) => !r.ok);
-      const broke = failed.filter((r) => before.has(r.id)), already = failed.filter((r) => !before.has(r.id));
-      const nameOf = (id: string) => g.checks.find((c) => c.id === id)?.name ?? id;
-      if (already.length) note(`Already failing${where} before this turn, not sent back: ${already.map((r) => nameOf(r.id)).join(", ")}.`, { detail: failureReport(g, already) });
-      if (!broke.length) {
-        if (!failed.length) note(`Guardrails${where}: ${results.length} check${results.length > 1 ? "s" : ""} pass.`);
-        return null;
-      }
-      const sig = broke.map((r) => r.id + "\t" + r.output).join("\n");
-      if (sig === gLast.get(at)) {
-        note(`Still failing${where} after the agent's last round, which changed nothing: ${broke.map((r) => nameOf(r.id)).join(", ")}. Not sent back again.`, { error: true, detail: failureReport(g, broke) });
-        return null;
-      }
-      gLast.set(at, sig);
-      const reason = `This turn broke ${broke.length > 1 ? "checks" : "a check"} that passed before it (${other ? join(at, GUARDRAILS) : GUARDRAILS}). Fix the cause in the code, not the check; ` +
-        `if the check itself is wrong, say so instead of changing it.\n\n` + failureReport(g, broke);
-      note(`This turn broke ${broke.map((r) => nameOf(r.id)).join(", ")}${where}: sent the agent back to fix it.`, { detail: reason });
-      return reason;
     }
 
     async function pump(cur: Query) {
@@ -486,43 +273,14 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           save();
           continue;
         }
-        if (mm.type === "rate_limit_event") { lastUsage = null; continue; } // read it fresh next time
+        if (mm.type === "rate_limit_event") { plan.forget(); continue; } // read it fresh next time
         if (mm.parent_tool_use_id && mm.type !== "user" && mm.type !== "assistant") continue;
-        if (mm.type === "stream_event") {
-          if (mm.parent_tool_use_id) continue; // a subagent's own writing
-          const ev = mm.event;
-          if (ev.type === "message_start") streamMsg = ev.message.id;
-          else if (ev.type === "content_block_start" && ev.content_block.type === "text") {
-            const n = textSeen.get(streamMsg) ?? 0;
-            textSeen.set(streamMsg, n + 1);
-            put({ id: `${streamMsg}:${n}`, kind: "text", at: now(), text: "" });
-          } else if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-            const it = get(`${streamMsg}:${(textSeen.get(streamMsg) ?? 1) - 1}`);
-            // Only the new text goes to the page: sending the whole reply again on every token made
-            // the bytes grow with the square of its length.
-            if (it) { it.text = String(it.text) + ev.delta.text; toPanes({ type: "delta", id: it.id, text: ev.delta.text }); }
-          }
-        } else if (mm.type === "assistant") {
-          const sub = !!mm.parent_tool_use_id, mid = mm.message.id;
-          for (const b of mm.message.content ?? []) {
-            if (b.type === "text" && !sub) {
-              const n = textDone.get(mid) ?? 0;
-              textDone.set(mid, n + 1);
-              put({ ...(get(`${mid}:${n}`) ?? { at: now() }), id: `${mid}:${n}`, kind: "text", text: b.text });
-            } else if (b.type === "tool_use") {
-              put({ id: b.id, kind: "tool", at: now(), tool: b.name, sub, status: "running", ...describe(root, b.name, b.input) });
-            }
-          }
-        } else if (mm.type === "user" && Array.isArray(mm.message?.content)) {
-          for (const b of mm.message.content) {
-            if (b.type !== "tool_result" || !get(b.tool_use_id)) continue;
-            put({ ...get(b.tool_use_id)!, status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
-          }
-        } else if (mm.type === "result") {
+        if (stream(mm)) continue;
+        if (mm.type === "result") {
           busy = false;
           put({ id: "done-" + mm.uuid, kind: "done", at: now(), ms: mm.duration_ms, turns: mm.num_turns, error: mm.subtype !== "success" ? mm.subtype : null });
           state();
-          lastUsage = null;
+          plan.forget();
           // Done while you look elsewhere: put away (opening it again resumes the session).
           if (!shown()) { flush(); stop(); drop(self); }
           else void measure();
@@ -581,45 +339,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     void a.estimate();
   }
 
-  // ---- shared: context windows, plan usage -----------------------------------------------
-
-  // The context window of a model, asked of a short-lived idle session (no message is sent).
-  const WINDOW: Record<string, number> = {};
-  async function windowOf(model: string) {
-    const probe = query({ prompt: never(), options: { cwd: root, model, settingSources: [] } });
-    try { const c = await probe.getContextUsage({ detail: "summary" }); return (WINDOW[model] = c.maxTokens); }
-    catch { return 0; } finally { probe.close(); }
-  }
-
-  // Plan usage (the numbers behind /usage), cached for a minute. Asked of a running session, or
-  // of a short-lived idle one: no message is sent, so it costs nothing.
-  let lastUsage: { at: number; data: unknown } | null = null;
-  async function usage() {
-    if (lastUsage && Date.now() - lastUsage.at < 60_000) return lastUsage.data;
-    let probe: Query | null = null;
-    try {
-      const src = agents.find((a) => a.q)?.q ?? (probe = query({ prompt: never(), options: { cwd: root, model, settingSources: [] } }));
-      const u = await src.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true });
-      const w = (x: any) => (x && x.utilization != null ? { pct: x.utilization, resets: x.resets_at } : null);
-      const r = u.rate_limits;
-      const data = u.rate_limits_available && r ? {
-        plan: u.subscription_type,
-        windows: [
-          { name: "5 hours", ...w(r.five_hour) },
-          { name: "week", ...w(r.seven_day) },
-          ...(r.seven_day_opus ? [{ name: "week · opus", ...w(r.seven_day_opus) }] : []),
-          ...(r.seven_day_sonnet ? [{ name: "week · sonnet", ...w(r.seven_day_sonnet) }] : []),
-          ...(r.model_scoped ?? []).filter((m) => m.utilization).map((m) => ({ name: "week · " + m.display_name.toLowerCase(), ...w(m) })),
-        ].filter((x: any) => x.pct != null),
-      } : { plan: u.subscription_type, windows: [] };
-      lastUsage = { at: Date.now(), data };
-      return data;
-    } catch (e: any) {
-      return { error: String(e?.message ?? e), windows: [] };
-    } finally {
-      probe?.close();
-    }
-  }
+  const plan = createUsage(root, () => model, () => agents.find((a) => a.q)?.q ?? null);
 
   const opened: unknown[] = Array.isArray(meta.sessions) ? meta.sessions.slice(0, MAX_PANES) : [meta.session];
   for (const s of opened.length ? opened : [null]) {
@@ -650,7 +370,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       saveMeta();
       for (const p of panes) { const { busy, context, session } = p.agent.snapshot(); emit({ type: "state", pane: p.id, busy, model, context, session }); }
     },
-    usage,
+    usage: plan.usage,
     // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere. Each is
     // "Chat n", numbered in the order they were started (Claude Code's own titles are summaries),
     // with its first message as a preview, and whether its agent is working now. A number is given
