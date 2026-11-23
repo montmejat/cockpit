@@ -25,9 +25,12 @@ for (const [n, l] of Object.entries({ rust, typescript, javascript, json, ini, m
 
 export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+// XML and the robotics/ROS/OROCOS formats written in it (also used by the editor, editor.ts).
+export const XML_EXTS = ["xml", "xsd", "xsl", "xslt", "svg", "plist", "urdf", "xacro", "srdf", "sdf", "launch", "cpf"];
 const LANGS: Record<string, string> = { rs: "rust", ron: "rust", ts: "typescript", js: "javascript", svelte: "xml", json: "json", toml: "ini", md: "markdown", yml: "yaml", yaml: "yaml", sh: "bash", py: "python", css: "css", html: "xml",
   c: "c", cc: "cpp", cpp: "cpp", cxx: "cpp", h: "cpp", hh: "cpp", hpp: "cpp", hxx: "cpp", ipp: "cpp", inl: "cpp", tpp: "cpp", cmake: "cmake",
-  zig: "zig", zon: "zig", glsl: "glsl", vert: "glsl", frag: "glsl", comp: "glsl", geom: "glsl", metal: "cpp", swift: "swift", nix: "nix", m: "objectivec", mm: "objectivec" };
+  zig: "zig", zon: "zig", glsl: "glsl", vert: "glsl", frag: "glsl", comp: "glsl", geom: "glsl", metal: "cpp", swift: "swift", nix: "nix", m: "objectivec", mm: "objectivec",
+  ...Object.fromEntries(XML_EXTS.map((e) => [e, "xml"])) };
 // By whole name, for files without a telling extension.
 const NAMES: Record<string, string> = { "CMakeLists.txt": "cmake", Dockerfile: "bash", Makefile: "bash" };
 export const langOf = (p: string) => NAMES[p.split("/").pop() ?? ""] ?? LANGS[p.split(".").pop() ?? ""] ?? null;

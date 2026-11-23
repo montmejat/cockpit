@@ -74,6 +74,7 @@ function brief(root: string) {
     "You are working inside cockpit. Its owner watches live diagrams of this code while you work, and reads your replies in a narrow chat panel: keep replies short, outcome first, details only if asked.",
     "Create and change files with the Write and Edit tools, not shell commands: cockpit follows those tools to show your changes as you make them.",
     "The owner also works in terminals inside cockpit (build, run, the project's CLI). When they mention a command, its output, an error, or say \"that\" about something they ran, read their terminals with the mcp__cockpit__terminals tool instead of asking them to paste it.",
+    "The owner reviews merge requests in cockpit too. When they ask about the review, a comment, or what a reviewer said or meant, read the review and its discussions (every comment, with file, line and replies) with the mcp__cockpit__review_threads tool, then check what is said against the code.",
     `To list every module and item cockpit knows, written exactly as ${ARCH_DIR}/ links them, run: cd ${COCKPIT} && npm run -s modules -- ${root} [filter]`,
     `To check ${ARCH_DIR}/ against the code yourself, run: cd ${COCKPIT} && npm run -s check-arch -- ${root}`,
     has
@@ -100,6 +101,7 @@ function describe(root: string, name: string, input: any): { title: string; deta
     case "WebFetch": return { title: "fetch " + (input?.url ?? "") };
     case "WebSearch": return { title: "search the web: " + (input?.query ?? "") };
     case "mcp__cockpit__terminals": return { title: "read your terminal" + (input?.terminal ? " " + input.terminal : "s") };
+    case "mcp__cockpit__review_threads": return { title: "read the review's discussions" };
     case "TodoWrite": return { title: "plan", detail: (input?.todos ?? []).map((t: any) => (t.status === "completed" ? "✓ " : t.status === "in_progress" ? "▸ " : "· ") + t.content).join("\n") };
     default: return { title: name, detail: JSON.stringify(input ?? {}).slice(0, 400) };
   }
@@ -108,8 +110,9 @@ function describe(root: string, name: string, input: any): { title: string; deta
 const now = () => new Date().toISOString();
 const textOf = (c: any): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map((x: any) => (x.type === "text" ? x.text ?? "" : "")).join("\n") : "");
 
-// Tools cockpit gives the agent: read the owner's terminals.
-function cockpitTools(terms: Terminals) {
+// Tools cockpit gives the agent: read the owner's terminals, and the review in progress with its
+// merge request's discussions.
+function cockpitTools(terms: Terminals, review: () => Promise<string>) {
   return createSdkMcpServer({
     name: "cockpit",
     tools: [tool(
@@ -117,6 +120,12 @@ function cockpitTools(terms: Terminals) {
       "Read the owner's terminals in cockpit: for each one, the last commands they ran with exit codes and output (colors stripped), and what is running now. Use it when the owner refers to something they ran.",
       { terminal: z.string().optional().describe("one terminal id, like t1; all terminals when left out"), last: z.number().int().min(1).max(20).optional().describe("how many recent commands per terminal, default 3") },
       async ({ terminal, last }) => ({ content: [{ type: "text", text: terms.read(terminal, last ?? 3) }] }),
+      { annotations: { readOnlyHint: true } },
+    ), tool(
+      "review_threads",
+      "The merge request (or pull request) the owner is reviewing in cockpit, its diff command, and every discussion on it as the forge has it now: who commented, on which file and line (or on the whole request), what they said, the replies, and whether it is resolved. Use it when the owner asks about the review or about someone's comment.",
+      {},
+      async () => ({ content: [{ type: "text", text: await review() }] }),
       { annotations: { readOnlyHint: true } },
     )],
   });
@@ -148,8 +157,10 @@ function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSe
   return items;
 }
 
-// `workspace`: the workspace this project is viewed in, if any (workspace.ts).
-export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, onChecks?: () => void, workspace: () => Workspace | null = () => null) {
+// `workspace`: the workspace this project is viewed in, if any (workspace.ts). `review`: the review
+// in progress and its discussions, as text (project-server.ts).
+export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, onChecks?: () => void, workspace: () => Workspace | null = () => null,
+  review: () => Promise<string> = async () => "No review in progress in cockpit.") {
   const dir = join(outDir(project), "chats");
   mkdirSync(dir, { recursive: true });
   // Conversation ids are Claude Code's session UUIDs; anything else from the page is refused, so
@@ -171,6 +182,13 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     } catch {}
   }
   const meta = (() => { try { return JSON.parse(readFileSync(metaFile, "utf8")); } catch { return {}; } })();
+  // Each conversation's number ("Chat n"), given once; `last`: the highest ever given, so a
+  // deleted conversation's number isn't given again.
+  const numbersFile = join(dir, "numbers.json");
+  const numbers: { last: number; of: Record<string, number> } = (() => {
+    try { const v = JSON.parse(readFileSync(numbersFile, "utf8")); if (typeof v.last === "number" && v.of) return v; } catch {}
+    return { last: 0, of: {} };
+  })();
   let model: string = MODELS.includes(meta.model) ? meta.model : DEFAULT_MODEL;
   const listeners = new Set<(e: Event) => void>();
   const emit = (e: Event) => { for (const l of listeners) l(e); };
@@ -275,8 +293,8 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           ...(ws ? { additionalDirectories: [...ws.projects.filter((p) => !p.here).map((p) => p.path), ws.dir] } : {}),
           systemPrompt: { type: "preset", preset: "claude_code", append: brief(root) + (ws ? "\n\n" + workspaceBrief(ws, COCKPIT) : "") },
           disallowedTools: ["AskUserQuestion"], // the agent asks in the chat instead
-          mcpServers: { cockpit: cockpitTools(terms) },
-          allowedTools: ["mcp__cockpit__terminals"],
+          mcpServers: { cockpit: cockpitTools(terms, review) },
+          allowedTools: ["mcp__cockpit__terminals", "mcp__cockpit__review_threads"],
           ...(session ? { resume: session } : {}),
           canUseTool: async (tool, input, { signal, decisionReason }) => {
             const id = "ask-" + Math.random().toString(36).slice(2, 10);
@@ -553,15 +571,19 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     usage,
     // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere. Each is
     // "Chat n", numbered in the order they were started (Claude Code's own titles are summaries),
-    // with its first message as a preview, and whether its agent is working now.
+    // with its first message as a preview, and whether its agent is working now. A number is given
+    // once and kept (numbers.json): deleting a conversation leaves a gap, it doesn't renumber the others.
     async sessions() {
       const list = await listSessions({ dir: root, limit: 500 });
       const born = (s: (typeof list)[number]) => s.createdAt ?? s.lastModified;
-      const order = new Map([...list].sort((a, b) => born(a) - born(b)).map((s, i) => [s.sessionId, i + 1]));
+      let added = false;
+      for (const s of [...list].sort((a, b) => born(a) - born(b)))
+        if (!(s.sessionId in numbers.of)) { numbers.of[s.sessionId] = ++numbers.last; added = true; }
+      if (added) writeFileSync(numbersFile, JSON.stringify(numbers));
       return list.slice(0, 80).map((s) => {
-        const a = agents.find((x) => x.session === s.sessionId);
+        const a = agents.find((x) => x.session === s.sessionId), n = numbers.of[s.sessionId];
         return {
-          id: s.sessionId, n: order.get(s.sessionId)!, title: `Chat ${order.get(s.sessionId)}`,
+          id: s.sessionId, n, title: `Chat ${n}`,
           preview: s.firstPrompt || s.summary || "", at: s.lastModified,
           branch: s.gitBranch ?? null, here: SESSION_ID.test(s.sessionId) && existsSync(fileOf(s.sessionId)),
           busy: !!a?.busy, asking: !!a?.asking(),
@@ -578,6 +600,8 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       if (a) { a.stop(); drop(a); }
       await deleteSession(id, { dir: root });
       rmSync(f, { force: true });
+      delete numbers.of[id]; // its number stays used (numbers.last)
+      writeFileSync(numbersFile, JSON.stringify(numbers));
     },
     // Open another conversation: its agent if one is running, else its record (the next message
     // resumes it).

@@ -280,7 +280,7 @@ body.desktop header.wleft{padding-left:6px}
 .winctl button{width:24px;height:24px;padding:0;border:0;border-radius:50%;display:grid;place-items:center;background:color-mix(in oklab,var(--fg) 10%,transparent);color:var(--fg)}
 .winctl button:hover{background:color-mix(in oklab,var(--fg) 15%,transparent)}
 .winctl button:active{background:color-mix(in oklab,var(--fg) 25%,transparent)}
-.winctl svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
+.winctl svg{fill:currentColor}
 /* right panel: chat and details */
 #right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--side);border-left:1px solid var(--line);min-height:0;position:relative}
 #chat{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
@@ -324,7 +324,9 @@ button.csend:hover{background:color-mix(in oklab,var(--accent) 88%,var(--shade))
 button.csend:disabled{background:var(--btn);color:var(--muted);cursor:default}
 button.csend svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 button.csend.stop{background:var(--fg);color:var(--bg)}button.csend.stop svg{fill:currentColor;stroke:none}
-.spin{display:inline-block;width:9px;height:9px;border-radius:50%;border:1.5px solid var(--accent);border-right-color:transparent;animation:spin .8s linear infinite;vertical-align:-1px}
+/* a ring with a fading tail, drawn by a gradient under a mask: smooth at any zoom, and an even
+   box (no border) so it turns about its exact center instead of wobbling */
+.spin{display:inline-block;flex:none;width:12px;height:12px;border-radius:50%;color:var(--accent);background:conic-gradient(from 0deg,transparent 0 12%,currentColor);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.4px),#000 calc(100% - 1.9px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.4px),#000 calc(100% - 1.9px));animation:spin .9s linear infinite;vertical-align:middle;will-change:transform}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* terminal drawer, under the center */
@@ -426,6 +428,7 @@ button.ctitle .chev{color:var(--muted);font-size:var(--fs-xs)}button.ctitle:hove
 .cagents,.cstate{display:inline-flex;align-items:center;gap:4px;flex:none;font-size:var(--fs-xs);color:var(--hot)}
 .cagents.asking,.cstate.asking{color:var(--warn);font-weight:700}
 .cstate{width:22px;justify-content:center}
+.cwork{display:inline-flex;align-items:center;gap:6px}
 .clist{position:absolute;z-index:30;top:calc(var(--bar-h) - 2px);left:8px;right:8px;max-height:60%;overflow:auto;padding:6px;background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shadow-pop)}
 .clist p{padding:4px 12px;margin:0}
 /* the conversations: rounded rows, the whole row lights up; the open one is raised like a tab */
@@ -583,6 +586,13 @@ button.gpbtn:hover{background:color-mix(in oklab,var(--accent) 10%,transparent)}
 .gcard.review h4{margin:10px 0 4px}
 .gcard .mrlist{margin:0 -10px}.gcard button.mrrow{padding:4px 10px}
 .gcard label{display:block;margin-top:4px}
+/* the review's merge request discussions (GitPane) */
+.thrrow .gitfile.thr{flex-direction:column;align-items:flex-start;gap:0;text-decoration:none;color:inherit;display:flex;padding-top:2px;padding-bottom:3px}
+.thrrow .tw,.thrrow .tb{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.thrrow .tb{font-size:var(--fs-s);color:var(--muted)}
+.thrrow .tag{font-size:var(--fs-xs);border:1px solid var(--line);border-radius:var(--r-m);padding:0 4px;margin-left:4px;color:var(--muted)}
+.thrrow.resolved{opacity:.6}
+.gact.thrask{width:auto;padding:0 6px;font-size:var(--fs-s);color:var(--accent)}
 /* commit */
 .commitbox{display:flex;flex-direction:column;gap:6px;margin:4px 8px 6px}
 .commitbox textarea{font:inherit;font-size:var(--fs-m);resize:vertical;min-height:40px;padding:6px 8px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);color:var(--fg)}

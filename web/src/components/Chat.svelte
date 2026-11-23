@@ -5,9 +5,9 @@
   // agents can work at once (one per conversation), and the title says how many are working
   // elsewhere or waiting for you. The ring by "send" shows how full this conversation is, and
   // hovering it, how much of your plan's limits you've used.
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
-  import { openFile, S } from "../lib/state.svelte";
+  import { chatDraft, openFile, S } from "../lib/state.svelte";
   import type { ChatAgent, ChatItem, ChatSession, Usage } from "../lib/types";
   import IconButton from "./ui/IconButton.svelte";
   import Menu from "./ui/Menu.svelte";
@@ -23,6 +23,14 @@
   const others = $derived(agents.filter((a) => a.session !== session && (a.busy || a.asking)));
   const othersAsking = $derived(others.filter((a) => a.asking).length);
   let text = $state("");
+  // Text handed over from elsewhere (a review discussion's "ask"): put in front of what's typed.
+  let draftSeen = chatDraft.n;
+  $effect(() => {
+    const n = chatDraft.n;
+    if (n === draftSeen) return;
+    draftSeen = n;
+    text = untrack(() => chatDraft.text + text);
+  });
   let msgs: HTMLElement;
   // The composer grows with what's typed (whole pixels, up to its max-height) instead of scrolling:
   // a scrolled textarea re-renders its text at fractional offsets in WebKitGTK and looks blurry.
@@ -34,7 +42,7 @@
     ta.style.height = Math.ceil(ta.scrollHeight + ta.offsetHeight - ta.clientHeight) + "px";
   });
   let near = true;
-  let list: ChatSession[] | null = $state(null); // the conversations list, when open
+  let list = $state<ChatSession[] | null>(null); // the conversations list, when open
   let usage: Usage | null = $state(null);
   let hover = $state(false), pinned = $state(false), ctxEl: HTMLElement;
   const ctxPct = $derived(context ? Math.min(100, (100 * context.used) / context.max) : null);
@@ -99,7 +107,7 @@
         if (i >= 0) items[i] = e.item; else items.push(e.item);
         stick();
         if (e.item.kind !== "user") onactivity(e.item.kind === "ask" && e.item.status === "waiting");
-        if (e.item.kind === "done") loadUsage();
+        if (e.item.kind === "done") { loadUsage(); if (session && !names.some((x) => x.id === session)) refreshList(); }
       }
     };
     loadUsage();
@@ -155,23 +163,31 @@
   async function loadUsage() { try { usage = await api.get<Usage>("api/chat/usage"); } catch {} }
   async function showList() {
     if (list) { list = null; return; }
-    list = [];
+    // Show the names already known at once (no "loading…" flash, no title flicker), then refresh.
+    list = names;
     await refreshList();
   }
-  async function refreshList() { const l = await api.get<ChatSession[]>("api/chat/sessions").catch(() => null); if (l && list) list = l; }
+  async function refreshList() { const l = await api.get<ChatSession[]>("api/chat/sessions").catch(() => null); if (l) { names = l; if (list) list = l; } }
   // Agents started here whose conversation Claude Code doesn't list yet (no transcript so far).
   const unlisted = $derived(list ? others.filter((a) => !a.session || !list!.some((s) => s.id === a.session)) : []);
   async function openSession(id: string) { list = null; await post("open", { id }); }
-  // The open conversation's name ("Chat 3", or its /rename title), looked up when it changes.
+  // The open conversation's name ("Chat 3", or its /rename title), looked up once when it changes
+  // (a new conversation isn't listed until its first reply: asked again when a turn ends).
   let names = $state<ChatSession[]>([]);
-  $effect(() => { if (session && !names.some((x) => x.id === session)) api.get<ChatSession[]>("api/chat/sessions").then((l) => (names = l)).catch(() => {}); });
+  let namedFor: string | null = null;
+  $effect(() => {
+    const s = session;
+    if (!s || s === namedFor || untrack(() => names.some((x) => x.id === s))) return;
+    namedFor = s;
+    refreshList();
+  });
   // Deleting a past conversation takes two clicks in place, like reverting a file; leaving the row cancels.
   let arming = $state<string | null>(null);
   async function remove(id: string) {
     if (arming !== id) { arming = id; return; }
     arming = null;
     const r = await api.post<{ error?: string }>("api/chat/delete", { id }).catch((e) => ({ error: String(e) }));
-    if (!r?.error && list) { list = list.filter((x) => x.id !== id); names = names.filter((x) => x.id !== id); }
+    if (!r?.error) await refreshList();
   }
 
   const k = (n: number) => (n >= 1e6 ? (n / 1e6).toFixed(n % 1e6 ? 1 : 0) + "M" : n >= 1000 ? Math.round(n / 1000) + "k" : String(n));
@@ -193,7 +209,7 @@
   const describe = () => post("send", { text: wsNames.length > 1
     ? `Describe the projects of this workspace (${wsNames.join(", ")}), each in its own .cockpit/: the summary, the features, and the diagrams that best explain how it works, as many as each one needs. Then write how they fit together in the workspace's SYSTEM.md. Don't change the code.`
     : "Describe this project in .cockpit/: the summary, the features, and the diagrams that best explain how it works, as many as this project needs. Don't change the code." });
-  const title = $derived(session ? ((list ?? names).find((x) => x.id === session)?.title ?? "Chat") : "New chat");
+  const title = $derived(session ? ((list?.length ? list : names).find((x) => x.id === session)?.title ?? "Chat") : "New chat");
 </script>
 
 <svelte:window onpointerdown={unpin} onkeydown={(e) => { if (e.key === "Escape") { pinned = false; list = null; } }} />
@@ -278,7 +294,7 @@
     <textarea onpaste={onPaste} ondrop={onDrop} rows="3" bind:this={ta} bind:value={text} placeholder="Ask the agent…"
       onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
     <div class="crow">
-      {#if busy}<span class="muted"><span class="spin"></span> working…</span>{/if}
+      {#if busy}<span class="muted cwork"><span class="spin"></span>working…</span>{/if}
       <span class="grow"></span>
       {#if models.length > 1}<Menu up label="Model the agent answers with" value={model} options={models} onpick={(m) => { model = m; post("model", { model }); }} />{/if}
       <!-- how full the context is: a ring by "send"; hovering shows the numbers and plan usage, a click keeps them open -->

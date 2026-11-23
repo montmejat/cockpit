@@ -56,7 +56,7 @@
       "id": "review",
       "name": "Review mode",
       "status": "working",
-      "description": "Check out a merge request or two branches and see changed boxes, files and git lists against the point where the branch left its target.",
+      "description": "Check out a merge request or two branches and see changed boxes, files and git lists against the point where the branch left its target. The merge request's discussions (glab/gh) show under their lines in the editor and in the git tab, and the agent reads them through its review_threads tool.",
       "modules": ["cockpit/review", "cockpit/review-state"]
     },
     {

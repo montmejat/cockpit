@@ -4,7 +4,7 @@
 import { SvelteSet } from "svelte/reactivity";
 import { api } from "./code";
 import { merge } from "./listmerge";
-import type { DiagramNode, Live, Tab, TermMeta } from "./types";
+import type { DiagramNode, Live, Review, Tab, TermMeta, Thread } from "./types";
 
 // The desktop app's window (desktop/src/main.rs, BRIDGE), absent in a browser tab.
 export interface Desktop {
@@ -167,6 +167,21 @@ export function explainChanges(n: DiagramNode, diagram?: string) {
   showChat();
 }
 export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map(where).filter((w) => !!w).map((w) => w!.file))];
+
+// Text put in the chat's message box (Chat.svelte adds it in front of what's typed, and focuses it).
+export const chatDraft = $state({ text: "", n: 0 });
+export function draftInChat(text: string) {
+  chatDraft.text = text; chatDraft.n++;
+  showChat();
+  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("#composer textarea")?.focus());
+}
+// "ask" on a merge request's discussion: the chat's box gets which one it is, you add the question.
+export function askAboutThread(th: Thread, r: Review | null, project?: string) {
+  const where = !th.path ? "on the merge request" : `on ${th.path}${th.line ? ":" + th.line : th.oldLine ? ` (removed line ${th.oldLine})` : ""}`;
+  const first = th.notes[0], body = (first?.body ?? "").trim().replace(/\s+/g, " ");
+  const mr = r?.mr ? `${r.mr.ref}${project ? ` (project ${project})` : ""}` : "the review";
+  draftInChat(`About ${first?.author ?? "a"}'s comment ${where} in ${mr}${th.notes.length > 1 ? ` and its ${th.notes.length - 1} repl${th.notes.length > 2 ? "ies" : "y"}` : ""}: "${body.length > 240 ? body.slice(0, 240) + "…" : body}"\n`);
+}
 
 // ---- what is open ----------------------------------------------------------
 

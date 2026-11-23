@@ -1,6 +1,7 @@
 // The file editor (CodeMirror 6): languages, colors that match the rest of the page, and the
 // pieces FileEditor.svelte puts together: change bars in the margin from git's hunks (kept in
-// place while you type), the removed lines under a clicked bar, and highlighted line ranges.
+// place while you type), the removed lines under a clicked bar, highlighted line ranges, and in
+// review mode the merge request's discussions under the lines they are on.
 
 import { EditorView, Decoration, type DecorationSet, gutter, GutterMarker, WidgetType } from "@codemirror/view";
 import { RangeSet, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
@@ -20,8 +21,10 @@ import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { cmake } from "@codemirror/legacy-modes/mode/cmake";
 import { swift } from "@codemirror/legacy-modes/mode/swift";
 import { dockerFile } from "@codemirror/legacy-modes/mode/dockerfile";
+import { xml } from "@codemirror/legacy-modes/mode/xml";
 import { shader, objectiveC, objectiveCpp } from "@codemirror/legacy-modes/mode/clike";
-import type { Hunk } from "./types";
+import type { Hunk, Thread } from "./types";
+import { XML_EXTS, copyTargetAt, md } from "./code";
 
 // ---- Zig: CodeMirror has none ------------------------------------------------------
 
@@ -66,6 +69,7 @@ const BY_EXT: Record<string, () => Extension> = {
   toml: () => legacy(toml), sh: () => legacy(shell), bash: () => legacy(shell), cmake: () => legacy(cmake), swift: () => legacy(swift),
   glsl: () => legacy(shader), vert: () => legacy(shader), frag: () => legacy(shader), comp: () => legacy(shader), geom: () => legacy(shader),
   m: () => legacy(objectiveC), mm: () => legacy(objectiveCpp), zig: () => legacy(zigParser), zon: () => legacy(zigParser),
+  ...Object.fromEntries(XML_EXTS.map((e) => [e, () => legacy(xml)])),
 };
 const BY_NAME: Record<string, () => Extension> = { "CMakeLists.txt": () => legacy(cmake), Dockerfile: () => legacy(dockerFile), Makefile: () => legacy(shell) };
 export function languageFor(path: string): Extension {
@@ -129,6 +133,25 @@ export const look: Extension = [
     ".cm-hunkbar button:last-of-type": { marginLeft: "auto", border: "0", background: "none", color: "var(--muted)" },
     ".cm-chg.click:hover": { width: "6px" },
     ".cm-removed": { backgroundColor: "var(--del-bg)", whiteSpace: "pre", padding: "0 6px 0 2px", color: "var(--fg)" },
+    // a merge request's discussion, under its line
+    ".cm-thread": { margin: "3px 8px 5px 4px", border: "1px solid var(--line)", borderLeft: "3px solid var(--warn)", borderRadius: "5px", backgroundColor: "var(--bg)", fontFamily: "var(--ui)", fontSize: "var(--fs-s)", lineHeight: "1.45", maxWidth: "860px" },
+    ".cm-thread.resolved": { borderLeftColor: "var(--line)", opacity: ".75" },
+    ".cm-threadbar": { display: "flex", alignItems: "center", gap: "8px", padding: "2px 8px", color: "var(--muted)", cursor: "pointer", userSelect: "none" },
+    ".cm-threadbar b": { color: "var(--fg)", fontWeight: "600" },
+    ".cm-threadbar .tag": { border: "1px solid var(--line)", borderRadius: "4px", padding: "0 4px" },
+    ".cm-threadbar a, .cm-threadbar button": { font: "inherit", color: "var(--accent)", background: "none", border: "0", padding: "0", cursor: "pointer", textDecoration: "none" },
+    ".cm-threadbar .grow": { flex: "1" },
+    ".cm-note": { padding: "3px 10px 5px", borderTop: "1px solid var(--line)", color: "var(--fg)" },
+    ".cm-note .who": { color: "var(--muted)", marginBottom: "1px" },
+    ".cm-note .body": { wordBreak: "break-word", whiteSpace: "normal" },
+    ".cm-note .body > :first-child": { marginTop: "0" }, ".cm-note .body > :last-child": { marginBottom: "0" },
+    ".cm-note .body a": { color: "var(--accent)" },
+    ".cm-note pre": { background: "var(--card)", border: "1px solid var(--line)", borderRadius: "var(--r-s)", padding: "6px 30px 6px 8px", margin: "4px 0", overflow: "auto", fontFamily: "var(--mono)", fontSize: "var(--fs-s)", whiteSpace: "pre", maxHeight: "320px" },
+    ".cm-note pre.diff": { padding: "6px 0" }, ".cm-note pre.diff > span": { display: "block", padding: "0 8px" },
+    ".cm-note pre.diff .da": { background: "var(--add-bg)", color: "var(--add)" }, ".cm-note pre.diff .dd": { background: "var(--del-bg)", color: "var(--del)" },
+    ".cm-note pre.diff .dh": { color: "var(--accent)" },
+    ".cm-note .mdtable": { overflowX: "auto", margin: "4px 0" }, ".cm-note .mdtable table": { borderCollapse: "collapse" },
+    ".cm-note .mdtable th, .cm-note .mdtable td": { border: "1px solid var(--line)", padding: "2px 6px", textAlign: "left", verticalAlign: "top" },
   }),
 ];
 
@@ -271,6 +294,74 @@ export function changeStarts(view: EditorView): number[] {
   view.state.field(barsField).between(0, view.state.doc.length, (from, _to, m) => { if (!seen.has(m.hunk)) { seen.add(m.hunk); out.push(from); } });
   return out;
 }
+
+// ---- the merge request's discussions, under their lines (review mode) ------------------------
+
+/** The threads on the shown file, and what "ask" does with one (hands it to the chat). */
+export const setThreads = StateEffect.define<{ threads: Thread[]; ask: (th: Thread) => void }>();
+// A comment's Markdown, made ready for md: GitLab's and GitHub's suggested changes
+// (```suggestion:-0+1) are code blocks under a "Suggested change" line, and their HTML-ish bits
+// that md doesn't know (<br>, details) are left as text by md's escaping.
+const noteMarkdown = (body: string) => body.trim().replace(/^(\s*)```suggestion\S*\s*$/gm, "$1**Suggested change:**\n$1```");
+const when = (at: string) => { const d = new Date(at); return isNaN(+d) ? "" : d.toLocaleDateString(undefined, { day: "numeric", month: "short" }); };
+
+// One discussion: a bar (who, how many replies, resolved, ask, open on the forge), then its notes.
+// Resolved ones start folded; a click on the bar folds or unfolds.
+class ThreadBox extends WidgetType {
+  constructor(readonly th: Thread, readonly ask: (th: Thread) => void) { super(); }
+  eq(o: ThreadBox) { return JSON.stringify(o.th) === JSON.stringify(this.th); }
+  toDOM() {
+    const th = this.th, d = document.createElement("div");
+    d.className = "cm-thread" + (th.resolved ? " resolved" : "");
+    const el = (tag: string, cls: string, text = "") => { const e = document.createElement(tag); if (cls) e.className = cls; if (text) e.textContent = text; return e; };
+    const bar = el("div", "cm-threadbar"), notes: HTMLElement[] = [];
+    const first = th.notes[0], more = th.notes.length - 1;
+    bar.append(el("span", "", "💬"), el("b", "", first?.author ?? ""));
+    if (more) bar.append(el("span", "", `+${more} repl${more > 1 ? "ies" : "y"}`));
+    if (th.resolved) bar.append(el("span", "tag", "resolved"));
+    if (th.older) { const o = el("span", "tag", "older version"); o.title = "Written on an older commit: the line may have moved since"; bar.append(o); }
+    bar.append(el("span", "grow"));
+    const ask = el("button", "", "ask") as HTMLButtonElement;
+    ask.title = "Ask the agent about this discussion";
+    ask.onmousedown = (e) => { e.preventDefault(); e.stopPropagation(); this.ask(th); };
+    bar.append(ask);
+    if (th.url) { const a = el("a", "", "open ↗") as HTMLAnchorElement; a.href = th.url; a.target = "_blank"; a.rel = "noreferrer"; a.title = "Open it on the forge"; a.onmousedown = (e) => e.stopPropagation(); bar.append(a); }
+    for (const n of th.notes) {
+      const box = el("div", "cm-note"), body = el("div", "body ctext");
+      body.innerHTML = md(noteMarkdown(n.body)); // md escapes the text: only its own tags get through
+      box.append(el("div", "who", `${n.author} · ${when(n.at)}`), body);
+      notes.push(box);
+    }
+    // A code block's copy button (made by md), as in the chat.
+    d.addEventListener("click", (e) => {
+      const c = copyTargetAt(e.target);
+      if (!c) return;
+      navigator.clipboard?.writeText(c.text).then(() => { c.button.classList.add("done"); setTimeout(() => c.button.classList.remove("done"), 1200); }).catch(() => {});
+    });
+    let open = !th.resolved;
+    const fold = () => { for (const x of notes) x.style.display = open ? "" : "none"; };
+    bar.onmousedown = (e) => { if ((e.target as HTMLElement).closest("a,button")) return; e.preventDefault(); open = !open; fold(); };
+    d.append(bar, ...notes);
+    fold();
+    return d;
+  }
+  ignoreEvent() { return true; }
+}
+const threadsField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(set, tr) {
+    for (const e of tr.effects) if (e.is(setThreads)) {
+      const doc = tr.state.doc, { threads, ask } = e.value;
+      const ds = threads.filter((th) => th.line && th.line <= doc.lines)
+        .map((th) => Decoration.widget({ widget: new ThreadBox(th, ask), block: true, side: 1 }).range(doc.line(th.line!).to))
+        .sort((a, b) => a.from - b.from);
+      return Decoration.set(ds);
+    }
+    return set.map(tr.changes);
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+export const reviewThreads: Extension = threadsField;
 
 // ---- highlighted line ranges (asked-for lines, the hovered box's lines) ----------------------
 

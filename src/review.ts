@@ -28,6 +28,27 @@ export interface Review {
   target: string; // what it is compared with, e.g. origin/main
   returnTo: string | null; // the branch (or commit) you were on before
 }
+// A discussion on the merge request, as the forge has it: on a line of a file (path, and line in
+// the new version, or oldLine when it is on a removed line), or on the merge request as a whole
+// (path null). `head`: the commit it was written against (its line may have moved since).
+export interface Thread {
+  id: string; path: string | null; line: number | null; oldLine: number | null; head: string | null;
+  resolved: boolean | null; // null: the forge doesn't say (GitHub without GraphQL)
+  url: string | null;
+  notes: { author: string; body: string; at: string }[];
+}
+
+// The threads as plain text for the agent: where each one is, who said what.
+export function threadsText(threads: Thread[], headSha: string) {
+  if (!threads.length) return "No discussions on it yet.";
+  const where = (t: Thread) => !t.path ? "on the merge request" : t.line ? `${t.path}:${t.line}` : `${t.path}, removed line ${t.oldLine} (of the old version)`;
+  return threads.map((t) => {
+    const older = t.head && headSha && !headSha.startsWith(t.head) && !t.head.startsWith(headSha);
+    const tags = [t.resolved === true ? "resolved" : t.resolved === false ? "unresolved" : "", older ? `written on ${t.head!.slice(0, 8)}, an older version: the line may have moved` : ""].filter(Boolean);
+    return `### ${where(t)}${tags.length ? ` (${tags.join("; ")})` : ""}\n` +
+      t.notes.map((n) => `${n.author}, ${n.at.slice(0, 10)}:\n${n.body.trim().split("\n").map((l) => "> " + l).join("\n")}`).join("\n\n");
+  }).join("\n\n");
+}
 
 const run = (cmd: string, args: string[], cwd: string, timeout = 60_000) => new Promise<string>((done, fail) =>
   execFile(cmd, args, { cwd, timeout, maxBuffer: 64 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (e, out, err) =>
@@ -35,7 +56,23 @@ const run = (cmd: string, args: string[], cwd: string, timeout = 60_000) => new 
 const git = (root: string, ...a: string[]) => run("git", a, root);
 const ok = (p: Promise<unknown>) => p.then(() => true, () => false);
 
-export function createReview(root: string, project: string) {
+// JSON values one after the other, as `glab api --paginate` and `gh api --paginate` print the
+// pages of a list ("[…][…]"): split where each top-level value ends, strings skipped over.
+export function jsonValues(s: string): any[] {
+  const out: any[] = [];
+  let depth = 0, start = -1, inStr = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) { if (c === "\\") i++; else if (c === '"') inStr = false; continue; }
+    if (c === '"') inStr = true;
+    else if (c === "[" || c === "{") { if (depth++ === 0) start = i; }
+    else if ((c === "]" || c === "}") && --depth === 0) out.push(JSON.parse(s.slice(start, i + 1)));
+  }
+  return out;
+}
+
+// `onThreads`: the merge request's discussions changed (fetched again).
+export function createReview(root: string, project: string, onThreads: () => void = () => {}) {
   const file = () => join(outDir(project), "review.json");
   let current: Review | null = null;
   try { if (existsSync(file())) current = JSON.parse(readFileSync(file(), "utf8")); } catch {}
@@ -178,6 +215,7 @@ export function createReview(root: string, project: string) {
       else throw new Error(`no branch ${branch}`);
     }
     save({ mr: opts.mr ?? null, branch, target: targetRef, returnTo: before !== branch ? before : current?.returnTo ?? null });
+    refreshThreads();
     return { note };
   }
 
@@ -189,7 +227,83 @@ export function createReview(root: string, project: string) {
       await git(root, "checkout", r.returnTo);
     }
     save(null);
+    threadsOf = null; threadsJson = ""; threadsError = null;
   }
 
-  return { current: () => current, mergeRequests, branchMr, branches, start, stop };
+  // ---- the merge request's discussions ------------------------------------------------------
+  // Fetched when a review starts, again every two minutes while it lasts, and when asked (the
+  // page's refresh, the agent's tool). Kept in memory only: the forge is where they live.
+  let threadsOf: { mr: number; list: Thread[] } | null = null, threadsJson = "", threadsError: string | null = null;
+  let fetching: Promise<void> | null = null;
+  function refreshThreads(): Promise<void> {
+    const mr = current?.mr;
+    if (!mr) return Promise.resolve();
+    if (fetching) return fetching;
+    fetching = (async () => {
+      try {
+        const list = await fetchThreads(mr);
+        if (current?.mr?.id !== mr.id) return;
+        const j = JSON.stringify(list), was = threadsOf?.mr === mr.id;
+        threadsOf = { mr: mr.id, list };
+        if (!was || j !== threadsJson || threadsError) { threadsJson = j; threadsError = null; onThreads(); }
+      } catch (e: any) {
+        const cli = (await forge()) === "github" ? "gh" : "glab";
+        const err = /ENOENT/.test(e.message) ? `${cli} is not installed` : `${cli}: ${e.message}`;
+        if (err !== threadsError) { threadsError = err; onThreads(); }
+      } finally { fetching = null; }
+    })();
+    return fetching;
+  }
+  setInterval(() => { if (current?.mr) refreshThreads(); }, 120_000).unref();
+  if (current?.mr) refreshThreads();
+
+  async function fetchThreads(mr: MergeRequest): Promise<Thread[]> {
+    const pages = async (cmd: string, path: string) => jsonValues(await run(cmd, ["api", "--paginate", path], root, 30_000)).flat();
+    if ((await forge()) === "gitlab") {
+      const raw = await pages("glab", `projects/:id/merge_requests/${mr.id}/discussions?per_page=100`);
+      return raw.flatMap((d: any) => {
+        const notes = (d.notes ?? []).filter((n: any) => !n.system);
+        if (!notes.length) return [];
+        const p = notes[0].position;
+        const resolvable = notes.some((n: any) => n.resolvable);
+        return [{
+          id: String(d.id), path: p ? p.new_path ?? p.old_path ?? null : null,
+          line: p?.new_line ?? null, oldLine: p?.new_line == null ? p?.old_line ?? null : null, head: p?.head_sha ?? null,
+          resolved: resolvable ? notes.every((n: any) => !n.resolvable || n.resolved) : null,
+          url: `${mr.url}#note_${notes[0].id}`,
+          notes: notes.map((n: any) => ({ author: n.author?.username ?? "", body: n.body ?? "", at: n.created_at ?? "" })),
+        }];
+      });
+    }
+    // GitHub: line comments (grouped into threads by what they reply to), the reviews' own
+    // words and the conversation's comments.
+    const repo = `repos/{owner}/{repo}`;
+    const [lineC, reviews, issueC] = await Promise.all([
+      pages("gh", `${repo}/pulls/${mr.id}/comments?per_page=100`),
+      pages("gh", `${repo}/pulls/${mr.id}/reviews?per_page=100`),
+      pages("gh", `${repo}/issues/${mr.id}/comments?per_page=100`),
+    ]);
+    const out: Thread[] = [], byId = new Map<number, Thread>();
+    for (const c of lineC) {
+      const note = { author: c.user?.login ?? "", body: c.body ?? "", at: c.created_at ?? "" };
+      const parent = c.in_reply_to_id ? byId.get(c.in_reply_to_id) : null;
+      if (parent) { parent.notes.push(note); byId.set(c.id, parent); continue; }
+      const left = c.side === "LEFT", line = c.line ?? null; // line null: outdated, original_line is where it was
+      const t: Thread = {
+        id: String(c.id), path: c.path ?? null,
+        line: left ? null : line ?? c.original_line ?? null, oldLine: left ? line ?? c.original_line ?? null : null,
+        head: line == null ? c.original_commit_id ?? null : c.commit_id ?? null, resolved: null, url: c.html_url ?? null, notes: [note],
+      };
+      byId.set(c.id, t); out.push(t);
+    }
+    const whole = (id: string, c: any, at: string): Thread => ({ id, path: null, line: null, oldLine: null, head: null, resolved: null, url: c.html_url ?? null, notes: [{ author: c.user?.login ?? "", body: c.body ?? "", at }] });
+    for (const r of reviews) if (r.body?.trim()) out.push(whole("r" + r.id, r, r.submitted_at ?? ""));
+    for (const c of issueC) out.push(whole("c" + c.id, c, c.created_at ?? ""));
+    return out;
+  }
+
+  // The review's threads as last fetched (list null: not fetched yet, or no merge request).
+  const threads = () => ({ list: current?.mr && threadsOf?.mr === current.mr.id ? threadsOf.list : null, error: current?.mr ? threadsError : null });
+
+  return { current: () => current, mergeRequests, branchMr, branches, start, stop, threads, refreshThreads };
 }

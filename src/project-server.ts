@@ -20,7 +20,7 @@ import { itemKey } from "./skeleton.ts";
 import { COCKPIT, outDir, turnsDir } from "./turns.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
-import { createReview } from "./review.ts";
+import { createReview, threadsText } from "./review.ts";
 import { createPrivate } from "./private.ts";
 import { createWorkspace, isWorkspace, listWorkspaces, loadWorkspace } from "./workspace.ts";
 import { createGit } from "./git.ts";
@@ -50,8 +50,8 @@ const name = opt("name") ?? basename(root);
 const index = createIndex(root, name); // the code index (rust-analyzer or scip-clang), rebuilt when code changes
 const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
 const ask = createAsk(root); // the terminal's ask line: words → a command
-const chat = createChat(root, name, terms, index, () => changed(), workspace); // the agent, run by cockpit itself
-const review = createReview(root, name); // reviewing a merge request against its target
+const review = createReview(root, name, () => changed()); // reviewing a merge request against its target
+const chat = createChat(root, name, terms, index, () => changed(), workspace, reviewForAgent); // the agent, run by cockpit itself
 const lsp = createLsp(root); // language servers for the editor
 // Started by a workspace's host: go when it goes.
 if (process.env.COCKPIT_CHILD) { process.stdin.resume(); process.stdin.on("close", () => process.exit(0)); }
@@ -61,6 +61,18 @@ const priv = createPrivate(root, () => changed());
 const git = createGit(root);
 const reviewing = createReviewState(root, git, review, priv);
 const reviewBase = reviewing.base;
+// The review in progress and its merge request's discussions, fetched fresh, for the agent.
+async function reviewForAgent() {
+  const r = review.current();
+  if (!r) return "No review in progress in cockpit.";
+  const base = await reviewBase();
+  const what = `${r.branch} against ${r.target}` + (base ? `; its diff: git diff ${base}` : "");
+  if (!r.mr) return `The owner is reviewing ${what}, picked by hand: no merge request, so no discussions.`;
+  await review.refreshThreads();
+  const t = review.threads(), head = await git.read("rev-parse", "HEAD");
+  return `The owner is reviewing ${r.mr.ref} "${r.mr.title}" by ${r.mr.author} (${r.mr.url}): ${what}.\n\n` +
+    (t.list ? threadsText(t.list, head) : `Its discussions couldn't be fetched: ${t.error ?? "unknown error"}`);
+}
 const port = Number(opt("port") ?? 4173), host = opt("host") ?? "127.0.0.1";
 // The desktop app hands its token over; else one kept per project, so a page left open keeps
 // working when the server restarts.
@@ -339,6 +351,7 @@ const routes: Record<string, Handler> = {
   "POST /api/private/disable": post(async () => { priv.disable(); await recompute(); }),
   "POST /api/private/sync": post(async () => { await priv.sync(); await recompute(); }),
   "POST /api/review/stop": post(async ({ back }) => { await review.stop(!!back); await recompute(); }),
+  "POST /api/review/threads": post(async () => { await review.refreshThreads(); await recompute(); return review.threads().error ? { error: review.threads().error } : {}; }),
 
   // the agent chat
   "GET /api/chat/events": (req, res) => events(req, res, { type: "init", ...chat.snapshot() }, chat.subscribe),

@@ -5,9 +5,9 @@
   // staged files (Ctrl+Enter commits); and the history of all branches as a graph.
   import { api } from "../lib/code";
   import { graphRows, graphSvg } from "../lib/graph";
-  import { cur, openCommit, openDiff, openFile } from "../lib/state.svelte";
+  import { askAboutThread, cur, openCommit, openDiff, openFile } from "../lib/state.svelte";
   import { here, type Project } from "../lib/projects.svelte";
-  import type { BranchMr, Commit, MergeRequest } from "../lib/types";
+  import type { BranchMr, Commit, MergeRequest, Thread } from "../lib/types";
 
   // One project's git: this window's, or (in a workspace) another one's, asked of its server (B)
   // and named on the page with its prefix (pre).
@@ -48,6 +48,19 @@
   const reviewBranch = (b: string) => { menu = null; act(`checking out ${b}…`, "api/review/start", { branch: b }); };
   const stop = (back: boolean) => act(back ? "going back…" : "", "api/review/stop", { back });
   const R = $derived(L.review);
+  // The merge request's discussions: open ones first, the whole-request ones before the line ones.
+  const threads = $derived([...(R?.threads ?? [])].sort((a, b) =>
+    Number(a.resolved === true) - Number(b.resolved === true) || Number(!!a.path) - Number(!!b.path) ||
+    (a.path ?? "").localeCompare(b.path ?? "") || (a.line ?? a.oldLine ?? 0) - (b.line ?? b.oldLine ?? 0)));
+  const threadsOn = (path: string) => (R?.threads ?? []).filter((th) => th.path === path).length;
+  const whereOf = (th: Thread) => !th.path ? "on the merge request" : nameOf(th.path) + (th.line ? ":" + th.line : th.oldLine ? ` (removed line ${th.oldLine})` : "");
+  let thBusy = $state(false);
+  async function refreshThreads() {
+    thBusy = true; err = "";
+    const r = await api.post(B + "api/review/threads", {}).catch((e) => ({ error: String(e) }));
+    thBusy = false;
+    if (r?.error) err = r.error;
+  }
 
   // ---- .cockpit/ kept private (src/private.ts) ---------------------------
   const P = $derived(L.private);
@@ -101,8 +114,8 @@
   $effect(() => { const t = setInterval(() => loadMr(true), 120_000); return () => clearInterval(t); });
 
   // ---- sections that fold (remembered in this browser)
-  type Sec = "review" | "conflicts" | "staged" | "changes" | "history";
-  const SECS: Sec[] = ["review", "conflicts", "staged", "changes", "history"];
+  type Sec = "review" | "discussions" | "conflicts" | "staged" | "changes" | "history";
+  const SECS: Sec[] = ["review", "discussions", "conflicts", "staged", "changes", "history"];
   const shut: string[] = (() => { try { return JSON.parse(localStorage.getItem("cockpit.git.shut") ?? "[]"); } catch { return []; } })();
   let open = $state(Object.fromEntries(SECS.map((k) => [k, !shut.includes(k)])) as Record<Sec, boolean>);
   function toggle(k: Sec) {
@@ -297,7 +310,35 @@
     {@render head("review", `in this review`, R.files.length)}
     {#if open.review}
       {#each R.files as f (f.path)}
-        <div class="gitrow"><button class="gitfile" onclick={() => openFile(pre + f.path)} title={f.path}><span class="mark rev {ST[f.st] ?? f.st}">{ST[f.st] ?? f.st}</span><span class="gname">{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span></button></div>
+        {@const nt = threadsOn(f.path)}
+        <div class="gitrow"><button class="gitfile" onclick={() => openFile(pre + f.path)} title={f.path}><span class="mark rev {ST[f.st] ?? f.st}">{ST[f.st] ?? f.st}</span><span class="gname">{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>{#if nt}<span class="gnum" title="{nt} discussion{nt > 1 ? 's' : ''} on it">💬 {nt}</span>{/if}</button></div>
+      {/each}
+    {/if}
+  {/if}
+
+  {#if R?.mr}
+    {#snippet refreshT()}<button class="gall" disabled={thBusy} onclick={refreshThreads} title="Fetch the discussions again (they also refresh every two minutes)">{thBusy ? "…" : "↻"}</button>{/snippet}
+    {@render head("discussions", "discussions", R.threads?.length ?? 0, refreshT)}
+    {#if open.discussions}
+      {#if R.threadsError}<div class="gempty err">{R.threadsError}</div>
+      {:else if !R.threads}<div class="gempty"><span class="spin"></span> loading…</div>
+      {:else if !threads.length}<div class="gempty">no discussions yet</div>{/if}
+      {#each threads as th (th.id)}
+        {@const first = th.notes[0]}
+        <div class="gitrow thrrow" class:resolved={th.resolved === true}>
+          {#if th.path}
+            <button class="gitfile thr" onclick={() => openFile(pre + th.path, th.line ?? undefined)} title={th.notes.map((n) => `${n.author}: ${n.body}`).join("\n\n")}>
+              <span class="tw"><b>{first?.author}</b> <span class="gdir">{whereOf(th)}</span>{#if th.notes.length > 1}<span class="gdir"> · +{th.notes.length - 1}</span>{/if}{#if th.resolved}<span class="tag">resolved</span>{/if}</span>
+              <span class="tb">{first?.body.trim().split("\n")[0]}</span>
+            </button>
+          {:else}
+            <a class="gitfile thr" href={th.url ?? R.mr.url} target="_blank" rel="noreferrer" title={th.notes.map((n) => `${n.author}: ${n.body}`).join("\n\n")}>
+              <span class="tw"><b>{first?.author}</b> <span class="gdir">{whereOf(th)}</span>{#if th.notes.length > 1}<span class="gdir"> · +{th.notes.length - 1}</span>{/if}{#if th.resolved}<span class="tag">resolved</span>{/if}</span>
+              <span class="tb">{first?.body.trim().split("\n")[0]}</span>
+            </a>
+          {/if}
+          <button class="gact thrask" onclick={() => askAboutThread(th, R, p.here ? undefined : p.name)} title="Ask the agent about this discussion">ask</button>
+        </div>
       {/each}
     {/if}
   {/if}

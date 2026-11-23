@@ -1,5 +1,6 @@
 // Review mode's part of the live state: what the reviewed branch changes against its target
-// (files, items, the modules it reaches), and the diagrams' boxes it adds and removes.
+// (files, items, the modules it reaches), the diagrams' boxes it adds and removes, and the
+// discussions on its merge request.
 
 import { ARCH_DIR, loadArch } from "./arch.ts";
 import type { Git, Status } from "./git.ts";
@@ -32,8 +33,12 @@ export function createReviewState(root: string, git: Git, review: ReturnType<typ
   async function state(sk: Skeleton, status: Status[], diagrams: { id: string; question: string; nodes: { id: string; label: string }[] }[]) {
     const r = review.current();
     if (!r) return null;
+    // The merge request's discussions; `older`: written against another commit than the one
+    // checked out, so its line may have moved.
+    const head = await git.read("rev-parse", "HEAD"), t = review.threads();
+    const threads = t.list?.map((x) => ({ ...x, older: !!x.head && !!head && x.head !== head })) ?? null, threadsError = t.error;
     const base = await baseOf();
-    if (!base) return { ...r, base: null, error: `${r.target} and this branch share no history`, files: [], changedFiles: [], changedItems: [], impacted: [], commits: 0, diagrams: {}, removedDiagrams: [] };
+    if (!base) return { ...r, base: null, error: `${r.target} and this branch share no history`, files: [], changedFiles: [], changedItems: [], impacted: [], commits: 0, diagrams: {}, removedDiagrams: [], threads, threadsError };
     const [lines, nameStatus, short, commits] = await Promise.all([
       git.changedLines(status, base), git.read("diff", "--name-status", "--no-renames", base),
       git.read("rev-parse", "--short", base), git.read("rev-list", "--count", `${base}..HEAD`),
@@ -58,6 +63,7 @@ export function createReviewState(root: string, git: Git, review: ReturnType<typ
       commits: Number(commits) || 0,
       files, changedFiles: [...changedFiles], changedItems: itemsIn(sk, lines), impacted,
       diagrams: diff, removedDiagrams: [...(before ?? [])].filter(([id]) => !diagrams.some((d) => d.id === id)).map(([id, b]) => ({ id, question: b.question })),
+      threads, threadsError,
     };
   }
   return { base: baseOf, state };

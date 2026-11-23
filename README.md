@@ -112,7 +112,10 @@ have them.
   diagram boxes whose code it changes turn violet, boxes it adds to the diagrams green, the
   diagram list counts the changed boxes, files show their changes against the target, and the
   git tab lists every file it touches. End the review from there, or go back to the branch you
-  were on. The review in progress is kept in `review.json` in the project's state dir.
+  were on. The merge request's discussions (everyone's comments, replies, resolved or
+  not) show under their lines in the editor and in the git tab's "discussions" list, refreshed
+  every two minutes; "ask" on one puts it in the chat, and the agent reads them all with its
+  `review_threads` tool. The review in progress is kept in `review.json` in the project's state dir.
 - **Terminals** (Ctrl+`): real shells in the project. The agent can read them. Ctrl+K asks for a
   command in words and puts it on the prompt, never runs it.
 - **Chat**: an agent cockpit runs itself (below).

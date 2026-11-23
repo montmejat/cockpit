@@ -15,19 +15,20 @@
   import { vim, Vim } from "@replit/codemirror-vim";
   import { findReferences, formatDocument, jumpToDefinition, renameSymbol } from "@codemirror/lsp-client";
   import { lspFor, onLsp, pathOfUri, setDisplayFile } from "../lib/lsp.svelte";
-  import { changeBars, changeStarts, languageFor, lineMarks, look, setHunks, toggleRemoved } from "../lib/editor";
+  import { changeBars, changeStarts, languageFor, lineMarks, look, reviewThreads, setHunks, setThreads, toggleRemoved } from "../lib/editor";
   import { api } from "../lib/code";
   import { smoothWheel } from "../lib/smoothwheel";
   import { closeTab, dirtyFiles, openFile, S, ui } from "../lib/state.svelte";
-  import type { Hunk } from "../lib/types";
+  import type { Hunk, Thread } from "../lib/types";
   import { projects, split } from "../lib/projects.svelte";
   // A file's language server: its project's, for its path there ("@name/…" is another project's).
   const lspOf = (p: string) => { const at = split(p); return lspFor(at.p.L.root, at.path, at.p.base); };
 
   type FileData = { path: string; text: string | null; hash?: string; hunks: Hunk[] };
-  let { path, data, want, boxLines, showAll, vimOn, onview, oncursor, onhover, onchanges }: {
+  let { path, data, want, boxLines, showAll, vimOn, threads = [], onask = () => {}, onview, oncursor, onhover, onchanges }: {
     path: string; data: FileData | null; want: { line?: number; end?: number; at?: number };
     boxLines: [number, number][]; showAll: boolean; vimOn: boolean;
+    threads?: Thread[]; onask?: (th: Thread) => void;
     onview: (v: [number, number]) => void; oncursor: (line: number) => void; onhover: (line: number) => void; onchanges: (n: number, at: number) => void;
   } = $props();
 
@@ -64,7 +65,7 @@
         indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
         indentUnit.of(indentOf(text)), EditorState.tabSize.of(4),
         keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, indentWithTab]),
-        languageFor(p), lspSlot.of(lspOf(p)), look, changeBars(), wantMarks.field, boxMarks.field,
+        languageFor(p), lspSlot.of(lspOf(p)), look, changeBars(), reviewThreads, wantMarks.field, boxMarks.field,
         EditorView.updateListener.of((u) => {
           if (u.docChanged) markDirty();
           if (u.selectionSet || u.docChanged) reportChanges();
@@ -284,6 +285,12 @@
     }
   });
   $effect(() => { const ls = boxLines; view?.dispatch({ effects: boxMarks.set.of(ls) }); });
+  // The merge request's discussions on this file (review mode), under their lines.
+  $effect(() => {
+    const th = threads, p = path, d = data;
+    if (!view || !d || d.path !== p || shown !== p) return;
+    view.dispatch({ effects: setThreads.of({ threads: th, ask: onask }) });
+  });
   $effect(() => { const all = showAll; view?.dispatch({ effects: toggleRemoved.of({ all }) }); });
 
   // The line under the mouse, for the floating diagram.

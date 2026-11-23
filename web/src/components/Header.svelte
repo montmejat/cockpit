@@ -98,10 +98,10 @@
 {#snippet controls(list: WinButton[])}
   <span class="winctl">
     {#each list as b (b)}
-      {#if b === "minimize"}<button title="Minimize" aria-label="Minimize" onclick={() => win!.minimize()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4.5 8.5h7" /></svg></button>
+      {#if b === "minimize"}<button title="Minimize" aria-label="Minimize" onclick={() => win!.minimize()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M4 10h8v2H4z" /></svg></button>
       {:else if b === "maximize"}<button title={maximized ? "Restore" : "Maximize"} aria-label={maximized ? "Restore" : "Maximize"} onclick={() => win!.toggleMaximize()}>
-          <svg viewBox="0 0 16 16" width="16" height="16">{#if maximized}<rect x="4.5" y="6" width="5.5" height="5.5" rx="1" /><path d="M6.5 4.5h4a1 1 0 0 1 1 1v4" />{:else}<rect x="4.5" y="4.5" width="7" height="7" rx="1.2" />{/if}</svg></button>
-      {:else}<button title="Close" aria-label="Close" onclick={() => win!.close()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="M5 5l6 6M11 5l-6 6" /></svg></button>{/if}
+          <svg viewBox="0 0 16 16" width="16" height="16">{#if maximized}<path d="M5 5v6h6V5zm2 2h2v2H7z" />{:else}<path d="M4 4v8h8V4zm2 2h4v4H6z" />{/if}</svg></button>
+      {:else}<button title="Close" aria-label="Close" onclick={() => win!.close()}><svg viewBox="0 0 16 16" width="16" height="16"><path d="m4 4h1c.254.012.512.129.688.313L8 6.594l2.313-2.281c.265-.231.445-.305.687-.313h1v1c0 .285-.035.551-.25.75L9.469 8.031l2.25 2.25c.188.188.281.453.281.719v1h-1c-.266 0-.531-.094-.719-.281L8 9.438l-2.281 2.281c-.188.188-.453.281-.719.281H4v-1c0-.266.094-.531.281-.719l2.281-2.25L4.281 5.75C4.07 5.555 3.977 5.281 4 5z" /></svg></button>{/if}
     {/each}
   </span>
 {/snippet}

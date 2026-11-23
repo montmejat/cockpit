@@ -10,7 +10,7 @@
   import MiniMap from "./MiniMap.svelte";
   import FileEditor from "./FileEditor.svelte";
   import { api, parsePatch } from "../lib/code";
-  import { cur, openFile, S, store, dirtyFiles } from "../lib/state.svelte";
+  import { askAboutThread, cur, openFile, S, store, dirtyFiles } from "../lib/state.svelte";
   import { projectNamed, split } from "../lib/projects.svelte";
   import { lspKey, lspStatus, serverOf } from "../lib/lsp.svelte";
   import type { Hunk } from "../lib/types";
@@ -93,6 +93,9 @@
   const cursor = $derived(hoverLine || caretLine);
   $effect(() => { void path; hoverLine = 0; caretLine = 0; });
   const files_ = $derived(commit ? parsePatch(commit.patch) : []);
+  // In review mode, the merge request's discussions on this file, shown under their lines.
+  const threads = $derived(path && L.review?.threads ? L.review.threads.filter((th) => th.path === at.path) : []);
+  const threadsOpen = $derived(threads.filter((th) => th.resolved !== true).length);
 </script>
 
 <section id="codeview">
@@ -102,6 +105,7 @@
       {#if statusOf(path)}<span class="mark {statusOf(path)}">{statusOf(path)}</span>{/if}
       {#if dirtyFiles.has(path)}<button class="esave" title="Save (Ctrl+S, or :w in vim)" onclick={() => editor?.saveNow()}>● save</button>{/if}
       <span class="grow"></span>
+      {#if threads.length}<span class="muted" title="Discussions on this file in the merge request, under their lines">💬 {threads.length}{threadsOpen < threads.length ? ` (${threadsOpen} open)` : ""}</span>{/if}
       {#if srv && lsp}<span class="lsp {lsp}" title={lsp === "ready" ? `${srv} language server: hover, completion, diagnostics; F12 / gd definition, Shift+F12 / gr references, F2 / Space rn rename, Shift+Alt+F / Space f format` : lsp === "missing" ? `No ${srv} language server installed (${LSPCMD[srv] ?? srv})` : `${srv} language server ${lsp}`}>{srv}{lsp === "ready" ? "" : lsp === "missing" ? " ×" : " …"}</span>{/if}
       <button class="vimtoggle" class:on={vimOn} title={vimOn ? "Vim keys on: :w saves, :q closes, :wq both. Click to turn off." : "Vim keys off. Click to turn on."}
         onclick={() => { vimOn = !vimOn; store.set("cockpit-vim", vimOn ? "1" : "0"); }}>vim</button>
@@ -115,7 +119,8 @@
     {:else if file.path === path && (file.error || file.text == null)}<div class="dbody"><p class="dnote">{file.error ?? file.note}</p></div>
     {/if}
     <div class="ewrap" hidden={!file || (file.path === path && file.text == null)}>
-      <FileEditor bind:this={editor} {path} data={file} {want} {boxLines} {showAll} {vimOn}
+      <FileEditor bind:this={editor} {path} data={file} {want} {boxLines} {showAll} {vimOn} {threads}
+        onask={(th) => askAboutThread(th, L.review, at.p.prefix ? at.p.name : undefined)}
         onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n, at) => { changes = n; changeAt = at; }} />
     </div>
     <MiniMap {path} {view} {cursor} onlines={(ls) => (boxLines = ls)} onjump={(n) => editor?.scrollToLine(n)} />

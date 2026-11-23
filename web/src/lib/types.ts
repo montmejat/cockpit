@@ -63,6 +63,16 @@ export interface Review {
   impacted: string[]; // modules that use changed ones
   diagrams: Record<string, { isNew: boolean; added: string[]; removed: { id: string; label: string }[] }>;
   removedDiagrams: { id: string; question: string }[];
+  threads: Thread[] | null; // the merge request's discussions; null: not fetched (yet), or no merge request
+  threadsError: string | null;
+}
+// A discussion on the merge request (src/review.ts): on a file's line (line in the new version,
+// or oldLine on a removed one), or on the whole request (path null). `older`: written against
+// another commit than the one checked out, so its line may have moved.
+export interface Thread {
+  id: string; path: string | null; line: number | null; oldLine: number | null; head: string | null; older: boolean;
+  resolved: boolean | null; url: string | null;
+  notes: { author: string; body: string; at: string }[];
 }
 export interface TermMeta { id: string; n: number; cwd: string; running: string | null; exited?: number | null; last: { cmd: string; exit?: number } | null }
 
