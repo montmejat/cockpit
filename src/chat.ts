@@ -74,6 +74,19 @@ function inbox() {
 }
 async function* never(): AsyncGenerator<SDKUserMessage> { await new Promise(() => {}); }
 
+// What .cockpit/ says, in short, so the agent knows the project and where its parts live without
+// reading the folder: the summary, each feature (status, note, modules) and each diagram's tldr.
+function overview(root: string) {
+  const { arch } = loadArch(root);
+  if (!arch) return "";
+  // The modules only while that stays small (about 2k tokens): a big project lists hundreds.
+  const line = (f: (typeof arch.features)[number], mods: boolean) => `- ${f.name} [${f.id}, ${f.status}]${f.note ? ": " + f.note : ""}${mods && f.modules.length ? " · " + f.modules.join(", ") : ""}`;
+  let feats = arch.features.map((f) => line(f, true));
+  if (feats.join("\n").length > 8000) feats = arch.features.map((f) => line(f, false));
+  const diags = arch.diagrams.map((d) => `- ${d.id}: ${d.tldr ?? d.question ?? ""}`);
+  return `\n\nWhat it says now:\n${arch.summary}\n\nFeatures:\n${feats.join("\n")}` + (diags.length ? `\n\nDiagrams (${ARCH_DIR}/diagrams/<id>.json):\n${diags.join("\n")}` : "");
+}
+
 // The brief added to Claude Code's own system prompt.
 function brief(root: string) {
   const has = existsSync(join(root, ARCH_DIR, "README.md"));
@@ -85,7 +98,7 @@ function brief(root: string) {
     `To list every module and item cockpit knows, written exactly as ${ARCH_DIR}/ links them, run: cd ${COCKPIT} && npm run -s modules -- ${root} [filter]`,
     `To check ${ARCH_DIR}/ against the code yourself, run: cd ${COCKPIT} && npm run -s check-arch -- ${root}`,
     has
-      ? `The project is described in ${ARCH_DIR}/ (features and diagrams). Take it as up to date: don't re-check it against the code or read it unless the task needs it. When your own change makes something there wrong (a feature's status or description, a diagram's boxes or links), update just that, reading ${ARCH_DIR}/README.md first for its format. A check at the end of your turn catches broken links and modules in no feature; fix what it lists.`
+      ? `The project is described in ${ARCH_DIR}/ (features and diagrams). Take it as up to date: don't re-check it against the code or read it unless the task needs it. When your own change makes something there wrong (a feature's status or description, a diagram's boxes or links), update just that, reading ${ARCH_DIR}/README.md first for its format. A check at the end of your turn catches broken links and modules in no feature; fix what it lists.` + overview(root)
       : `This project has no ${ARCH_DIR}/ yet. When the owner asks you to describe the project, or with your first change, create it: copy ${join(COCKPIT, "templates", "cockpit-README.md")} to ${ARCH_DIR}/README.md and follow it.`,
     existsSync(join(root, GUARDRAILS))
       ? `This project has guardrails: ${GUARDRAILS} (checks run when you finish a turn that edited files, and rules with why). Read ${join(COCKPIT, "templates", "guardrails.md")} once, before you change them or when the owner corrects how code is written.`
