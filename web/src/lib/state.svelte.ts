@@ -10,6 +10,7 @@ import type { DiagramNode, Live, Tab, TermMeta } from "./types";
 export interface Desktop {
   openProject(path: string | null): Promise<boolean | { error: string }>;
   newWindow(): Promise<boolean | { error: string }>; // another window, asking for its project
+  pickFolder(): Promise<string | null>; // a folder chosen in the system dialog, or null
   state(): Promise<{ maximized: boolean; fullscreen: boolean }>;
   startDragging(): Promise<boolean>;
   minimize(): Promise<boolean>;

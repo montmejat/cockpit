@@ -67,7 +67,6 @@ export function createWorkspaceServers(ws: Workspace | null) {
 
   return {
     // The other projects, for the page: name, folder, and whether its server answers yet.
-    list: () => others.map((p) => ({ name: p.name, path: p.path })),
     // An HTTP request under /p/<name>/: passed through, answer streamed back (live events too).
     async http(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
       const r = route(req.url ?? "");
@@ -99,6 +98,8 @@ export function createWorkspaceServers(ws: Workspace | null) {
       up.on("error", end); sock.on("error", end); up.on("close", end); sock.on("close", end);
       return true;
     },
+    // A project added to the workspace while the window is open.
+    add(name: string, path: string) { if (!children.has(name) && ws && !process.env.COCKPIT_CHILD) void start(name, path); },
     stopAll() { for (const c of children.values()) c.proc.kill("SIGTERM"); },
   };
 }

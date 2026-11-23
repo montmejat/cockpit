@@ -19,9 +19,7 @@
     addEventListener("resize", sync);
     sync();
   }
-  // The workspace (src/workspace.ts): the other projects. In the desktop app "open" switches this
-  // window to one (each project keeps its own server, so its terminals and agents go on meanwhile);
-  // ↗ opens it in a window of its own.
+  // The workspace this window shows (src/workspace.ts), when it was opened as one: its projects.
   // How long the running agent has been at it ("40 s", "12 min", "2 h").
   let now = $state(Date.now());
   setInterval(() => (now = Date.now()), 15_000);
@@ -30,19 +28,6 @@
     return s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
   }
   let wsOpen = $state(false), wsNote = $state("");
-  async function openProject(path: string, newWindow = false) {
-    wsNote = "";
-    if (win && !newWindow) {
-      if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Switch to ${path.split("/").pop()} anyway?`)) return;
-      try {
-        const r = await win.openProject(path);
-        if (r === true) wsOpen = false; else if (r) wsNote = r.error;
-      } catch (e) { wsNote = String(e); }
-      return;
-    }
-    const r = await api.post<{ error?: string }>("api/workspace/open", { path });
-    if (r.error) wsNote = r.error; else wsOpen = false;
-  }
   function outside(e: MouseEvent) {
     if (wsOpen && !(e.target as HTMLElement).closest(".wsmenu,.wsbtn")) wsOpen = false;
     if (projOpen && !(e.target as HTMLElement).closest(".projmenu,.projbtn")) projOpen = false;
@@ -50,10 +35,28 @@
 
   // Open Folder (desktop app): the project name opens a menu, another folder or a recent one;
   // the window switches to it (desktop/src/main.rs, open_project). Ctrl+O picks a folder directly.
-  let projOpen = $state(false), projNote = $state(""), recent: { path: string; name: string }[] = $state([]);
+  let projOpen = $state(false), projNote = $state(""), recent: { path: string; name: string; workspace: boolean }[] = $state([]);
+  let workspaces: { name: string; dir: string; projects: string[] }[] = $state([]);
   async function toggleProj() {
-    projOpen = !projOpen; projNote = "";
-    if (projOpen) recent = await api.get("api/recent").catch(() => []);
+    projOpen = !projOpen; projNote = ""; naming = false;
+    if (projOpen) [recent, workspaces] = await Promise.all([api.get<typeof recent>("api/recent").catch(() => []), api.get<typeof workspaces>("api/workspaces").catch(() => [])]);
+  }
+  // Workspaces: open one (its folder), make one from what this window shows, add a project to it.
+  let naming = $state(false), wsName = $state("");
+  async function createWs() {
+    projNote = "";
+    const r: { dir?: string; error?: string } = await api.post<{ dir?: string; error?: string }>("api/workspaces/create", { name: wsName }).catch((e) => ({ error: String(e) }));
+    if (r.error || !r.dir) { projNote = r.error ?? "couldn't create it"; return; }
+    naming = false; wsName = "";
+    if (win) openFolder(r.dir); else projNote = `created: open it with npm run serve -- ${r.dir}`;
+  }
+  async function addFolder() {
+    projNote = "";
+    const path = win ? await win.pickFolder() : null;
+    if (!path) return;
+    const r = await api.post<{ error?: string }>("api/workspace/add", { path }).catch((e) => ({ error: String(e) }));
+    if (r?.error) { projNote = r.error; return; }
+    location.reload(); // the page learns its projects when it loads
   }
   async function openFolder(path?: string) {
     if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Open another folder anyway?`)) return;
@@ -125,9 +128,25 @@
     <div class="wsmenu projmenu" role="menu">
       <button class="prow" role="menuitem" onclick={() => openFolder()}><span>Open Folder…</span><span class="muted">Ctrl+O</span></button>
       <button class="prow" role="menuitem" onclick={newWindow}><span>New Window</span><span class="muted">Ctrl+Shift+N</span></button>
-      {#if recent.length}
+      <div class="muted wshead">workspaces</div>
+      {#each workspaces as w (w.dir)}
+        {@const here = w.dir === S.workspace?.dir}
+        <button class="prow" role="menuitem" disabled={here} title={w.projects.join("\n")} onclick={() => openFolder(w.dir)}>
+          <span>{w.name}</span><span class="muted ppath">{here ? "this window" : w.projects.map((p) => p.split("/").pop()).join(", ")}</span></button>
+      {/each}
+      {#if S.workspace}<button class="prow" role="menuitem" onclick={addFolder}><span>Add Folder to Workspace…</span></button>{/if}
+      {#if naming}
+        <form class="prow wsnew" onsubmit={(e) => { e.preventDefault(); createWs(); }}>
+          <!-- svelte-ignore a11y_autofocus -->
+          <input bind:value={wsName} placeholder="workspace name" autofocus />
+          <button type="submit" disabled={!wsName.trim()}>Create</button>
+        </form>
+      {:else}
+        <button class="prow" role="menuitem" onclick={() => (naming = true)} title={S.workspace ? "A new workspace with this one's projects" : `A new workspace with ${S.project} in it; add more projects to it from here`}><span>New Workspace…</span></button>
+      {/if}
+      {#if recent.filter((r) => !r.workspace).length}
         <div class="muted wshead">recent</div>
-        {#each recent as r (r.path)}
+        {#each recent.filter((r) => !r.workspace) as r (r.path)}
           <button class="prow" role="menuitem" title={r.path} onclick={() => openFolder(r.path)}><span>{r.name}</span><span class="muted ppath">{r.path.replace(/^\/home\/[^/]+/, "~")}</span></button>
         {/each}
       {/if}
@@ -136,13 +155,14 @@
   {/if}
   {#if wsOpen && S.workspace}
     <div class="wsmenu">
-      <div class="muted wshead">workspace <b>{S.workspace.name}</b>: the agent reads these projects too</div>
+      <div class="muted wshead">workspace <b>{S.workspace.name}</b>: its projects, all in this window</div>
       {#each S.workspace.projects as p (p.path)}
         <div class="wsrow" class:here={p.here}>
-          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · this window</span>{:else}<button title={win ? "Show it in this window" : "Open it in the desktop app"} onclick={() => openProject(p.path)}>open</button>{#if win}<button title="Open it in a window of its own" onclick={() => openProject(p.path, true)}>↗</button>{/if}{/if}</div>
+          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · its map, terminals and chat</span>{/if}</div>
           {#if p.summary}<div class="muted wssum">{p.summary}</div>{/if}
         </div>
       {/each}
+      <div class="muted wsfoot" title="the workspace's file: which projects it holds">{S.workspace.dir.replace(/^\/home\/[^/]+/, "~")}/workspace.json</div>
       <div class="muted wsfoot" title={S.workspace.system ?? ""}>{S.workspace.system ? "how they fit together: SYSTEM.md, kept by the agents" : "no SYSTEM.md yet: the agent writes one when it first needs it"}</div>
       {#if wsNote}<div class="bad wsfoot">{wsNote}</div>{/if}
     </div>

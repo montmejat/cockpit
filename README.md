@@ -143,26 +143,28 @@ images into a message.
 ### Workspaces
 
 Projects that work together (a service and its clients, a library and the apps built on it) can
-be put in a workspace, like an editor's multi-root workspace. Each project keeps its own server,
-index, chat and terminals; the workspace tells each one about the others.
+be put in a workspace, like an editor's multi-root workspace. Opening the workspace shows all its
+projects in one window; opening one of its projects opens just that one.
 
 ```
 ~/.config/cockpit/workspaces/<name>/workspace.json   { "projects": ["~/src/engine", "~/src/tools"] }
 ~/.config/cockpit/workspaces/<name>/SYSTEM.md        how they fit together, kept by the agents
 ```
 
+- Open one from the project menu (the name at the top: **Workspaces**), or open its folder:
+  `cockpit ~/.config/cockpit/workspaces/<name>`. **New Workspace…** makes one from what the window
+  shows, **Add Folder to Workspace…** adds a project to the open one.
+- Files: a root folder per project. Git: a section per project (fold it by its name). Quick open
+  and search cover them all; the editor saves each file in its project, with that project's
+  language server. Each other project runs its own server, started by the window's and stopped
+  with it. The map, terminals and chat are the first project's.
 - The chat's agent can **read** the other projects, and its brief lists them with a line on each
   (from their `.cockpit/project.json`, else their README). An **edit** in another project needs
   your yes, on an Allow/Deny card, even in auto mode.
 - `SYSTEM.md` says which project owns what, who calls whom and through what, and how they are built
   together. The agents write it the first time it matters and keep it true; you can edit it too.
-- The header shows the workspace before the project's name; its menu lists the projects. In the
-  desktop app "open" switches the window to that project and ↗ opens it in a window of its own.
-  A project you switch away from keeps its server running, with its terminals and agent, so
-  switching back is instant; they all stop when the window closes. In a browser, "open" starts
-  the desktop app on it.
-- When the C++ index runs in a build image, the other projects are mounted there too, read-only,
-  for builds that compile another project's headers or sources from its checkout.
+- When the C++ index runs in a build image, the other projects of a workspace it's in are mounted
+  there too, read-only, for builds that compile another project's headers or sources from its checkout.
 - A change to the workspace reaches the chat from its next conversation.
 
 A Claude Code session outside cockpit can be recorded too, with hooks in the project's

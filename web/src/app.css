@@ -45,7 +45,8 @@ header .htitle .wsmenu{left:50%;transform:translateX(-50%)}
 header h1{font-size:var(--fs-l);margin:0;font-weight:600}
 header{position:relative}header button.wsbtn{background:none;border:0;padding:0;font-size:var(--fs-m);color:var(--muted);font-weight:500}header button.wsbtn:hover,header button.wsbtn.on{color:var(--accent)}header .wssep{margin:0 -10px}
 .wsmenu{position:absolute;top:calc(100% + 4px);left:10px;z-index:40;width:min(440px,calc(100vw - 24px));background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shadow-pop);padding:6px 0;font-size:var(--fs-m)}
-.wsmenu .wshead,.wsmenu .wsfoot{padding:4px 12px;font-size:var(--fs-s)}.wsmenu .wsfoot{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
+.wsmenu .wshead,.wsmenu .wsfoot{padding:4px 12px;font-size:var(--fs-s)}
+.wsmenu form.wsnew{display:flex;gap:6px;padding:4px 10px}.wsnew input{flex:1;min-width:0;font:inherit;font-size:var(--fs-m);color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-m);padding:2px 8px;outline:none}.wsnew input:focus{border-color:var(--accent)}.wsmenu .wsfoot{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
 .wsrow{padding:5px 12px}.wsrow.here{background:var(--sel)}.wsname{display:flex;align-items:center;gap:8px}.wsname button{margin-left:auto;font-size:var(--fs-s);padding:0 8px}.wsname button+button{margin-left:0}.wssum{font-size:var(--fs-s);line-height:1.4;margin-top:2px}
 .pill{border:1px solid var(--line);border-radius:var(--r-pill);padding:0 9px;color:var(--fg);font-size:var(--fs-s);background:none}
 .pill:hover{border-color:var(--accent)}

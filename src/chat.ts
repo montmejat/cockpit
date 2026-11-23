@@ -29,7 +29,7 @@ import type { createIndex } from "./codeindex.ts";
 import { turnEnd, turnStart, turnTool, type HookInput } from "./recorder.ts";
 import { COCKPIT, outDir } from "./turns.ts";
 import type { Terminals } from "./term.ts";
-import { workspaceBrief, workspaceOf } from "./workspace.ts";
+import { workspaceBrief, type Workspace } from "./workspace.ts";
 
 export type Item = { id: string; kind: string; at: string; [k: string]: unknown };
 // A pasted image: what Claude gets (media type, base64), and a small preview for the chat.
@@ -148,7 +148,8 @@ function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeof getSe
   return items;
 }
 
-export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, onChecks?: () => void) {
+// `workspace`: the workspace this window shows, when it was opened as one (workspace.ts).
+export function createChat(root: string, project: string, terms: Terminals, index: ReturnType<typeof createIndex>, onChecks?: () => void, workspace: () => Workspace | null = () => null) {
   const dir = join(outDir(project), "chats");
   mkdirSync(dir, { recursive: true });
   // Conversation ids are Claude Code's session UUIDs; anything else from the page is refused, so
@@ -255,7 +256,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     }
 
     function start() {
-      const ws = workspaceOf(root);
+      const ws = workspace();
       box = inbox();
       abort = new AbortController();
       q = query({

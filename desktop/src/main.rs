@@ -51,6 +51,7 @@ const BRIDGE: &str = r#"(() => {
   window.cockpitDesktop = {
     openProject: (path) => call("open_project", { path: path ?? null }),
     newWindow: () => call("new_window"),
+    pickFolder: () => call("pick_folder"),
     state: () => call("state"),
     startDragging: () => call("start_drag"),
     minimize: () => call("minimize"),
@@ -373,6 +374,8 @@ fn on_message(ui: &Ui, msg: &str, reply: webkit6::ScriptMessageReply, ctx: javas
             }
             answer(true.into())
         }
+        // A folder, for the page to use (a project to add to the workspace): its path, or null.
+        "pick_folder" => pick_folder(move |p| answer(p.map(|p| serde_json::json!(p.to_string_lossy())).unwrap_or(serde_json::Value::Null))),
         "open_project" => {
             let chosen = move |p: Result<Option<PathBuf>, String>| match p {
                 Err(e) => answer(serde_json::json!({ "error": e })),

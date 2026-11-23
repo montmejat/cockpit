@@ -70,7 +70,7 @@
       "id": "private-and-workspaces",
       "name": "Private descriptions and workspaces",
       "status": "partial",
-      "description": "A project's .cockpit/ can be kept out of its repo, per branch, and synced between machines through a private repo; a workspace opens all its projects in one window, like an editor's multi-root workspace: every project's files (a root folder each), git (a section each), quick open and search, from their own servers passed through this one.",
+      "description": "A project's .cockpit/ can be kept out of its repo, per branch, and synced between machines through a private repo; a workspace (a folder in cockpit's settings with a workspace.json; listed, created and extended from the project menu) opens all its projects in one window, like an editor's multi-root workspace, while opening one of its projects opens just that one: every project's files (a root folder each), git (a section each), quick open and search, from their own servers passed through this one.",
       "note": "Terminals and diagrams are the window's own project's only; the chat agent still asks before editing another project",
       "modules": ["cockpit/private", "cockpit/workspace", "cockpit/workspace-servers", "cockpit/web/src/lib/projects.svelte"]
     },

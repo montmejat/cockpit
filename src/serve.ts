@@ -1,6 +1,6 @@
 // The cockpit server for one project: serves the page (web/, built with Vite) and its data, runs
 // the agent chat and the terminals, and pushes what changes as it changes.
-//   npm run serve -- <project dir> [--port 4173] [--host 127.0.0.1]
+//   npm run serve -- <project dir, or a workspace's folder> [--port 4173] [--host 127.0.0.1]
 // --host 0.0.0.0 makes it reachable from other machines on the network. Either way only a page
 // opened with the server's token gets in (auth.ts): the link it prints, or the desktop app.
 
@@ -20,7 +20,7 @@ import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview } from "./review.ts";
 import { createPrivate } from "./private.ts";
-import { workspaceOf } from "./workspace.ts";
+import { addToWorkspace, createWorkspace, isWorkspace, listWorkspaces, loadWorkspace } from "./workspace.ts";
 import { createGit } from "./git.ts";
 import { createAuth } from "./auth.ts";
 import { listPatch, type ListPatch } from "./listpatch.ts";
@@ -40,17 +40,25 @@ if (!dir) {
   console.error("usage: npm run serve -- <project dir> [--port 4173] [--host 127.0.0.1]");
   process.exit(1);
 }
-const root = resolve(dir);
+// A workspace's folder (workspace.ts) opens all its projects, the first one as this window's own;
+// any other folder is one project, alone.
+const opened = resolve(dir);
+const wsDir = isWorkspace(opened) ? opened : null;
+const ws0 = wsDir ? loadWorkspace(wsDir) : null;
+if (wsDir && !ws0) { console.error(`${wsDir}/workspace.json lists no projects`); process.exit(1); }
+// The workspace as it is now (its file can change: a project added).
+const workspace = () => (wsDir ? loadWorkspace(wsDir) : null);
+const root = ws0 ? ws0.projects[0].path : opened;
 const name = opt("name") ?? basename(root);
 const WEB = join(COCKPIT, "web", "dist");
 const index = createIndex(root, name); // the code index (rust-analyzer or scip-clang), rebuilt when code changes
 const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
 const ask = createAsk(root); // the terminal's ask line: words → a command
-const chat = createChat(root, name, terms, index, () => changed()); // the agent, run by cockpit itself
+const chat = createChat(root, name, terms, index, () => changed(), workspace); // the agent, run by cockpit itself
 const review = createReview(root, name); // reviewing a merge request against its target
 const lsp = createLsp(root); // language servers for the editor
 // The workspace's other projects, shown in this window too: their servers, reached under /p/<name>/
-const others = createWorkspaceServers(workspaceOf(root));
+const others = createWorkspaceServers(ws0);
 // Started as another project's server for a workspace window: go when that server goes.
 if (process.env.COCKPIT_CHILD) { process.stdin.resume(); process.stdin.on("close", () => process.exit(0)); }
 // .cockpit/ kept out of the project's git, following its branches, synced between your machines
@@ -128,10 +136,10 @@ const readDLayout = () => { try { return existsSync(dlayoutPath) ? JSON.parse(re
 
 // Everything the page shows, as named parts: the page gets the whole thing once, then only the
 // parts that changed.
-// The workspace this project is in (workspace.ts), for the header.
+// The workspace this window shows (workspace.ts), if it was opened as one.
 function workspaceState() {
-  const w = workspaceOf(root);
-  return w && { name: w.name, system: existsSync(w.system) ? w.system : null, projects: w.projects };
+  const w = workspace();
+  return w && { name: w.name, dir: w.dir, system: existsSync(w.system) ? w.system : null, projects: w.projects };
 }
 
 // Guardrails (src/guardrails.ts): the project's checks and rules, each check's last result, and
@@ -277,8 +285,8 @@ const routes: Record<string, Handler> = {
   "GET /api/recent": (_req, res) => {
     const f = join(process.env.XDG_CONFIG_HOME || join(process.env.HOME ?? "", ".config"), "cockpit", "recent-projects");
     let paths: string[] = [];
-    try { paths = readFileSync(f, "utf8").split("\n").filter((p) => p && p !== root && existsSync(p)); } catch {}
-    json(res, paths.slice(0, 10).map((path) => ({ path, name: path.split("/").pop() })));
+    try { paths = readFileSync(f, "utf8").split("\n").filter((p) => p && p !== opened && existsSync(p)); } catch {}
+    json(res, paths.slice(0, 10).map((path) => ({ path, name: path.split("/").pop(), workspace: isWorkspace(path) })));
   },
   "GET /api/file": async (_req, res, url) => { try { json(res, await readSource(q(url, "path"), q(url, "review") === "1")); } catch (e) { json(res, { error: String(e) }, 400); } },
   "GET /api/git/graph": async (_req, res) => json(res, await git.graph()),
@@ -309,17 +317,17 @@ const routes: Record<string, Handler> = {
   "GET /api/git/diff": async (_req, res, url) => json(res, await git.fileDiff(q(url, "path"), q(url, "staged") === "1")),
   "GET /api/git/commit": async (_req, res, url) => { try { json(res, await git.commitPatch(q(url, "sha"))); } catch (e: any) { json(res, { error: e.message }, 400); } },
   // A web link (from the chat, say) in your browser: the desktop app's window can't open one itself.
-  // Another project of the workspace, in its own window of the desktop app.
-  "POST /api/workspace/open": post(({ path }) => {
-    const p = workspaceOf(root)?.projects.find((x) => x.path === path && !x.here);
-    if (!p) throw new Error("not a project of this workspace");
-    const local = join(process.env.HOME ?? "", ".local", "bin", "cockpit");
-    const app = existsSync(local) ? local : "cockpit";
-    return new Promise((done, fail) => {
-      const c = spawn(app, [p.path], { detached: true, stdio: "ignore" });
-      c.on("error", () => fail(new Error(`the desktop app isn't installed (desktop/install.sh); in a browser, run: npm run serve -- ${p.path}`)));
-      c.on("spawn", () => { c.unref(); done({ ok: true }); });
-    });
+  // Workspaces (workspace.ts): yours, a new one from what this window shows, a project added to
+  // this one (its server starts; the page loads again to show it).
+  "GET /api/workspaces": (_req, res) => json(res, listWorkspaces()),
+  "POST /api/workspaces/create": post(({ name: n }) => ({ dir: createWorkspace(String(n ?? "").trim(), workspace()?.projects.map((p) => p.path) ?? [root]) })),
+  "POST /api/workspace/add": post(async ({ path }) => {
+    if (!wsDir) throw new Error("this window shows one project, not a workspace");
+    if (typeof path !== "string") throw new Error("expected a folder");
+    addToWorkspace(wsDir, path);
+    const p = workspace()!.projects.at(-1)!;
+    others.add(p.name, p.path);
+    await recompute();
   }),
   "GET /api/search": async (_req, res, url) => json(res, await search(root, q(url, "q"), q(url, "case") === "1", q(url, "regex") === "1")),
   "POST /api/file/save": post(({ path, text, hash, force }) => saveSource(path, text, hash, !!force)),

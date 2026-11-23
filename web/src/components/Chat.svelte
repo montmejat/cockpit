@@ -187,6 +187,11 @@
   const level = (pct: number) => (pct >= 90 ? "bad" : pct >= 70 ? "warn" : "");
   const toolIcon: Record<string, string> = { running: "<span class='spin'></span>", ok: "<span class=ok>✓</span>", error: "<span class=bad>✗</span>" };
   const fresh = $derived(!S.diagrams.length);
+  // In a workspace window: every project, each in its own .cockpit/, and how they fit together.
+  const wsNames = $derived(S.workspace?.projects.map((p) => p.name) ?? []);
+  const describe = () => post("send", { text: wsNames.length > 1
+    ? `Describe the projects of this workspace (${wsNames.join(", ")}), each in its own .cockpit/: the summary, the features, and the diagrams that best explain how it works, as many as each one needs. Then write how they fit together in the workspace's SYSTEM.md. Don't change the code.`
+    : "Describe this project in .cockpit/: the summary, the features, and the diagrams that best explain how it works, as many as this project needs. Don't change the code." });
   const title = $derived(session ? ((list ?? names).find((x) => x.id === session)?.title ?? "Chat") : "New chat");
 </script>
 
@@ -256,9 +261,9 @@
       {/if}
     {:else}
       <div class="cempty">
-        <p>Talk to the agent here. It works in <b>{S.project}</b>, and what it changes lights up on the diagrams.</p>
-        {#if fresh}<p class="muted">This project has no description yet.</p>
-          <button onclick={() => post("send", { text: "Describe this project in .cockpit/: the summary, the features, and the diagrams that best explain how it works, as many as this project needs. Don't change the code." })}>Describe this project</button>{/if}
+        <p>Talk to the agent here. It works in {#if wsNames.length > 1}the workspace <b>{S.workspace?.name}</b> ({wsNames.join(", ")}){:else}<b>{S.project}</b>{/if}, and what it changes lights up on the diagrams.</p>
+        {#if fresh}<p class="muted">{wsNames.length > 1 ? "These projects have" : "This project has"} no description yet.</p>
+          <button onclick={describe}>{wsNames.length > 1 ? `Describe the ${wsNames.length} projects` : "Describe this project"}</button>{/if}
       </div>
     {/each}
   </div>
