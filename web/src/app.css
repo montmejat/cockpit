@@ -656,7 +656,7 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 .cchip.ok{border-color:color-mix(in oklab,var(--ok) 50%,var(--line));color:var(--ok)}.cchip.bad{border-color:var(--bad);color:var(--bad)}
 .rule .why{margin:2px 0 2px 20px;font-size:var(--fs-m)}.rule .rmeta{margin:0 0 6px 20px;font-size:var(--fs-s);display:flex;gap:10px}
 .band .files{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;font-size:var(--fs-s)}
-#guardrails .checks{display:flex;flex-direction:column;gap:4px;max-width:1000px}
+#guardrails .checks{display:flex;flex-direction:column;gap:4px}
 .check{border:1px solid var(--line);border-radius:var(--r-m)}
 .check summary{display:flex;align-items:center;gap:10px;padding:5px 10px;cursor:pointer;list-style:none;font-size:var(--fs-m)}
 .check summary::-webkit-details-marker{display:none}

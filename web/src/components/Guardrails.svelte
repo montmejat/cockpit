@@ -127,7 +127,7 @@
         <details class="check" open={!!r && !r.ok}>
           <summary>
             <span class="cst" class:ok={r?.ok} class:bad={r && !r.ok} class:spin={isRunning(c.id)}>{isRunning(c.id) ? "◌" : !r ? "·" : r.ok ? "✓" : "✗"}</span>
-            <b>{c.name}</b><code class="muted">{c.run}</code><span class="grow"></span>
+            <b>{c.name}</b><code class="muted" title={c.run}>{c.run}</code><span class="grow"></span>
             {#if r}<span class="muted">{ago(r.at)} · {dur(r.ms)}</span>{:else}<span class="muted">never run</span>{/if}
             <button onclick={(e) => { e.preventDefault(); run([c.id]); }} disabled={isRunning(c.id) || untrusted}>run</button>
           </summary>
