@@ -5,7 +5,8 @@
   import { S, dirtyFiles, openGuardrails, plural, showChat, toggleChat, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { windowButtons, type WinButton } from "../lib/desktop";
-  import { viewProject } from "../lib/projects.svelte";
+  import { projects } from "../lib/projects.svelte";
+  import { homeOf, openDiagram } from "../lib/state.svelte";
 
   let { ontoggleterm }: { ontoggleterm: () => void } = $props();
 
@@ -28,16 +29,24 @@
     const s = Math.max(0, (now - Date.parse(iso)) / 1000);
     return s < 60 ? `${Math.round(s)} s` : s < 3600 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
   }
-  let wsOpen = $state(false), wsNote = $state("");
   function outside(e: MouseEvent) {
-    if (wsOpen && !(e.target as HTMLElement).closest(".wsmenu,.wsbtn")) wsOpen = false;
     if (projOpen && !(e.target as HTMLElement).closest(".projmenu,.projbtn")) projOpen = false;
   }
+  // A project of the workspace, from the menu: its diagrams on the map.
+  function showOnMap(name: string) {
+    const p = projects.find((x) => x.name === name);
+    if (!p) return;
+    projOpen = false;
+    openDiagram(homeOf(p.L) ?? "", undefined, p.name);
+  }
+  const tilde = (p: string) => p.replace(/^\/home\/[^/]+/, "~");
 
   // Open Folder (desktop app): the project name opens a menu, another folder or a recent one;
   // the window switches to it (desktop/src/main.rs, open_project). Ctrl+O picks a folder directly.
   let projOpen = $state(false), projNote = $state(""), recent: { path: string; name: string; workspace: boolean }[] = $state([]);
   let workspaces: { name: string; dir: string; projects: string[] }[] = $state([]);
+  const others = $derived(workspaces.filter((w) => w.dir !== S.workspace?.dir));
+  const recents = $derived(recent.filter((r) => !r.workspace));
   async function toggleProj() {
     projOpen = !projOpen; projNote = ""; naming = false;
     if (projOpen) [recent, workspaces] = await Promise.all([api.get<typeof recent>("api/recent").catch(() => []), api.get<typeof workspaces>("api/workspaces").catch(() => [])]);
@@ -75,7 +84,7 @@
     catch (e) { projNote = String(e); projOpen = true; }
   }
   function keys(e: KeyboardEvent) {
-    if (e.key === "Escape") { wsOpen = false; projOpen = false; }
+    if (e.key === "Escape") projOpen = false;
     else if (win && e.ctrlKey && e.shiftKey && !e.altKey && e.key.toLowerCase() === "n") { e.preventDefault(); newWindow(); }
     else if (win && e.ctrlKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o" && !(e.target as HTMLElement).closest?.(".cm-editor,.xterm")) { e.preventDefault(); openFolder(); }
   }
@@ -117,55 +126,75 @@
   {/if}
   </div>
   <div class="htitle">
-  {#if S.workspace}
-    <button class="wsbtn" class:on={wsOpen} title="Workspace {S.workspace.name}: switch to another of its projects" aria-expanded={wsOpen} onclick={() => { wsOpen = !wsOpen; wsNote = ""; }}>{S.workspace.name} ▾</button><span class="muted wssep">/</span>
-  {/if}
+  <!-- the window's name: the workspace (all its projects), or the project; in the desktop app a
+       menu to open another folder, a workspace or a recent project -->
+  {#snippet title()}
+    {#if S.workspace}<svg class="tico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>{/if}
+    <h1>{S.workspace?.name ?? S.project}</h1>
+  {/snippet}
   {#if win}
-    <button class="projbtn" class:on={projOpen} title="Open another folder  (Ctrl+O)" aria-expanded={projOpen} aria-haspopup="menu" onclick={toggleProj}>
-      <h1>{S.project}</h1><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+    <button class="projbtn" class:on={projOpen} title={S.workspace ? `Workspace ${S.workspace.name}: ${S.workspace.projects.map((p) => p.name).join(", ")}` : "Open another folder  (Ctrl+O)"} aria-expanded={projOpen} aria-haspopup="menu" onclick={toggleProj}>
+      {@render title()}<svg class="chev" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
     </button>
-  {:else}<h1>{S.project}</h1>{/if}
+  {:else}<span class="projbtn static" title={S.workspace ? `Workspace ${S.workspace.name}: ${S.workspace.projects.map((p) => p.name).join(", ")}` : S.project}>{@render title()}</span>{/if}
   {#if projOpen}
-    <div class="wsmenu projmenu" role="menu">
-      <button class="prow" role="menuitem" onclick={() => openFolder()}><span>Open Folder…</span><span class="muted">Ctrl+O</span></button>
-      <button class="prow" role="menuitem" onclick={newWindow}><span>New Window</span><span class="muted">Ctrl+Shift+N</span></button>
-      <div class="muted wshead">workspaces</div>
-      {#each workspaces as w (w.dir)}
-        {@const here = w.dir === S.workspace?.dir}
-        <button class="prow" role="menuitem" disabled={here} title={w.projects.join("\n")} onclick={() => openFolder(w.dir)}>
-          <span>{w.name}</span><span class="muted ppath">{here ? "this window" : w.projects.map((p) => p.split("/").pop()).join(", ")}</span></button>
-      {/each}
-      {#if S.workspace}<button class="prow" role="menuitem" onclick={addFolder}><span>Add Folder to Workspace…</span></button>{/if}
-      {#if naming}
-        <form class="prow wsnew" onsubmit={(e) => { e.preventDefault(); createWs(); }}>
-          <!-- svelte-ignore a11y_autofocus -->
-          <input bind:value={wsName} placeholder="workspace name" autofocus />
-          <button type="submit" disabled={!wsName.trim()}>Create</button>
-        </form>
-      {:else}
-        <button class="prow" role="menuitem" onclick={() => (naming = true)} title={S.workspace ? "A new workspace with this one's projects" : `A new workspace with ${S.project} in it; add more projects to it from here`}><span>New Workspace…</span></button>
+    <div class="pop projmenu" role="menu">
+      {#if S.workspace}
+        <div class="pmsec">
+          <div class="pmhead"><span>Workspace</span><span class="pmhint" title={S.workspace.dir + "/workspace.json"}>{tilde(S.workspace.dir)}</span></div>
+          {#each S.workspace.projects as p (p.path)}
+            <button class="pmrow" role="menuitem" title="{p.path}{p.summary ? '\n\n' + p.summary : ''}" onclick={() => showOnMap(p.name)}>
+              <svg class="pmico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" /></svg>
+              <span class="pmtext"><span class="pmname">{p.name}</span><span class="pmsub">{tilde(p.path)}</span></span>
+            </button>
+          {/each}
+          <button class="pmrow pmact" role="menuitem" onclick={addFolder}>
+            <svg class="pmico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg><span class="pmname">Add Folder to Workspace…</span>
+          </button>
+        </div>
       {/if}
-      {#if recent.filter((r) => !r.workspace).length}
-        <div class="muted wshead">recent</div>
-        {#each recent.filter((r) => !r.workspace) as r (r.path)}
-          <button class="prow" role="menuitem" title={r.path} onclick={() => openFolder(r.path)}><span>{r.name}</span><span class="muted ppath">{r.path.replace(/^\/home\/[^/]+/, "~")}</span></button>
-        {/each}
-      {/if}
-      {#if projNote}<div class="bad wsfoot">{projNote}</div>{/if}
-    </div>
-  {/if}
-  {#if wsOpen && S.workspace}
-    <div class="wsmenu">
-      <div class="muted wshead">workspace <b>{S.workspace.name}</b>: files and git show every project; the map, terminals and chat are the one you view</div>
-      {#each S.workspace.projects as p (p.path)}
-        <button class="wsrow" class:here={p.here} disabled={p.here} title={p.here ? "viewing" : `View ${p.name}`} onclick={() => viewProject(p.name)}>
-          <div class="wsname"><b>{p.name}</b>{#if p.here}<span class="muted"> · viewing</span>{/if}</div>
-          {#if p.summary}<div class="muted wssum">{p.summary}</div>{/if}
+      <div class="pmsec">
+        <button class="pmrow pmact" role="menuitem" onclick={() => openFolder()}>
+          <svg class="pmico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M2.5 4.5a1 1 0 0 1 1-1h3l1.5 1.5h4.5a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-9a1 1 0 0 1-1-1z" /></svg>
+          <span class="pmname">Open Folder…</span><kbd>Ctrl+O</kbd>
         </button>
-      {/each}
-      <div class="muted wsfoot" title="the workspace's file: which projects it holds">{S.workspace.dir.replace(/^\/home\/[^/]+/, "~")}/workspace.json</div>
-      <div class="muted wsfoot" title={S.workspace.system ?? ""}>{S.workspace.system ? "how they fit together: SYSTEM.md, kept by the agents" : "no SYSTEM.md yet: the agent writes one when it first needs it"}</div>
-      {#if wsNote}<div class="bad wsfoot">{wsNote}</div>{/if}
+        <button class="pmrow pmact" role="menuitem" onclick={newWindow}>
+          <svg class="pmico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" rx="1.5" /><path d="M2.5 6h11" /></svg>
+          <span class="pmname">New Window</span><kbd>Ctrl+Shift+N</kbd>
+        </button>
+      </div>
+      <div class="pmsec">
+        <div class="pmhead"><span>{S.workspace ? "Other workspaces" : "Workspaces"}</span></div>
+        {#each others as w (w.dir)}
+          <button class="pmrow" role="menuitem" title={w.projects.join("\n")} onclick={() => openFolder(w.dir)}>
+            <svg class="pmico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="9" y="2.5" width="4.5" height="4.5" rx="1" /><rect x="2.5" y="9" width="4.5" height="4.5" rx="1" /><rect x="9" y="9" width="4.5" height="4.5" rx="1" /></svg>
+            <span class="pmtext"><span class="pmname">{w.name}</span><span class="pmsub">{w.projects.map((p) => p.split("/").pop()).join(" · ")}</span></span>
+          </button>
+        {/each}
+        {#if naming}
+          <form class="pmnew" onsubmit={(e) => { e.preventDefault(); createWs(); }}>
+            <!-- svelte-ignore a11y_autofocus -->
+            <input bind:value={wsName} placeholder="workspace name" autofocus />
+            <button type="submit" disabled={!wsName.trim()}>Create</button>
+          </form>
+        {:else}
+          <button class="pmrow pmact" role="menuitem" onclick={() => (naming = true)} title={S.workspace ? "A new workspace with this one's projects" : `A new workspace with ${S.project} in it; add more projects to it from here`}>
+            <svg class="pmico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path d="M8 3.5v9M3.5 8h9" /></svg><span class="pmname">New Workspace…</span>
+          </button>
+        {/if}
+      </div>
+      {#if recents.length}
+        <div class="pmsec">
+          <div class="pmhead"><span>Recent</span></div>
+          {#each recents as r (r.path)}
+            <button class="pmrow" role="menuitem" title={r.path} onclick={() => openFolder(r.path)}>
+              <svg class="pmico" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><circle cx="8" cy="8" r="5.5" /><path d="M8 5v3l2 1.5" /></svg>
+              <span class="pmtext"><span class="pmname">{r.name}</span><span class="pmsub">{tilde(r.path)}</span></span>
+            </button>
+          {/each}
+        </div>
+      {/if}
+      {#if projNote}<div class="pmnote bad">{projNote}</div>{/if}
     </div>
   {/if}
   </div>

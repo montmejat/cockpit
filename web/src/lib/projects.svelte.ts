@@ -7,16 +7,20 @@
 // links), so the rest of the page keeps one string per file; `split` says which project it is in,
 // its path there, and where to ask for it.
 
-import { dirtyFiles, S } from "./state.svelte";
+import { S, setMapSource } from "./state.svelte";
+import { merge } from "./listmerge";
 import type { Live } from "./types";
 
-// What the page needs of a project's live state to show its files and git.
-export type Lite = Pick<Live, "project" | "files" | "status" | "fileRevs" | "git" | "review" | "private" | "root">;
+// A project's live state: its files and git, and its diagrams and code index for the map.
+export type Lite = Live;
+const EMPTY = { project: "", diagrams: [], problems: [], modules: [], layout: {}, live: null, files: [], status: [], changedFiles: [], changedItems: [], fileRevs: {},
+  git: { branch: null, head: "", upstream: null, ahead: 0, behind: 0 }, lines: 0, features: [], tests: { unit: [], integration: [] }, summary: "", review: null,
+  workspace: null, guardrails: { on: false, instructions: [] }, private: null, root: "" } as unknown as Live;
 
 export class Project {
   name: string; base: string; prefix: string; here: boolean; path: string;
   // Live, from the project's server: replaced whole on each change (never deeply reactive).
-  data = $state.raw<Lite>({ project: "", files: [], status: [], fileRevs: {}, git: { branch: null, head: "", upstream: null, ahead: 0, behind: 0 }, review: null, private: null as any, root: "" });
+  data = $state.raw<Live>({ ...EMPTY, project: "" });
   constructor(name: string, path: string, here: boolean) {
     this.name = name; this.path = path; this.here = here;
     this.base = here ? "" : `/p/${encodeURIComponent(name)}/`;
@@ -24,14 +28,18 @@ export class Project {
     if (!here) this.connect();
   }
   // The live state of this project, as S is for the window's own: S itself for this one.
-  get L(): Lite { return this.here ? S : this.data; }
+  get L(): Live { return this.here ? S : this.data; }
   private connect() {
     const es = new EventSource(this.base + "api/events");
     es.onmessage = (m) => {
       const e = JSON.parse(m.data);
-      // Its modules and tests (the lists sent as patches) aren't shown here: only its files and git.
-      if (e.type === "full") this.data = { ...e.state, root: this.path };
-      else this.data = { ...this.data, ...e.patch };
+      const d: Live = e.type === "full" ? { ...e.state, root: this.path } : { ...this.data, ...e.patch };
+      // Big lists come as their changed entries (src/project-server.ts, listPatch).
+      const l = e.lists ?? {};
+      if (l.modules) d.modules = merge(this.data.modules, l.modules, (x) => x.id);
+      if (l["tests.unit"]) d.tests = { ...d.tests, unit: merge(this.data.tests.unit, l["tests.unit"], (u) => u.module + "\0" + u.file) };
+      if (l["tests.integration"]) d.tests = { ...d.tests, integration: merge(this.data.tests.integration, l["tests.integration"], (t) => t.file) };
+      this.data = d;
     };
   }
 }
@@ -43,11 +51,6 @@ export const projects: Project[] = S.workspace?.projects.some((p) => p.here)
 export const many = projects.length > 1;
 export const here = projects.find((p) => p.here)!;
 
-// View another project of the workspace: its page, from its server (the host serves it at /p/<name>/).
-export function viewProject(name: string) {
-  if (dirtyFiles.size && !confirm(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Switch to ${name} anyway?`)) return;
-  location.href = `/p/${encodeURIComponent(name)}/`;
-}
 
 // Which project a page path is in, and its path there.
 export function split(path: string): { p: Project; path: string } {
@@ -55,3 +58,9 @@ export function split(path: string): { p: Project; path: string } {
   return { p: here, path };
 }
 export const projectNamed = (name?: string) => projects.find((p) => p.name === name && !p.here) ?? here;
+
+// The map can show any of them (state.svelte.ts, M): this page's own, or another's from its server.
+setMapSource((name) => {
+  const p = projectNamed(name);
+  return { name: p.name, base: p.base, prefix: p.prefix, L: p.L, set: (k, v) => { if (p.here) (S as any)[k] = v; else p.data = { ...p.data, [k]: v }; } };
+});

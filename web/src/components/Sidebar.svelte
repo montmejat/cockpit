@@ -6,7 +6,7 @@
   import ProjectPane from "./ProjectPane.svelte";
   import Grip, { savedWidth } from "./Grip.svelte";
   import IconButton from "./ui/IconButton.svelte";
-  import { collapseAll, S, store, ui, type Side } from "../lib/state.svelte";
+  import { collapseAll, M, store, ui, type Side } from "../lib/state.svelte";
   import { many, projects } from "../lib/projects.svelte";
 
   $effect(() => store.set("cockpit-tab", ui.side));
@@ -19,8 +19,8 @@
     for (const x of projects) for (const f of x.L.files) { const parts = (x.prefix + f).split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
     return [...out];
   });
-  const gr = $derived(S.guardrails);
-  const wrong = $derived(S.problems.length + (gr.on ? gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length : 0));
+  const gr = $derived(M.guardrails);
+  const wrong = $derived(M.problems.length + (gr.on ? gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length : 0));
   const tabs: { id: Side; word: string; label: string; icon: string }[] = [
     { id: "files", word: "Files", label: "Files (click again to fold every folder)", icon: "M4 2.5h5l3 3v8h-8zM9 2.5v3h3" },
     { id: "git", word: "Git", label: "Git: changes and history", icon: "M5 3v10M5 9c0-2 6-1 6-4.5M5 3.2a1.2 1.2 0 1 0 0 .1M11 4.3a1.2 1.2 0 1 0 0 .1M5 12.8a1.2 1.2 0 1 0 0 .1" },

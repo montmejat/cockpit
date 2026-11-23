@@ -1,7 +1,7 @@
 // A workspace's window, served (workspace.ts): the host is none of its projects. It runs a server
-// for each of them (workspace-servers.ts) and the window views one at a time, at /p/<name>/: that
-// project's page, with its map, terminals and chat, and every project's files and git. Switching
-// project is going to another /p/<name>/; the host opens the window on the one viewed last.
+// for each of them (workspace-servers.ts) and the window's page comes from one of them, at
+// /p/<name>/ (the one opened last; its terminals and chat), showing every project's files, git
+// and diagrams side by side (web/src/lib/projects.svelte.ts).
 //   npm run serve -- ~/.config/cockpit/workspaces/<name> [--port 4173] [--host 127.0.0.1]
 
 import { createServer } from "node:http";

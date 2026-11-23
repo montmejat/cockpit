@@ -3,7 +3,9 @@
   // A list of rows (about, features, tests, out of date, guardrails, size); a row opens its section here,
   // guardrails open as a tab in the center.
   import { api } from "../lib/code";
-  import { openFile, openGuardrails, plural, S, showChat, ui } from "../lib/state.svelte";
+  import { M as S, mapFile, mp, openFile as openPageFile, openGuardrails, plural, showChat, ui } from "../lib/state.svelte";
+  // The project the map shows (in a workspace, any of its projects): its files are named for the page.
+  const openFile = (f: string, line?: number) => openPageFile(mapFile(f), line);
   import IconButton from "./ui/IconButton.svelte";
 
   const ORDER = ["broken", "partial", "working", "planned"] as const;
@@ -23,7 +25,7 @@
   const problemsKey = $derived(S.problems.map((p) => p.problem + "@" + p.where).join("\n"));
   function update() {
     const list = S.problems.map((p) => `- ${p.problem} (${p.where})`).join("\n");
-    api.post("api/chat/send", { text: `The description in .cockpit/ no longer matches the code here:\n${list}\n\nUpdate .cockpit/ so it matches the code again: fix the anchors, features and diagrams these point to. Don't change the code.` });
+    api.post("api/chat/send", { text: `The description in .cockpit/ no longer matches the code ${mp().prefix ? `of ${mp().name} (${S.root})` : "here"}:\n${list}\n\nUpdate .cockpit/ so it matches the code again: fix the anchors, features and diagrams these point to. Don't change the code.` });
     asked = problemsKey;
     showChat();
   }

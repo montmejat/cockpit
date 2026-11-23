@@ -5,7 +5,7 @@
   import { onMount } from "svelte";
   import type { Core } from "cytoscape";
   import { buildCy, fitCapped, resizeNow, restyle, syncCy } from "../lib/diagram";
-  import { C, filesOfNode, nameOf, openFile, S, store, tldr, where } from "../lib/state.svelte";
+  import { C, filesOfNode, fromMapFile, M, mapFile, nameOf, openFile, store, tldr, where } from "../lib/state.svelte";
   import type { Diagram, DiagramNode } from "../lib/types";
 
   let { path, view, cursor = 0, onlines, onjump }: { path: string; view: [number, number]; cursor?: number; onlines: (l: [number, number][]) => void; onjump: (line: number) => void } = $props();
@@ -16,11 +16,13 @@
   let foot = $state("hover a box to see its lines");
   let chosen: Record<string, string> = $state({}); // which diagram, per file, when several fit
 
-  const here = (d: Diagram) => d.nodes.filter((n) => filesOfNode(n).includes(path)).length;
-  const ds = $derived(S.diagrams.filter(here).sort((a, b) => here(b) - here(a)));
+  // The file as the map's project names it: none when it is another project's (a workspace).
+  const raw = $derived(fromMapFile(path));
+  const here = (d: Diagram) => d.nodes.filter((n) => filesOfNode(n).includes(raw ?? "")).length;
+  const ds = $derived(raw ? M.diagrams.filter(here).sort((a, b) => here(b) - here(a)) : []);
   const d = $derived(ds.find((x) => x.id === chosen[path]) ?? ds[0] ?? null);
   // The lines a box covers in this file; a whole-module link covers the file but isn't "on screen".
-  const ranges = (n: DiagramNode) => (n.anchors ?? []).map(where).filter((w) => w && w.file === path && w.line).map((w) => [w!.line!, w!.end ?? w!.line!] as [number, number]);
+  const ranges = (n: DiagramNode) => (n.anchors ?? []).map(where).filter((w) => w && w.file === raw && w.line).map((w) => [w!.line!, w!.end ?? w!.line!] as [number, number]);
 
   onMount(() => {
     try { const g = JSON.parse(store.get("cockpit-mini", "null")); if (g) Object.assign(el.style, { left: g.left + "px", top: g.top + "px", width: g.width + "px", height: g.height + "px", right: "auto", bottom: "auto" }); } catch {}
@@ -38,9 +40,9 @@
     const dd = d;
     if (!mcy || !dd) return;
     JSON.stringify(dd); void path;
-    const pos = S.layout?.[dd.id];
+    const pos = M.layout?.[dd.id];
     if (!cy) { cy = buildCy(mcy, dd, pos); wire(cy); } else syncCy(cy, dd, pos);
-    cy.nodes().forEach((x) => { const n = dd.nodes.find((m) => m.id === x.id()); x.toggleClass("infile", !!n && filesOfNode(n).includes(path)); });
+    cy.nodes().forEach((x) => { const n = dd.nodes.find((m) => m.id === x.id()); x.toggleClass("infile", !!n && filesOfNode(n).includes(raw ?? "")); });
   });
   $effect(() => { void C.items; void C.files; void C.touched; if (cy && d) restyle(cy, d); });
   // Boxes whose code is on screen. Only boxes whose state changes are touched: any class change
@@ -59,7 +61,7 @@
   const span = (n: DiagramNode, line: number) => {
     let best = Infinity;
     for (const w of (n.anchors ?? []).map(where)) {
-      if (!w || w.file !== path) continue;
+      if (!w || w.file !== raw) continue;
       if (!w.line) best = Math.min(best, 1e9);
       else if (w.line <= line && line <= (w.end ?? w.line)) best = Math.min(best, (w.end ?? w.line) - w.line);
     }
@@ -97,7 +99,7 @@
       const r = ranges(n)[0];
       if (r) return onjump(r[0]);
       const w = (n.anchors ?? []).map(where).find(Boolean);
-      if (w) openFile(w.file, w.line, w.end);
+      if (w) openFile(mapFile(w.file), w.line, w.end);
     });
   }
 

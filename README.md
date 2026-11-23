@@ -154,10 +154,9 @@ projects in one window; opening one of its projects opens just that one.
 - Open one from the project menu (the name at the top: **Workspaces**), or open its folder:
   `cockpit ~/.config/cockpit/workspaces/<name>`. **New Workspace…** makes one from what the window
   shows, **Add Folder to Workspace…** adds a project to the open one.
-- No project is the workspace's own: the window views one at a time, its map, diagrams,
-  terminals and chat, and the workspace name at the top (**<name> ▾**) switches to another. The
-  window opens on the project you viewed last; terminals and conversations stay where they are
-  while you look at another project.
+- The window is the workspace's, named after it. The map shows any project's diagrams: pick the
+  project at the start of the breadcrumb, from the ☰ list (a section per project), or from the
+  menu under the workspace's name; the project tab follows the map.
 - Files: a root folder per project. Git: a section per project (fold it by its name). Quick open
   and search cover them all; the editor saves each file in its project, with that project's
   language server. Behind the window, the workspace's host (`src/workspace-host.ts`) runs a server

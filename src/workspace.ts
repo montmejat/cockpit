@@ -1,8 +1,7 @@
 // Workspaces: projects that work together, like an editor's multi-root workspace. Opening a
 // workspace (its folder, below, or from the project menu) shows all its projects in one window,
-// none of them first: a host (workspace-host.ts) runs a server per project, the window views one
-// at a time (its map, terminals and chat) and switches between them, and files and git show them
-// all side by side. Each project's chat agent knows what the others are and keeps one shared note
+// none of them first: a host (workspace-host.ts) runs a server per project, and the window shows
+// every project's files, git and diagrams side by side. Each project's chat agent knows what the others are and keeps one shared note
 // on how they fit together. Opening one of its projects alone opens just that project.
 //
 // A workspace is a folder in your settings, outside every repo (and outside this one):

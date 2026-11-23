@@ -5,7 +5,9 @@
   // down. Below, the checks with their last result. Nothing here changes the project: "set up" and
   // "harden" ask the chat's agent, which keeps everything in .cockpit/.
   import { api } from "../lib/code";
-  import { openFile, S, showChat } from "../lib/state.svelte";
+  import { M as S, mapFile, mp, openFile as openPageFile, showChat } from "../lib/state.svelte";
+  // The project the map shows (in a workspace, any of its projects): asked through its server.
+  const openFile = (f: string, line?: number) => openPageFile(mapFile(f), line);
   import type { CheckResult, Layer, Rule } from "../lib/types";
 
   const LAYERS: { id: Layer; name: string; says: string }[] = [
@@ -36,13 +38,13 @@
   }
   const dur = (ms: number) => (ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`);
 
-  const run = (ids?: string[]) => api.post("api/guardrails/run", { ids });
+  const run = (ids?: string[]) => api.post(mp().base + "api/guardrails/run", { ids });
   // Checks are commands from the project: none run until you've trusted them as they are now.
   const untrusted = $derived(!!on && !on.trusted);
   let trustErr = $state("");
   async function trustThem() {
     trustErr = "";
-    const r = await api.post<{ error?: string }>("api/guardrails/trust", { runs: on!.checks.map((c) => c.run) }).catch((e) => ({ error: String(e) }));
+    const r = await api.post<{ error?: string }>(mp().base + "api/guardrails/trust", { runs: on!.checks.map((c) => c.run) }).catch((e) => ({ error: String(e) }));
     if (r?.error) trustErr = r.error;
   }
   function ask(text: string) { api.post("api/chat/send", { text }); showChat(); }

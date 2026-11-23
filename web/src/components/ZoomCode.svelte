@@ -3,7 +3,7 @@
   // them shows in place, the whole function kept around it: lines added or changed are marked, the
   // old lines appear where they were removed. In review mode that is everything the branch changes
   // against its target (as the editor shows it), otherwise the uncommitted edits.
-  import { C, anchorChanged, explainChanges, openFile, S, tldr, where } from "../lib/state.svelte";
+  import { C, anchorChanged, explainChanges, M, mapFile, mp, openFile, tldr, where } from "../lib/state.svelte";
   import { api, hlLines, langOf } from "../lib/code";
   import type { DiagramNode, Hunk } from "../lib/types";
 
@@ -12,14 +12,14 @@
   let srcs: Record<string, Src> = $state({});
 
   const parts = $derived((node.anchors ?? []).map((a) => ({ a, w: where(a) })).filter((x) => x.w) as { a: string; w: NonNullable<ReturnType<typeof where>> }[]);
-  const base = $derived(S.review?.base ?? "");
+  const base = $derived(M.review?.base ?? "");
   // Load each file once, and again when it changes on disk, HEAD moves, or a review starts or ends.
-  const keyOf = (file: string) => file + "@" + (S.fileRevs[file] ?? S.git.head) + "@" + base;
+  const keyOf = (file: string) => file + "@" + (M.fileRevs[file] ?? M.git.head) + "@" + base;
   $effect(() => {
     for (const { w } of parts) {
       const key = keyOf(w.file);
       if (key in srcs) continue;
-      api.get("api/file?path=" + encodeURIComponent(w.file) + (base ? "&review=1" : ""))
+      api.get(mp().base + "api/file?path=" + encodeURIComponent(w.file) + (base ? "&review=1" : ""))
         .then((r) => (srcs[key] = { text: r.text ?? "", hunks: r.hunks ?? [] }))
         .catch(() => (srcs[key] = { text: "", hunks: [] }));
     }
@@ -50,14 +50,14 @@
     return { rows, adds, dels, more: !line && !changed && lines.length > to ? lines.length - to : 0 };
   }
   // Changed in the review, or (outside one) not committed.
-  const changedHere = (a: string) => (S.review ? anchorChanged(a, C.rFiles, C.rItems) : anchorChanged(a));
+  const changedHere = (a: string) => (M.review ? anchorChanged(a, C.rFiles, C.rItems) : anchorChanged(a));
   const anyChange = $derived(parts.some(({ a }) => changedHere(a)));
 </script>
 
 <div class="zcard">
   <div class="zhead">
     <b>{node.label}</b><span class="muted"> · {tldr(node, node.explain)}</span>
-    {#if anyChange}<button class="zexplain" title={"Ask the chat's agent what " + (S.review ? "this review" : "the uncommitted edits") + " changed in this code, and what to look at"} onclick={() => explainChanges(node, diagram)}>explain the changes</button>{/if}
+    {#if anyChange}<button class="zexplain" title={"Ask the chat's agent what " + (M.review ? "this review" : "the uncommitted edits") + " changed in this code, and what to look at"} onclick={() => explainChanges(node, diagram)}>explain the changes</button>{/if}
   </div>
   <div class="zbody">
     {#each parts as { a, w } (a)}
@@ -65,8 +65,8 @@
       {@const s = src ? rowsOf(w.file, w.line, w.end) : null}
       <div class="zpart">
         <div class="zfile">
-          <button class="link" onclick={() => openFile(w.file, w.line, w.end)}>{a}</button>
-          {#if changedHere(a)}<span class={S.review ? "rev" : "chg"}> {S.review ? "◆ changed in this review" : "● changed"}</span>{/if}
+          <button class="link" onclick={() => openFile(mapFile(w.file), w.line, w.end)}>{a}</button>
+          {#if changedHere(a)}<span class={M.review ? "rev" : "chg"}> {M.review ? "◆ changed in this review" : "● changed"}</span>{/if}
           {#if s && (s.adds || s.dels)}<span class="zstat">{#if s.adds}<span class="a">+{s.adds}</span>{/if}{#if s.dels}<span class="d">−{s.dels}</span>{/if}</span>{/if}
           <span class="muted"> · {w.file}{w.line ? ":" + w.line : ""}</span>
         </div>

@@ -3,7 +3,7 @@
   // box you clicked (the hover box, kept, with its code links and more), or with no box picked, the
   // diagram on screen (from ⓘ by the breadcrumb). ✕, Esc (MapView) or a click on the empty map closes it.
   import type { Diagram } from "../lib/types";
-  import { anchorChanged, explainChanges, nameOf, nodeState, openFile, S, tldr, ui, where } from "../lib/state.svelte";
+  import { anchorChanged, explainChanges, M, mapFile, nameOf, nodeState, openFile, tldr, ui, where } from "../lib/state.svelte";
   import IconButton from "./ui/IconButton.svelte";
 
   let { d, onclose }: { d: Diagram; onclose: () => void } = $props();
@@ -14,7 +14,7 @@
 
 {#snippet chip(a: string)}
   {@const w = where(a)}
-  {#if w}<button class="chip" class:chg={anchorChanged(a)} title={a + " · " + w.file} onclick={() => openFile(w.file, w.line, w.end)}>{short(a)}</button>
+  {#if w}<button class="chip" class:chg={anchorChanged(a)} title={a + " · " + w.file} onclick={() => openFile(mapFile(w.file), w.line, w.end)}>{short(a)}</button>
   {:else}<span class="chip muted">{short(a)}</span>{/if}
 {/snippet}
 
@@ -31,7 +31,7 @@
     <p class="lead">{tldr(n, n.explain)}</p>
     {#if ns.live}<p class="agentbox">◉ the agent is changing it now</p>{:else if ns.unc}<p class="notebox">changed, not committed</p>{/if}
     {#if ns.added}<p class="revbox add">new in this review</p>{:else if ns.rev}<p class="revbox">changed in this review</p>{/if}
-    {#if ns.rev || (!S.review && ns.unc)}<p><button class="zexplain" onclick={() => explainChanges(n, d.id)}>explain the changes</button></p>{/if}
+    {#if ns.rev || (!M.review && ns.unc)}<p><button class="zexplain" onclick={() => explainChanges(n, d.id)}>explain the changes</button></p>{/if}
     {#if (n.anchors ?? []).length}<div class="chips">{#each n.anchors ?? [] as a}{@render chip(a)}{/each}</div>{/if}
     {#if n.tldr || tldr(n, n.explain) !== n.explain || ins.length || outs.length}
       <details class="more"><summary>more</summary>
@@ -49,8 +49,8 @@
     <p class="q">{d.question}</p>
     <p class="lead">{tldr(d, d.answer)}</p>
     {#if busy.length}<p class="notebox">changed: {busy.map((x) => x.label).join(", ")}</p>{/if}
-    {#if S.review}
-      {@const rd = S.review.diagrams[d.id]}
+    {#if M.review}
+      {@const rd = M.review.diagrams[d.id]}
       {@const rv = d.nodes.filter((x) => { const s = nodeState(x, d.id); return s.rev && !s.added; })}
       {#if rd?.isNew}<p class="revbox add">new diagram in this review</p>{/if}
       {#if rv.length}<p class="revbox">changed in this review: {rv.map((x) => x.label).join(", ")}</p>{/if}

@@ -68,21 +68,40 @@ export const plural = (n: number, w: string) => n + " " + w + (n === 1 ? "" : "s
 export const nameOf = (d: { id: string } | undefined | null) => (d ? d.id.replace(/-/g, " ") : "");
 // The agents write a short "tldr"; until they do, the first sentence stands in.
 export const tldr = (x: { tldr?: string }, long?: string) => x.tldr || (long ?? "").split(/(?<=[.!?])\s/)[0];
-export const byId = (id: string | null | undefined) => S.diagrams.find((d) => d.id === id);
-export const home = () => (S.diagrams.find((d) => d.kind === "loop") ?? S.diagrams[0])?.id ?? null;
-export const parentOfDiagram = (id: string) => S.diagrams.find((d) => d.nodes.some((n) => n.detail === id));
+
+// ---- the map's project -------------------------------------------------------
+// In a workspace the map shows any of its projects' diagrams (the map tab's `project`, none for
+// this page's own), without leaving the page: M is that project's live state, as S is this
+// one's. projects.svelte.ts says where each project is (setMapSource); alone, it is S.
+export type MapSource = { name: string; base: string; prefix: string; L: Live; set(k: keyof Live, v: unknown): void };
+let mapSource = (_name?: string): MapSource => ({ name: S.project, base: "", prefix: "", L: S, set: (k, v) => { (S as any)[k] = v; } });
+export const setMapSource = (f: typeof mapSource) => { mapSource = f; };
+export const mp = () => mapSource(mapTab().project);
+export const M: Live = new Proxy({} as Live, {
+  get: (_, k) => (mp().L as any)[k],
+  set: (_, k, v) => { mp().set(k as keyof Live, v); return true; },
+});
+// A file of the map's project as the page names it ("@name/path" for another project's), and back
+// (null: not one of its files).
+export const mapFile = (f: string) => mp().prefix + f;
+export const fromMapFile = (p: string) => { const pre = mp().prefix; return pre ? (p.startsWith(pre) ? p.slice(pre.length) : null) : p.startsWith("@") ? null : p; };
+
+export const byId = (id: string | null | undefined) => M.diagrams.find((d) => d.id === id);
+export const homeOf = (L: Pick<Live, "diagrams">) => (L.diagrams.find((d) => d.kind === "loop") ?? L.diagrams[0])?.id ?? null;
+export const home = () => homeOf(M);
+export const parentOfDiagram = (id: string) => M.diagrams.find((d) => d.nodes.some((n) => n.detail === id));
 
 // ---- what is changing ----------------------------------------------------
 
 class Changes {
-  items = $derived(new Set(S.changedItems));
-  files = $derived(new Set(S.changedFiles));
-  touched = $derived(new Set(S.live?.touched ?? []));
-  modules = $derived(new Map(S.modules.map((m) => [m.id, m])));
+  items = $derived(new Set(M.changedItems));
+  files = $derived(new Set(M.changedFiles));
+  touched = $derived(new Set(M.live?.touched ?? []));
+  modules = $derived(new Map(M.modules.map((m) => [m.id, m])));
   // Review mode: what the branch changes against its target, committed or not.
-  rItems = $derived(new Set(S.review?.changedItems ?? []));
-  rFiles = $derived(new Set(S.review?.changedFiles ?? []));
-  rImpacted = $derived(new Set(S.review?.impacted ?? []));
+  rItems = $derived(new Set(M.review?.changedItems ?? []));
+  rFiles = $derived(new Set(M.review?.changedFiles ?? []));
+  rImpacted = $derived(new Set(M.review?.impacted ?? []));
 }
 export const C = new Changes();
 
@@ -113,9 +132,9 @@ export function anchorChanged(a: string, files = C.files, items = C.items) {
 // branch changed (imp: what the change impacts).
 export function nodeState(n: DiagramNode, diagram?: string) {
   const hit = (n.anchors ?? []).filter((a) => anchorChanged(a));
-  const r = S.review, rd = r && diagram ? r.diagrams[diagram] : null;
+  const r = M.review, rd = r && diagram ? r.diagrams[diagram] : null;
   return {
-    unc: hit.length > 0, live: !!S.live && hit.some((a) => C.touched.has(where(a)?.file ?? "")),
+    unc: hit.length > 0, live: !!M.live && hit.some((a) => C.touched.has(where(a)?.file ?? "")),
     rev: !!r && (n.anchors ?? []).some((a) => anchorChanged(a, C.rFiles, C.rItems)),
     added: !!rd && !rd.isNew && rd.added.includes(n.id),
     imp: !!r && (n.anchors ?? []).some((a) => C.rImpacted.has(a.split("::")[0])),
@@ -130,18 +149,19 @@ export function diagramChanges(d: { id: string; nodes: DiagramNode[] }) {
 }
 // How many boxes of a diagram the review changes (for the diagram list).
 export function reviewCount(d: { id: string; nodes: DiagramNode[] }) {
-  if (!S.review) return 0;
+  if (!M.review) return 0;
   return d.nodes.filter((n) => { const s = nodeState(n, d.id); return s.rev || s.added; }).length;
 }
 // "Explain the changes": asks the chat's agent what the review (or, outside one, the uncommitted
 // edits) changes in a box's code, with where that code is and the git command that shows it.
 export function explainChanges(n: DiagramNode, diagram?: string) {
-  const r = S.review, parts = (n.anchors ?? []).map((a) => { const w = where(a); return w ? `- ${a} (${w.file}${w.line ? ":" + w.line + (w.end ? "-" + w.end : "") : ""})` : `- ${a}`; });
-  const files = filesOfNode(n).join(" ");
+  const r = M.review, parts = (n.anchors ?? []).map((a) => { const w = where(a); return w ? `- ${a} (${w.file}${w.line ? ":" + w.line + (w.end ? "-" + w.end : "") : ""})` : `- ${a}`; });
+  const files = filesOfNode(n).join(" "), git = mp().prefix ? `git -C ${M.root}` : "git";
   const what = r?.base
-    ? `I'm reviewing ${r.mr ? `merge request ${r.mr.ref} "${r.mr.title}" (${r.branch})` : r.branch} against ${r.target}. The diff starts at ${r.base}: \`git diff ${r.base} -- ${files}\` (uncommitted edits included).`
-    : `These are uncommitted changes: \`git diff HEAD -- ${files}\`.`;
-  const text = `${what}\n\nIn the diagram "${nameOf(byId(diagram))}", the box "${n.label}" (${n.explain}) is this code:\n${parts.join("\n")}\n\n` +
+    ? `I'm reviewing ${r.mr ? `merge request ${r.mr.ref} "${r.mr.title}" (${r.branch})` : r.branch} against ${r.target}. The diff starts at ${r.base}: \`${git} diff ${r.base} -- ${files}\` (uncommitted edits included).`
+    : `These are uncommitted changes: \`${git} diff HEAD -- ${files}\`.`;
+  const proj = mp().prefix ? ` of the project ${mp().name} (${M.root})` : "";
+  const text = `${what}\n\nIn the diagram "${nameOf(byId(diagram))}"${proj}, the box "${n.label}" (${n.explain}) is this code:\n${parts.join("\n")}\n\n` +
     `Explain what changed in that code only: what it did before, what it does now, why it likely changed, and anything that looks wrong, risky or worth a second look. Point to the lines. Don't change the code.`;
   api.post("api/chat/send", { text });
   showChat();
@@ -159,7 +179,7 @@ const sideTab = store.get("cockpit-tab", "files");
 
 export const ui = $state({
   side: (sideTab === "git" || sideTab === "project" ? sideTab : "files") as Side,
-  tabs: [{ kind: "map", id: home(), code: null } as Tab, ...saved()],
+  tabs: [{ kind: "map", id: homeOf(S), code: null } as Tab, ...saved()],
   active: Math.max(0, +store.get("cockpit-active-" + S.project, "0") || 0),
   picked: null as string | null, // the box clicked on the map
   insp: null as Insp, // the section open in the sidebar's project tab
@@ -215,9 +235,11 @@ export function closeTab(i: number) {
   if (i < ui.active || ui.active >= ui.tabs.length) ui.active = Math.max(0, ui.active - 1);
   saveTabs();
 }
-// Going to a diagram moves the map there.
-export function openDiagram(id: string, node?: string) {
+// Going to a diagram moves the map there; `project` names the workspace's project it is in (by
+// default the one the map shows now).
+export function openDiagram(id: string, node?: string, project?: string) {
   const t = mapTab();
+  if (project !== undefined) t.project = project === S.project ? undefined : project;
   t.id = id; t.code = null; ui.active = 0;
   ui.picked = node ?? null;
   saveTabs();

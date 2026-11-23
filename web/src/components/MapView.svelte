@@ -9,23 +9,31 @@
   import DiagramList from "./DiagramList.svelte";
   import NodeCard from "./NodeCard.svelte";
   import { buildCy, legend, nudge, positionsOf, relayout, restyle, snapWhileDragging, syncCy, type Guides } from "../lib/diagram";
-  import { byId, C, diagramChanges, mapTab, nameOf, nodeState, parentOfDiagram, S, saveTabs, tldr, ui } from "../lib/state.svelte";
+  import { byId, C, diagramChanges, homeOf, M, mapTab, mp, nameOf, nodeState, openDiagram, parentOfDiagram, saveTabs, tldr, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
+  import { many, projects } from "../lib/projects.svelte";
 
   let { hidden }: { hidden: boolean } = $props();
 
   let area: HTMLElement, box: HTMLElement;
-  let cy: Core | null = null;
+  let cy: Core | null = null, drawnFor = "";
   let legendItems = $state<{ cls: string; text: string; help?: boolean }[]>([]);
   let tip = $state<{ html: string; x: number; y: number } | null>(null);
   let listOpen = $state(false); // the list of every diagram, over the top left of the map
   let about = $state(false); // the card about the diagram on screen (ⓘ by the breadcrumb)
+  let projOpen = $state(false); // in a workspace: the projects, first in the breadcrumb
+  // Another project's diagrams, on this map: its main one (or none yet, until its server answers).
+  function showProject(name: string) {
+    projOpen = false; closeCard();
+    const p = projects.find((x) => x.name === name)!;
+    openDiagram(homeOf(p.L) ?? "", undefined, p.name);
+  }
   const closeCard = () => { ui.picked = null; about = false; };
   // How many diagrams uncommitted changes reach (and whether the agent is in one): on the ☰ button.
   const changed = $derived.by(() => {
     void C.items; void C.files; void C.touched;
-    if (S.review) return { n: 0, live: false };
-    const all = S.diagrams.map(diagramChanges);
+    if (M.review) return { n: 0, live: false };
+    const all = M.diagrams.map(diagramChanges);
     return { n: all.filter((c) => c.n).length, live: all.some((c) => c.live) };
   });
 
@@ -48,9 +56,11 @@
   // The diagram itself, or where its boxes were placed, changed: update in place.
   $effect(() => {
     if (!area) return;
-    const diagram = d;
+    const diagram = d, proj = mp().name;
+    if (cy && drawnFor !== proj) { cy.destroy(); cy = null; } // another project's: drawn afresh, fitted
+    drawnFor = proj;
     if (!diagram) return;
-    const pos = S.layout?.[diagram.id];
+    const pos = M.layout?.[diagram.id];
     JSON.stringify(diagram); // follow every part of it
     if (!cy) { cy = buildCy(area, diagram, pos); wire(cy); cy.minZoom(Math.min(cy.zoom() * 0.85, 1)); }
     else if (syncCy(cy, diagram, pos)) cy.minZoom(Math.min(cy.zoom() * 0.85, 1));
@@ -58,7 +68,7 @@
   });
   // What's changing moved (uncommitted code, the agent's files): restyle only.
   $effect(() => {
-    void C.items; void C.files; void C.touched; void C.rItems; void C.rFiles; void S.review?.diagrams;
+    void C.items; void C.files; void C.touched; void C.rItems; void C.rFiles; void M.review?.diagrams;
     if (cy && d) { restyle(cy, d); legendItems = legend(cy); }
   });
   // The picked box is outlined.
@@ -72,15 +82,15 @@
   function save() {
     if (!cy || !d) return;
     const pos = positionsOf(cy);
-    S.layout = { ...(S.layout ?? {}), [d.id]: pos };
-    api.post("api/diagram-layout", { id: d.id, positions: pos });
+    M.layout = { ...(M.layout ?? {}), [d.id]: pos };
+    api.post(mp().base + "api/diagram-layout", { id: d.id, positions: pos });
   }
   function resetLayout() {
     if (!cy || !d) return;
-    const rest = { ...(S.layout ?? {}) };
+    const rest = { ...(M.layout ?? {}) };
     delete rest[d.id];
-    S.layout = rest;
-    api.post("api/diagram-layout", { id: d.id, positions: null });
+    M.layout = rest;
+    api.post(mp().base + "api/diagram-layout", { id: d.id, positions: null });
     relayout(cy, d);
   }
 
@@ -171,7 +181,7 @@
   // The library remembers where its box is on screen. If the mouse moves while a zoom animation
   // scales the box, clicks would land off target: measure again once it ends.
   const settle = () => cy?.resize();
-  const swap = (id: string) => { const nd = byId(id)!; t.id = id; t.code = null; if (cy) { cy.scratch("_hold", true); syncCy(cy, nd, S.layout?.[id]); cy.minZoom(Math.min(cy.zoom() * 0.85, 1)); cy.scratch("_hold", false); legendItems = legend(cy); } };
+  const swap = (id: string) => { const nd = byId(id)!; t.id = id; t.code = null; if (cy) { cy.scratch("_hold", true); syncCy(cy, nd, M.layout?.[id]); cy.minZoom(Math.min(cy.zoom() * 0.85, 1)); cy.scratch("_hold", false); legendItems = legend(cy); } };
 
   // Where going into a box leads: a diagram before code. The box's own detail diagram; else the
   // detail diagram of a zone around it (a zone like "RT thread" stands for a whole diagram, its
@@ -282,17 +292,17 @@
       }
       return;
     }
-    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (listOpen) listOpen = false; else if (ui.picked || about) closeCard(); else ascend(); }
+    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (projOpen) projOpen = false; else if (listOpen) listOpen = false; else if (ui.picked || about) closeCard(); else ascend(); }
   }
 </script>
 
-<svelte:window onkeydown={keys} />
+<svelte:window onkeydown={keys} onpointerdown={(e) => { if (projOpen && !(e.target as HTMLElement).closest?.(".cproj")) projOpen = false; }} />
 
 <section id="canvas" class:hide={hidden} bind:this={box}>
-  {#if !d}<div id="nodiagram">No diagrams yet. Ask the agent to describe this project.</div>{/if}
+  {#if !d}<div id="nodiagram">{many && !mp().L.project ? `Loading ${mp().name}…` : `No diagrams yet. Ask the agent to describe ${many ? mp().name : "this project"}.`}</div>{/if}
   <div class="pane">
     <div class="ptitle">
-      {#if d && S.layout?.[d.id]}<span class="pbtns"><button title="Forget where you moved the boxes" onclick={resetLayout}>reset layout</button></span>{/if}
+      {#if d && M.layout?.[d.id]}<span class="pbtns"><button title="Forget where you moved the boxes" onclick={resetLayout}>reset layout</button></span>{/if}
     </div>
     <div class="cyc" bind:this={area} onwheel={wheel}></div>
     {#if guides}
@@ -302,22 +312,37 @@
     <div class="legend">{#each legendItems.filter((l) => ui.help || !l.help) as l (l.cls)}<span><i class="sw {l.cls}"></i>{l.text}</span>{/each}</div>
   </div>
   {#if tip}<div id="tip" style="left:{tip.x}px;top:{tip.y}px">{@html tip.html}</div>{/if}
-  {#if d}
+  {#if d || many}
     <div id="crumbs">
       <button class="dtoggle" class:on={listOpen} class:chg={changed.n > 0} class:live={changed.live}
         title={changed.n ? `All diagrams: ${changed.n} touched by uncommitted changes${changed.live ? ", the agent is editing now" : ""}` : "All diagrams  (F1: hints)"} aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰{#if changed.n}<span class="dchg" class:live={changed.live}>{changed.n}</span>{/if}</button>
+      {#if many}
+        <span class="cproj">
+          <button class="cprojbtn" class:on={projOpen} title="The workspace's projects: show another one's diagrams" aria-haspopup="menu" aria-expanded={projOpen} onclick={() => (projOpen = !projOpen)}>{mp().name}<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></button>
+          {#if projOpen}
+            <div class="pop cpmenu" role="menu" aria-label="Projects">
+              {#each projects as p (p.name)}
+                <button class="mrow" class:on={p.name === mp().name} role="menuitemradio" aria-checked={p.name === mp().name} onclick={() => showProject(p.name)}>
+                  <span class="mname">{p.name}</span><span class="muted mval">{p.L.project ? (p.L.diagrams.length ? `${p.L.diagrams.length} diagram${p.L.diagrams.length > 1 ? "s" : ""}` : "no diagrams") : "loading…"}</span>
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </span>
+        {#if chain.length}<span class="muted csep">›</span>{/if}
+      {/if}
       {#each chain as x, i (x.id)}
         {#if i}<span class="muted csep">›</span>{/if}
         {#if i === chain.length - 1 && !codeNode}<b>{nameOf(x)}</b>{:else}<button class="link" onclick={() => jumpTo(x.id)}>{nameOf(x)}</button>{/if}
       {/each}
       {#if codeNode}<span class="muted csep">›</span><b>{codeNode.label}</b>{/if}
-      {#if !codeNode}<button class="cinfo" class:on={about && !ui.picked} title="About this diagram" aria-label="About this diagram" onclick={() => { ui.picked = null; about = !about; }}>ⓘ</button>{/if}
+      {#if d && !codeNode}<button class="cinfo" class:on={about && !ui.picked} title="About this diagram" aria-label="About this diagram" onclick={() => { ui.picked = null; about = !about; }}>ⓘ</button>{/if}
       {#if ui.help}<span class="muted zhint"> · {chain.length > 1 || codeNode ? "Esc or scroll out to go up" : "double-click a box to go in"} · F1 hides hints</span>{/if}
     </div>
   {/if}
   {#if d && !codeNode && (ui.picked || about)}<NodeCard {d} onclose={closeCard} />{/if}
-  {#if listOpen && S.diagrams.length}
-    <DiagramList current={t.code ? null : t.id} onpick={(id) => { listOpen = false; if (id !== t.id || t.code) jumpTo(id); }} onclose={() => (listOpen = false)} />
+  {#if listOpen && projects.some((p) => p.L.diagrams.length)}
+    <DiagramList current={t.code ? null : t.id} onpick={(id, project) => { listOpen = false; if (project !== mp().name) openDiagram(id, undefined, project); else if (id !== t.id || t.code) jumpTo(id); }} onclose={() => (listOpen = false)} />
   {/if}
   {#if codeNode && d}
     <div id="zcode" bind:this={zcodeEl}>
