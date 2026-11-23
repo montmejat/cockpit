@@ -328,7 +328,7 @@ button.csend svg{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:r
 button.csend.stop{background:var(--fg);color:var(--bg)}button.csend.stop svg{fill:currentColor;stroke:none}
 /* a ring with a fading tail, drawn by a gradient under a mask: smooth at any zoom, and an even
    box (no border) so it turns about its exact center instead of wobbling */
-.spin{display:inline-block;flex:none;width:12px;height:12px;border-radius:50%;color:var(--accent);background:conic-gradient(from 0deg,transparent 0 12%,currentColor);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.4px),#000 calc(100% - 1.9px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.4px),#000 calc(100% - 1.9px));animation:spin .9s linear infinite;vertical-align:middle;will-change:transform}
+.spin{display:inline-block;flex:none;width:12px;height:12px;border-radius:50%;color:var(--accent);background:conic-gradient(from 0deg,transparent 0 12%,currentColor);-webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.4px),var(--fg) calc(100% - 1.9px));mask:radial-gradient(farthest-side,transparent calc(100% - 2.4px),var(--fg) calc(100% - 1.9px));animation:spin .9s linear infinite;vertical-align:middle;will-change:transform}
 @keyframes spin{to{transform:rotate(360deg)}}
 
 /* terminal drawer, under the center */
