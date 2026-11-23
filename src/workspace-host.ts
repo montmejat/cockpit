@@ -4,13 +4,12 @@
 // and diagrams side by side (web/src/lib/projects.svelte.ts).
 //   npm run serve -- ~/.config/cockpit/workspaces/<name> [--port 4173] [--host 127.0.0.1]
 
-import { createServer } from "node:http";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import { join, resolve } from "node:path";
 import { createAuth } from "./auth.ts";
-import { asset, gate, post, sameOrigin, type Handler } from "./http.ts";
+import { asset, gatedServer, post, type Handler } from "./http.ts";
 import { outDir } from "./turns.ts";
 import { addToWorkspace, loadWorkspace } from "./workspace.ts";
 import { createWorkspaceServers } from "./workspace-servers.ts";
@@ -57,28 +56,20 @@ const routes: Record<string, Handler> = {
   }),
 };
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", "http://x");
-  if (gate(auth, req, res, url)) return;
-  try {
-    const h = routes[`${req.method} ${url.pathname}`];
-    if (h) return await h(req, res, url);
-    if (asset(req, res, url)) return;
-    const m = /^\/p\/([^/]+)(\/?)$/.exec(url.pathname);
-    if (req.method === "GET" && m && servers.has(decodeURIComponent(m[1]))) {
-      // A project's page: /p/<name>/, with the slash its page's relative links need.
-      if (!m[2]) return res.writeHead(301, { location: url.pathname + "/" + url.search }).end();
-      writeFileSync(viewedFile, decodeURIComponent(m[1]) + "\n");
-    }
-    if (await servers.http(req, res)) return;
-    res.writeHead(404).end();
-  } catch (e) {
-    if (!res.headersSent) res.writeHead(500).end(String(e));
+const server = gatedServer(auth, async (req, res, url) => {
+  const h = routes[`${req.method} ${url.pathname}`];
+  if (h) return await h(req, res, url);
+  if (asset(req, res, url)) return;
+  const m = /^\/p\/([^/]+)(\/?)$/.exec(url.pathname);
+  if (req.method === "GET" && m && servers.has(decodeURIComponent(m[1]))) {
+    // A project's page: /p/<name>/, with the slash its page's relative links need.
+    if (!m[2]) return res.writeHead(301, { location: url.pathname + "/" + url.search }).end();
+    writeFileSync(viewedFile, decodeURIComponent(m[1]) + "\n");
   }
-});
-server.on("upgrade", (req, sock, head) => {
-  const url = new URL(req.url ?? "/", "http://x");
-  if (auth.check(req, url) !== "ok" || !sameOrigin(req) || !req.headers.origin || !url.pathname.startsWith("/p/")) { sock.destroy(); return; }
+  if (await servers.http(req, res)) return;
+  res.writeHead(404).end();
+}, (req, sock, head, url) => {
+  if (!url.pathname.startsWith("/p/")) { sock.destroy(); return; }
   void servers.upgrade(req, sock, head);
 });
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(sig, () => { servers.stopAll(); process.exit(0); });

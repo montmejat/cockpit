@@ -7,13 +7,14 @@
     { "id": "boundaries", "name": "Page/server boundary", "run": "node .cockpit/checks/boundaries.mjs", "timeout": 30 },
     { "id": "style-tokens", "name": "Style tokens", "run": "node .cockpit/checks/style.mjs", "timeout": 30 },
     { "id": "dialogs", "name": "No browser dialogs", "run": "node .cockpit/checks/dialogs.mjs", "timeout": 30 },
+    { "id": "gated", "name": "Servers gated", "run": "node .cockpit/checks/gated.mjs", "timeout": 30 },
     { "id": "tests", "name": "Tests", "run": "out=$(npm test 2>&1); s=$?; echo \"$out\" | grep -E -A12 '^not ok' | head -60; echo \"$out\" | grep -E '^# (pass|fail)'; exit $s", "timeout": 120 }
   ],
   "rules": [
     {
-      "id": "server-gated", "layer": "static", "checks": ["tests"], "since": "2026-11-22",
-      "rule": "Every route and WebSocket of the server goes through auth.check (src/auth.ts): the token's cookie, and a loopback Host when listening on loopback",
-      "why": "a shell and an agent sit behind the server; checking Origin against Host alone let any site that points its name at 127.0.0.1 (DNS rebinding) in, and --host 0.0.0.0 had no login"
+      "id": "server-gated", "layer": "design", "checks": ["gated", "tests"], "since": "2026-11-22",
+      "rule": "Every route and WebSocket of the server goes through auth.check (src/auth.ts): servers are made only by gatedServer() (src/http.ts), which puts the gate before every request and upgrade",
+      "why": "a shell and an agent sit behind the server; checking Origin against Host alone let any site that points its name at 127.0.0.1 (DNS rebinding) in, and --host 0.0.0.0 had no login. The WebSocket check used to be written by hand in each server"
     },
     {
       "id": "server-not-blocked", "layer": "prose", "since": "2026-11-22",

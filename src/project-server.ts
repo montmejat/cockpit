@@ -6,7 +6,6 @@
 // --host 0.0.0.0 makes it reachable from other machines on the network. Either way only a page
 // opened with the server's token gets in (auth.ts): the link it prints, or the desktop app.
 
-import { createServer } from "node:http";
 import { execFileSync, spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
@@ -26,7 +25,7 @@ import { createWorkspace, isWorkspace, listWorkspaces, loadWorkspace } from "./w
 import { createGit } from "./git.ts";
 import { createAuth } from "./auth.ts";
 import { listPatch, type ListPatch } from "./listpatch.ts";
-import { asset, events, gate, json, post, q, sameOrigin, WEB, type Handler } from "./http.ts";
+import { asset, events, gatedServer, json, post, q, WEB, type Handler } from "./http.ts";
 import { search } from "./search.ts";
 import { createLsp } from "./lsp.ts";
 import { itemsIn, testsOf } from "./tests-of.ts";
@@ -383,22 +382,13 @@ const routes: Record<string, Handler> = {
   }),
 };
 
-const server = createServer(async (req, res) => {
-  const url = new URL(req.url ?? "/", "http://x");
-  if (gate(auth, req, res, url)) return;
-  try {
-    const h = routes[`${req.method} ${url.pathname}`];
-    if (h) return await h(req, res, url);
-    if (asset(req, res, url)) return;
-    res.writeHead(404).end();
-  } catch (e) {
-    if (!res.headersSent) res.writeHead(500).end(String(e));
-  }
-});
 const wss = new WebSocketServer({ noServer: true });
-server.on("upgrade", (req, sock, head) => {
-  const url = new URL(req.url ?? "/", "http://x");
-  if (auth.check(req, url) !== "ok" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
+const server = gatedServer(auth, async (req, res, url) => {
+  const h = routes[`${req.method} ${url.pathname}`];
+  if (h) return await h(req, res, url);
+  if (asset(req, res, url)) return;
+  res.writeHead(404).end();
+}, (req, sock, head, url) => {
   if (!["/api/term/ws", "/api/lsp"].includes(url.pathname)) { sock.destroy(); return; }
   wss.handleUpgrade(req, sock, head, (ws) => url.pathname === "/api/lsp" ? lsp.attach(ws, url.searchParams.get("lang") ?? "") : terms.attach(ws, url.searchParams.get("id") ?? ""));
 });

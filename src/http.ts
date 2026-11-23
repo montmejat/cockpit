@@ -3,7 +3,8 @@
 // server (project-server.ts) and a workspace's host (workspace-host.ts).
 
 import { existsSync, readFileSync } from "node:fs";
-import type { IncomingMessage, ServerResponse } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { Duplex } from "node:stream";
 import { extname, join, resolve, sep } from "node:path";
 import type { createAuth } from "./auth.ts";
 import { COCKPIT } from "./turns.ts";
@@ -64,6 +65,29 @@ export function gate(auth: ReturnType<typeof createAuth>, req: IncomingMessage, 
   }
   if (req.method !== "GET" && !sameOrigin(req)) { res.writeHead(403).end("cross-origin request refused"); return true; }
   return false;
+}
+
+// The only way to make cockpit's HTTP server: every request goes through the token gate before
+// `onRequest`, and every WebSocket through the same check (plus the page's own origin) before
+// `onUpgrade`, so neither can be served without it. The servers (project-server.ts,
+// workspace-host.ts) don't import node:http's createServer themselves (.cockpit/checks/gated.mjs).
+export function gatedServer(
+  auth: ReturnType<typeof createAuth>,
+  onRequest: (req: IncomingMessage, res: ServerResponse, url: URL) => Promise<unknown> | unknown,
+  onUpgrade: (req: IncomingMessage, sock: Duplex, head: Buffer, url: URL) => unknown,
+): Server {
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? "/", "http://x");
+    if (gate(auth, req, res, url)) return;
+    try { await onRequest(req, res, url); }
+    catch (e) { if (!res.headersSent) res.writeHead(500).end(String(e)); }
+  });
+  server.on("upgrade", (req, sock, head) => {
+    const url = new URL(req.url ?? "/", "http://x");
+    if (auth.check(req, url) !== "ok" || !sameOrigin(req) || !req.headers.origin) { sock.destroy(); return; }
+    onUpgrade(req, sock, head, url);
+  });
+  return server;
 }
 
 // The built page (web/dist), and its own files (scripts, styles, fonts), named by content hash.
