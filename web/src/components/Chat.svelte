@@ -283,7 +283,7 @@
       {/if}
     {:else}
       <div class="cempty">
-        <p>Talk to the agent here. It works in <b>{S.project}</b>{#if wsNames.length > 1}, and reads the rest of the workspace <b>{S.workspace?.name}</b> ({wsNames.filter((n) => n !== S.project).join(", ")}){/if}, and what it changes lights up on the diagrams.</p>
+        <p>Talk to the agent here. It works in <b>{S.project}</b>{#if wsNames.length > 1}, and in the rest of the workspace <b>{S.workspace?.name}</b> ({wsNames.filter((n) => n !== S.project).join(", ")}){/if}, and what it changes lights up on the diagrams.</p>
         {#if fresh}<p class="muted">{wsNames.length > 1 ? "These projects have" : "This project has"} no description yet.</p>
           <button onclick={describe}>{wsNames.length > 1 ? `Describe the ${wsNames.length} projects` : "Describe this project"}</button>{/if}
       </div>

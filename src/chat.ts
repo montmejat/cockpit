@@ -18,7 +18,7 @@
 // resumes its session.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import {
   createSdkMcpServer, deleteSession, getSessionMessages, listSessions, query, tool,
   type Query, type SDKMessage, type SDKUserMessage,
@@ -304,7 +304,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           abortController: abort,
           // Not "local": that is where cockpit's hooks for outside Claude Code sessions live.
           settingSources: ["user", "project"],
-          // In a workspace (workspace.ts) the agent also reads the other projects, and keeps the
+          // In a workspace (workspace.ts) the agent also reads and edits the other projects, and keeps the
           // workspace's SYSTEM.md; the brief says what each project is. Read when a conversation
           // starts, so a change to the workspace shows from the next one.
           ...(ws ? { additionalDirectories: [...ws.projects.filter((p) => !p.here).map((p) => p.path), ws.dir] } : {}),
@@ -330,17 +330,6 @@ export function createChat(root: string, project: string, terms: Terminals, inde
               : { behavior: "deny", message: expired ? `Nobody answered in cockpit within ${ASK_TIMEOUT_MS / 60_000} minutes, so it was declined. Ask in the chat if you still need it.` : "The owner declined this in cockpit." };
           },
           hooks: {
-            // Edits in the workspace's other projects need the owner's yes (an Allow/Deny card),
-            // even in auto mode; the workspace's own notes (SYSTEM.md) don't.
-            PreToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
-              const f = i.tool_input?.file_path ?? i.tool_input?.notebook_path;
-              if (!ws || typeof f !== "string") return {};
-              const abs = isAbsolute(f) ? f : resolve(root, f);
-              const inside = (d: string) => abs === d || abs.startsWith(d + "/");
-              const other = ws.projects.find((p) => !p.here && inside(p.path));
-              if (!other || inside(root)) return {};
-              return { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask", permissionDecisionReason: `edits ${other.name}, another project of the workspace` } };
-            }] }],
             UserPromptSubmit: [{ hooks: [async (i) => {
               checks = 0; edited = false; gRounds = 0;
               passedBefore = new Set(Object.values(lastResults(project)).filter((r) => r.ok).map((r) => r.id));
