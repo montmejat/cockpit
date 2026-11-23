@@ -10,7 +10,7 @@
   import CodeView from "./components/CodeView.svelte";
   import Terminal from "./components/Terminal.svelte";
   import Palette from "./components/Palette.svelte";
-  import Chat from "./components/Chat.svelte";
+  import Chats from "./components/Chats.svelte";
   import Guardrails from "./components/Guardrails.svelte";
   import { byId, homeOf, M, openCommit, openDiagram, openFile, openGuardrails, showChat, showProject, ui, cur, mapTab, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
   import { projects } from "./lib/projects.svelte";
@@ -90,6 +90,6 @@
   <!-- kept mounted when closed, so the chat keeps following the agent -->
   <aside id="right" class:hide={!ui.right} style:width="{rightWidth}px">
     <Grip bind:width={rightWidth} def={390} key="cockpit-right-width" edge="left" min={280} />
-    <Chat hidden={!ui.right} onactivity={(ask) => { if (ask) showChat(); }} />
+    <Chats hidden={!ui.right} onactivity={(ask) => { if (ask) showChat(); }} />
   </aside>
 </main>

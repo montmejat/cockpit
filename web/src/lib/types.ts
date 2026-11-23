@@ -90,5 +90,5 @@ export interface Commit { hash: string; parents: string[]; sha: string; subject:
 export interface ChatItem { id: string; kind: string; at: string; [k: string]: any }
 export interface ChatSession { id: string; n: number; title: string; preview: string; at: number; branch: string | null; here: boolean; busy?: boolean; asking?: boolean }
 // The agents cockpit holds (src/chat.ts, AgentInfo): the open conversation's and any still working elsewhere.
-export interface ChatAgent { session: string | null; busy: boolean; asking: boolean; preview: string }
+export interface ChatAgent { session: string | null; busy: boolean; asking: boolean; preview: string; pane: number | null } // pane: the chat pane showing it, if one does
 export interface Usage { plan?: string | null; windows: { name: string; pct: number; resets: string | null }[]; error?: string }

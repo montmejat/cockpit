@@ -163,17 +163,24 @@ export function explainChanges(n: DiagramNode, diagram?: string) {
   const proj = mp().prefix ? ` of the project ${mp().name} (${M.root})` : "";
   const text = `${what}\n\nIn the diagram "${nameOf(byId(diagram))}"${proj}, the box "${n.label}" (${n.explain}) is this code:\n${parts.join("\n")}\n\n` +
     `Explain what changed in that code only: what it did before, what it does now, why it likely changed, and anything that looks wrong, risky or worth a second look. Point to the lines. Don't change the code.`;
-  api.post("api/chat/send", { text });
-  showChat();
+  sendToChat(text);
 }
 export const filesOfNode = (n: DiagramNode) => [...new Set((n.anchors ?? []).map(where).filter((w) => !!w).map((w) => w!.file))];
 
+// The chat pane last used (Chats.svelte): what is sent or drafted from elsewhere goes there.
+export const chatFocus = $state({ pane: 0 });
+const focusChat = () => (document.querySelector<HTMLTextAreaElement>(`.chat[data-pane="${chatFocus.pane}"] textarea`) ?? document.querySelector<HTMLTextAreaElement>(".chat textarea"))?.focus();
+// A message to the agent from elsewhere in cockpit (guardrails, the project's problems, "explain").
+export function sendToChat(text: string) {
+  api.post("api/chat/send", { text, pane: chatFocus.pane });
+  showChat();
+}
 // Text put in the chat's message box (Chat.svelte adds it in front of what's typed, and focuses it).
 export const chatDraft = $state({ text: "", n: 0 });
 export function draftInChat(text: string) {
   chatDraft.text = text; chatDraft.n++;
   showChat();
-  requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("#composer textarea")?.focus());
+  requestAnimationFrame(focusChat);
 }
 // "ask" on a merge request's discussion: the chat's box gets which one it is, you add the question.
 export function askAboutThread(th: Thread, r: Review | null, project?: string) {
@@ -271,7 +278,7 @@ export function toggleChat(plain = false) {
     setRight(false);
   } else {
     showChat();
-    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("#composer textarea")?.focus());
+    requestAnimationFrame(focusChat);
   }
 }
 // The sidebar's project tab, with one of its sections open (features, tests, problems).

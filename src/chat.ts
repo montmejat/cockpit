@@ -11,10 +11,11 @@
 //   card, when auto mode wants the user) · done (one per turn) · note
 //
 // Several agents can work at once: each conversation has its own Claude Code process while it
-// works. The page shows one (the open one); opening another or starting a new one leaves the
-// others running, and the page gets a short list of them (working, waiting for you). An agent
-// that finishes its turn while you look elsewhere is put away (its process ends); opening it
-// again resumes its session.
+// works. The page shows them in panes, stacked (one by default; split to add one below): each
+// pane shows one conversation. Opening another in a pane or starting a new one leaves the others
+// running, and the page gets a short list of them (working, waiting for you). An agent that
+// finishes its turn while no pane shows it is put away (its process ends); opening it again
+// resumes its session.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -37,14 +38,20 @@ export type Image = { media: "image/png" | "image/jpeg" | "image/gif" | "image/w
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 type Context = { used: number; max: number } | null;
 // What runs besides the open conversation: every agent cockpit holds, the open one included.
-export type AgentInfo = { session: string | null; busy: boolean; asking: boolean; preview: string };
+// `pane`: the pane showing it, if one does.
+export type AgentInfo = { session: string | null; busy: boolean; asking: boolean; preview: string; pane: number | null };
+// What a pane shows: its conversation, whole.
+type PaneSnap = { pane: number; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null };
 type Event =
-  | { type: "item"; item: Item }
-  | { type: "delta"; id: string; text: string } // more text for a streamed reply
-  | { type: "state"; busy: boolean; model: string; context: Context; session: string | null }
+  | { type: "item"; pane: number; item: Item }
+  | { type: "delta"; pane: number; id: string; text: string } // more text for a streamed reply
+  | { type: "state"; pane: number; busy: boolean; model: string; context: Context; session: string | null }
+  | { type: "pane" } & PaneSnap // a pane now shows another conversation
+  | { type: "panes"; ids: number[] } // panes split or closed, top to bottom
   | { type: "agents"; agents: AgentInfo[] }
-  | { type: "init"; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null; agents: AgentInfo[] };
+  | { type: "init"; panes: PaneSnap[]; agents: AgentInfo[] };
 
+const MAX_PANES = 4;
 export const MODELS = ["haiku", "sonnet", "opus"];
 // An Allow/Deny card left unanswered this long is denied, so a turn doesn't wait forever (the
 // agent is told, and can ask again or go another way).
@@ -170,14 +177,14 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     if (!SESSION_ID.test(id)) throw new Error("not a conversation id");
     return join(dir, `${id}.json`);
   };
-  // Which conversation is open, and the model picked, survive a restart.
+  // Which conversations the panes show, and the model picked, survive a restart.
   const metaFile = join(dir, "current.json");
   const legacy = join(outDir(project), "chat.json");
   if (existsSync(legacy) && !existsSync(metaFile)) { // cockpit's single conversation, before the list
     try {
       const old = JSON.parse(readFileSync(legacy, "utf8"));
       if (old.sessionId) writeFileSync(fileOf(old.sessionId), JSON.stringify({ items: old.items ?? [], context: null }));
-      writeFileSync(metaFile, JSON.stringify({ session: old.sessionId ?? null, model: old.model ?? DEFAULT_MODEL }));
+      writeFileSync(metaFile, JSON.stringify({ sessions: [old.sessionId ?? null], model: old.model ?? DEFAULT_MODEL }));
       renameSync(legacy, legacy + ".old");
     } catch {}
   }
@@ -197,9 +204,15 @@ export function createChat(root: string, project: string, terms: Terminals, inde
 
   type Agent = ReturnType<typeof agent>;
   const agents: Agent[] = [];
-  let current: Agent;
-  const saveMeta = () => writeFileSync(metaFile, JSON.stringify({ session: current.session, model }));
-  const info = (): AgentInfo[] => agents.map((a) => ({ session: a.session, busy: a.busy, asking: a.asking(), preview: a.preview() }));
+  // The panes, top to bottom; ids stay with a pane while others are closed.
+  type Pane = { id: number; agent: Agent };
+  const panes: Pane[] = [];
+  let paneSeq = 0;
+  const paneOf = (id: unknown) => panes.find((p) => p.id === Number(id)) ?? panes[0]; // none given: the top one
+  const isShown = (a: Agent) => panes.some((p) => p.agent === a);
+  const snap = (p: Pane): PaneSnap => ({ pane: p.id, ...p.agent.snapshot() });
+  const saveMeta = () => writeFileSync(metaFile, JSON.stringify({ sessions: panes.map((p) => p.agent.session), model }));
+  const info = (): AgentInfo[] => agents.map((a) => ({ session: a.session, busy: a.busy, asking: a.asking(), preview: a.preview(), pane: panes.find((p) => p.agent === a)?.id ?? null }));
   let lastInfo = "";
   const agentsChanged = () => { const j = JSON.stringify(info()); if (j !== lastInfo) { lastInfo = j; emit({ type: "agents", agents: info() }); } };
 
@@ -229,7 +242,11 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     let seq = 0; // for item ids made here (notes): two in the same millisecond must not collide
     const uid = (p: string) => `${p}-${Date.now()}-${++seq}`;
 
-    const shown = () => current === self;
+    const shown = () => isShown(self);
+    // To each pane showing this conversation (usually one, none when it works out of sight).
+    const toPanes = (e: { type: "item"; item: Item } | { type: "delta"; id: string; text: string } | { type: "state"; busy: boolean; model: string; context: Context; session: string | null }) => {
+      for (const p of panes) if (p.agent === self) emit({ ...e, pane: p.id } as Event);
+    };
     let saveTimer: NodeJS.Timeout | null = null;
     const flush = () => {
       if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
@@ -237,11 +254,11 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       if (shown()) saveMeta();
     };
     const save = () => { if (!saveTimer) saveTimer = setTimeout(flush, 300); };
-    const state = () => { if (shown()) emit({ type: "state", busy, model, context, session }); agentsChanged(); };
+    const state = () => { toPanes({ type: "state", busy, model, context, session }); agentsChanged(); };
     const put = (item: Item) => {
       const i = items.findIndex((x) => x.id === item.id);
       if (i >= 0) items[i] = item; else items.push(item);
-      if (shown()) emit({ type: "item", item });
+      toPanes({ type: "item", item });
       if (item.kind === "ask") agentsChanged();
       save();
     };
@@ -425,7 +442,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
             const it = get(`${streamMsg}:${(textSeen.get(streamMsg) ?? 1) - 1}`);
             // Only the new text goes to the page: sending the whole reply again on every token made
             // the bytes grow with the square of its length.
-            if (it) { it.text = String(it.text) + ev.delta.text; if (shown()) emit({ type: "delta", id: it.id, text: ev.delta.text }); }
+            if (it) { it.text = String(it.text) + ev.delta.text; toPanes({ type: "delta", id: it.id, text: ev.delta.text }); }
           }
         } else if (mm.type === "assistant") {
           const sub = !!mm.parent_tool_use_id, mid = mm.message.id;
@@ -489,18 +506,20 @@ export function createChat(root: string, project: string, terms: Terminals, inde
 
   function drop(a: Agent) {
     const i = agents.indexOf(a);
-    if (i >= 0 && a !== current) agents.splice(i, 1);
+    if (i >= 0 && !isShown(a)) agents.splice(i, 1);
     agentsChanged();
   }
-  // Show `a`: the page gets its whole conversation. The one left keeps working if it is; idle, it
-  // is put away.
-  function show(a: Agent) {
-    const was = current;
-    current = a;
+  // An agent no pane shows any more: it keeps working if it is; idle, it is put away.
+  function putAway(a: Agent) { if (!isShown(a) && !a.busy) { a.flush(); a.stop(); drop(a); } }
+  // Show `a` in a pane: the page gets its whole conversation there.
+  function show(pane: Pane, a: Agent) {
+    const was = pane.agent;
+    pane.agent = a;
     if (!agents.includes(a)) agents.push(a);
-    if (was && was !== a && !was.busy) { was.flush(); was.stop(); drop(was); }
+    if (was !== a) putAway(was);
     saveMeta();
-    emit({ type: "init", ...a.snapshot(), agents: info() });
+    emit({ type: "pane", ...snap(pane) });
+    agentsChanged();
     void a.estimate();
   }
 
@@ -544,29 +563,34 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     }
   }
 
-  current = agent(typeof meta.session === "string" && SESSION_ID.test(meta.session) ? meta.session : null);
-  agents.push(current);
-  void current.estimate();
+  const opened: unknown[] = Array.isArray(meta.sessions) ? meta.sessions.slice(0, MAX_PANES) : [meta.session];
+  for (const s of opened.length ? opened : [null]) {
+    const id = typeof s === "string" && SESSION_ID.test(s) ? s : null;
+    const a = (id && agents.find((x) => x.session === id)) || agent(id);
+    if (!agents.includes(a)) { agents.push(a); void a.estimate(); }
+    panes.push({ id: ++paneSeq, agent: a });
+  }
+  const panesChanged = () => { saveMeta(); emit({ type: "panes", ids: panes.map((p) => p.id) }); agentsChanged(); };
 
   return {
-    snapshot: () => ({ ...current.snapshot(), agents: info() }),
+    snapshot: () => ({ panes: panes.map(snap), agents: info() }),
     subscribe(l: (e: Event) => void) { listeners.add(l); return () => { listeners.delete(l); }; },
     // A message to the open conversation, with images pasted into it (sent to Claude as image
     // blocks before the text; the chat keeps only small previews of them).
-    send(text: string, images: Image[] = []) {
+    send(pane: unknown, text: string, images: Image[] = []) {
       if (!text.trim() && !images.length) return;
-      current.send(text, images);
+      paneOf(pane).agent.send(text, images);
     },
     // An Allow/Deny card: whichever agent asked.
     answer(id: string, allow: boolean) { for (const a of agents) if (a.answer(id, allow)) return; },
-    async stop() { await current.interrupt(); },
+    async stop(pane: unknown) { await paneOf(pane).agent.interrupt(); },
+    // The model is the project's: every pane's agent switches.
     async setModel(m: string) {
       if (!MODELS.includes(m)) return;
       model = m;
-      await current.setModel(m);
+      await Promise.all(panes.map((p) => p.agent.setModel(m)));
       saveMeta();
-      const { busy, context, session } = current.snapshot();
-      emit({ type: "state", busy, model, context, session });
+      for (const p of panes) { const { busy, context, session } = p.agent.snapshot(); emit({ type: "state", pane: p.id, busy, model, context, session }); }
     },
     usage,
     // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere. Each is
@@ -590,11 +614,11 @@ export function createChat(root: string, project: string, terms: Terminals, inde
         };
       });
     },
-    // Delete a past conversation: Claude Code's transcript and cockpit's copy. Not the open one,
-    // nor one whose agent is working.
+    // Delete a past conversation: Claude Code's transcript and cockpit's copy. Not one a pane
+    // shows, nor one whose agent is working.
     async remove(id: string) {
       const f = fileOf(id); // checks the id
-      if (id === current.session) throw new Error("that conversation is open: start a new one first");
+      if (panes.some((p) => p.agent.session === id)) throw new Error("that conversation is open: start a new one first");
       const a = agents.find((x) => x.session === id);
       if (a?.busy) throw new Error("its agent is working: stop it first");
       if (a) { a.stop(); drop(a); }
@@ -603,17 +627,35 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       delete numbers.of[id]; // its number stays used (numbers.last)
       writeFileSync(numbersFile, JSON.stringify(numbers));
     },
-    // Open another conversation: its agent if one is running, else its record (the next message
-    // resumes it).
-    async open(id: string) {
+    // Open another conversation in a pane: its agent if one is running, else its record (the next
+    // message resumes it).
+    async open(pane: unknown, id: string) {
       fileOf(id); // checks the id
-      if (id === current.session) return;
+      const p = paneOf(pane);
+      if (id === p.agent.session) return;
       const running = agents.find((x) => x.session === id);
-      if (running) return show(running);
-      show(existsSync(fileOf(id)) ? agent(id) : agent(id, itemsFromTranscript(root, await getSessionMessages(id, { dir: root }))));
+      if (running) return show(p, running);
+      show(p, existsSync(fileOf(id)) ? agent(id) : agent(id, itemsFromTranscript(root, await getSessionMessages(id, { dir: root }))));
     },
-    // A fresh conversation, with an agent of its own. The one left keeps working.
-    reset() { show(agent(null)); },
+    // A fresh conversation in a pane, with an agent of its own. The one left keeps working.
+    reset(pane: unknown) { show(paneOf(pane), agent(null)); },
+    // Split: a new pane below the others, on a fresh conversation.
+    split() {
+      if (panes.length >= MAX_PANES) throw new Error(`at most ${MAX_PANES} chats side by side`);
+      const p: Pane = { id: ++paneSeq, agent: agent(null) };
+      panes.push(p); agents.push(p.agent);
+      emit({ type: "pane", ...snap(p) });
+      panesChanged();
+      return { pane: p.id };
+    },
+    // Close a pane (not the last one): its conversation stays in the list, and keeps working if it is.
+    closePane(id: unknown) {
+      const i = panes.findIndex((p) => p.id === Number(id));
+      if (i < 0 || panes.length < 2) return;
+      const [p] = panes.splice(i, 1);
+      putAway(p.agent);
+      panesChanged();
+    },
     // The server is stopping: every agent's process goes with it.
     close() { for (const a of agents) { a.flush(); a.stop(); } },
   };

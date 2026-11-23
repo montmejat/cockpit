@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The agent chat. Cockpit runs the agent itself (src/chat.ts); the panel follows it live:
+  // One chat pane (Chats.svelte stacks them). Cockpit runs the agent itself (src/chat.ts); the pane follows it live:
   // replies stream in, tool calls show as one line each (click for more), auto mode's questions
   // as Allow/Deny cards. Past conversations are a click away, in a list over the messages; several
   // agents can work at once (one per conversation), and the title says how many are working
@@ -7,29 +7,32 @@
   // hovering it, how much of your plan's limits you've used.
   import { onMount, tick, untrack } from "svelte";
   import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
-  import { chatDraft, openFile, S } from "../lib/state.svelte";
+  import { chatDraft, chatFocus, openFile, S } from "../lib/state.svelte";
   import type { ChatAgent, ChatItem, ChatSession, Usage } from "../lib/types";
   import IconButton from "./ui/IconButton.svelte";
   import Menu from "./ui/Menu.svelte";
 
-  let { hidden, onactivity }: { hidden: boolean; onactivity: (ask: boolean) => void } = $props();
+  let { pane, hidden, onactivity, agents, listen, closable }: {
+    pane: number; hidden: boolean; onactivity: (ask: boolean) => void; agents: ChatAgent[];
+    listen: (pane: number, f: (e: any) => void) => () => void; closable: boolean;
+  } = $props();
 
   let items: ChatItem[] = $state([]);
   let busy = $state(false), model = $state("opus"), models: string[] = $state([]);
   let context = $state<{ used: number; max: number } | null>(null);
   let session: string | null = $state(null);
-  let agents: ChatAgent[] = $state([]);
-  // The agents working on other conversations, and those of them waiting for an Allow/Deny.
-  const others = $derived(agents.filter((a) => a.session !== session && (a.busy || a.asking)));
+  // The agents working on conversations no pane shows, and those of them waiting for an Allow/Deny.
+  const others = $derived(agents.filter((a) => a.pane == null && (a.busy || a.asking)));
   const othersAsking = $derived(others.filter((a) => a.asking).length);
   let text = $state("");
-  // Text handed over from elsewhere (a review discussion's "ask"): put in front of what's typed.
+  // Text handed over from elsewhere (a review discussion's "ask"): put in front of what's typed,
+  // in the pane last used.
   let draftSeen = chatDraft.n;
   $effect(() => {
     const n = chatDraft.n;
     if (n === draftSeen) return;
     draftSeen = n;
-    text = untrack(() => chatDraft.text + text);
+    if (untrack(() => chatFocus.pane) === pane) text = untrack(() => chatDraft.text + text);
   });
   let msgs: HTMLElement;
   // The composer grows with what's typed (whole pixels, up to its max-height) instead of scrolling:
@@ -82,20 +85,14 @@
 
   const stick = async (force = false) => { await tick(); if (msgs && (force || near)) msgs.scrollTop = msgs.scrollHeight; };
 
+  // The other agents changed (one started, finished, asks): the open list follows.
+  $effect(() => { agents; if (untrack(() => list)) refreshList(); });
   onMount(() => {
-    const es = new EventSource("api/chat/events");
-    es.onmessage = (m) => {
-      const e = JSON.parse(m.data);
-      if (e.type === "init") {
-        items = e.items; busy = e.busy; model = e.model; models = e.models; context = e.context; session = e.session; agents = e.agents ?? [];
+    const off = listen(pane, (e) => {
+      if (e.type === "pane") {
+        items = e.items; busy = e.busy; model = e.model; models = e.models; context = e.context; session = e.session;
         stick(true);
       } else if (e.type === "state") { busy = e.busy; model = e.model; context = e.context; session = e.session; }
-      else if (e.type === "agents") {
-        const asked = e.agents.some((a: ChatAgent) => a.asking && a.session !== session && !agents.some((b) => b.session === a.session && b.asking));
-        agents = e.agents;
-        if (asked) onactivity(true); // another conversation's agent waits for an Allow/Deny
-        if (list) refreshList();
-      }
       else if (e.type === "delta") {
         // A streamed reply's new text: gathered, and shown once per frame.
         pending.set(e.id, (pending.get(e.id) ?? "") + e.text);
@@ -109,14 +106,14 @@
         if (e.item.kind !== "user") onactivity(e.item.kind === "ask" && e.item.status === "waiting");
         if (e.item.kind === "done") { loadUsage(); if (session && !names.some((x) => x.id === session)) refreshList(); }
       }
-    };
+    });
     loadUsage();
     const t = setInterval(loadUsage, 5 * 60_000);
-    return () => { es.close(); clearInterval(t); };
+    return () => { off(); clearInterval(t); };
   });
   $effect(() => { if (!hidden) stick(true); });
 
-  const post = (what: string, body: unknown = {}) => api.post("api/chat/" + what, body);
+  const post = (what: string, body: object = {}) => api.post("api/chat/" + what, { pane, ...body });
   function send() {
     const t = text.trim();
     if (!t && !images.length) return;
@@ -187,11 +184,8 @@
     namedFor = s;
     refreshList();
   });
-  // Deleting a past conversation takes two clicks in place, like reverting a file; leaving the row cancels.
-  let arming = $state<string | null>(null);
+  // Deleting a past conversation: one click.
   async function remove(id: string) {
-    if (arming !== id) { arming = id; return; }
-    arming = null;
     const r = await api.post<{ error?: string }>("api/chat/delete", { id }).catch((e) => ({ error: String(e) }));
     if (!r?.error) await refreshList();
   }
@@ -220,7 +214,7 @@
 
 <svelte:window onpointerdown={unpin} onkeydown={(e) => { if (e.key === "Escape") { pinned = false; list = null; } }} />
 
-<section id="chat" class:hide={hidden}>
+<section class="chat" class:hide={hidden} data-pane={pane} onfocusin={() => (chatFocus.pane = pane)}>
   <div class="ctools">
     <button class="ctitle" class:on={!!list} bind:this={titleEl} onclick={showList} title="Your conversations in this project">
       <span class="ctname">{title}</span>
@@ -231,6 +225,12 @@
     <IconButton label="New conversation (this one stays in the list, and keeps working if it is)" onclick={() => { list = null; post("new"); }}>
       <path d="M8 3.5v9M3.5 8h9" />
     </IconButton>
+    <IconButton label="Split: another chat below" onclick={() => post("split")}>
+      <rect x="3" y="3" width="10" height="10" rx="1.5" /><path d="M3 8h10" />
+    </IconButton>
+    {#if closable}<IconButton label="Close this chat (its conversation stays in the list, and keeps working if it is)" onclick={() => post("close")}>
+      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+    </IconButton>{/if}
   </div>
   {#if list}
     <div class="clist" bind:this={listEl}>
@@ -242,22 +242,21 @@
         </button><span class="cstate" class:asking={a.asking}>{#if a.asking}!{:else}<span class="spin"></span>{/if}</span></div>
       {/each}
       {#each list as s (s.id)}
-        <div class="csrow" role="presentation" onmouseleave={() => { if (arming === s.id) arming = null; }}>
+        <div class="csrow">
           <button class="csess" class:on={s.id === session} onclick={() => openSession(s.id)} title={s.preview}>
             <span class="cst">{s.title}<span class="muted cwhen"> · {s.asking ? "waiting for you" : s.busy ? "working" : ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span></span>
             {#if s.preview}<span class="muted cprev">{s.preview}</span>{/if}
           </button>
           {#if s.busy || s.asking}<span class="cstate" class:asking={s.asking}>{#if s.asking}!{:else}<span class="spin"></span>{/if}</span>{/if}
-          {#if s.id !== session && !s.busy}
-            {#if arming === s.id}<button class="cdel armed" onclick={() => remove(s.id)} title="Click to delete it for good (Claude Code's copy too)">Delete</button>
-            {:else}<button class="cdel" onclick={() => remove(s.id)} title="Delete this conversation" aria-label="Delete this conversation">
-              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></svg></button>{/if}
+          {#if !s.busy && !agents.some((a) => a.session === s.id && a.pane != null)}
+            <button class="cdel" onclick={() => remove(s.id)} title="Delete this conversation for good (Claude Code's copy too)" aria-label="Delete this conversation">
+              <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" /></svg></button>
           {/if}
         </div>
       {/each}
     </div>
   {/if}
-  <div id="msgs" bind:this={msgs} onscroll={() => (near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60)}>
+   <div class="msgs" bind:this={msgs} onscroll={() => (near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60)}>
     {#each items as it (it.id)}
       {#if it.kind === "user"}<div class="cuser">{#if it.thumbs?.length || it.images}<div class="cthumbs">{#each it.thumbs ?? [] as t}<img src={t} alt="pasted" />{:else}<span class="muted">🖼 image</span>{/each}</div>{/if}{it.text}</div>
       {:else if it.kind === "text"}{#if it.text}{@const [kept, rest] = mdGrowing(it.id, it.text, resolve)}<div class="ctext" onclick={clickRef} role="presentation">{@html kept}{@html rest}</div>{/if}
@@ -290,7 +289,7 @@
       </div>
     {/each}
   </div>
-  <form id="composer" onsubmit={(e) => { e.preventDefault(); send(); }}>
+  <form class="composer" onsubmit={(e) => { e.preventDefault(); send(); }}>
     {#if images.length || pasteErr}
       <div class="cthumbs pending">
         {#each images as img, i}<span class="cthumb"><img src={img.thumb} alt="pasted" /><button type="button" title="Remove" aria-label="Remove image" onclick={() => (images = images.filter((_, j) => j !== i))}>×</button></span>{/each}

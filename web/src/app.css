@@ -54,7 +54,8 @@ header{position:relative}
 .fmods{font-size:var(--fs-s);margin-top:3px;display:flex;flex-wrap:wrap;gap:2px 8px}
 .trow{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:var(--fs-m);border-top:1px solid var(--line)}
 #project details summary,#ncard details summary{cursor:pointer;padding:2px 0}#project a.tname{display:block;padding:1px 0 1px 14px;font-size:var(--fs-s)}
-.livepill{border:0;font:inherit;font-size:var(--fs-s);background:color-mix(in oklab,var(--hot) 18%,transparent);color:var(--hot);border-radius:var(--r-pill);padding:1px 9px;animation:breathe 1.6s ease-in-out infinite;cursor:default}button.livepill{cursor:pointer}
+.livepill{display:inline-flex;align-items:center;gap:6px;border:0;font:inherit;font-size:var(--fs-s);background:color-mix(in oklab,var(--fg) 7%,transparent);color:var(--muted);border-radius:var(--r-pill);padding:1px 9px;cursor:default}button.livepill{cursor:pointer}button.livepill:hover{color:var(--fg)}
+.livedot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:breathe 1.6s ease-in-out infinite}
 @keyframes breathe{50%{opacity:.55}}
 
 main{flex:1;min-height:0;display:flex;position:relative}
@@ -217,7 +218,7 @@ tr.add td.sg{color:var(--add)}tr.del td.sg{color:var(--del)}
   #canvas{min-height:65vh}
   #right{width:auto !important;border-left:0;border-top:1px solid var(--line);height:70vh}
 }
-@media (prefers-reduced-motion:reduce){.livepill{animation:none}}
+@media (prefers-reduced-motion:reduce){.livedot{animation:none}}
 
 /* short first, more on click */
 .lead{font-size:var(--fs-m);margin:4px 0 8px}
@@ -283,10 +284,11 @@ body.desktop header.wleft{padding-left:6px}
 .winctl svg{fill:currentColor}
 /* right panel: chat and details */
 #right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--side);border-left:1px solid var(--line);min-height:0;position:relative}
-#chat{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
-#chat[hidden]{display:none}
-#msgs{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere;padding:12px 14px;font-size:var(--fs-m);line-height:1.5}
-#msgs > div{margin:0 0 8px}
+.chats{flex:1;min-height:0;display:flex;flex-direction:column}.chats.hide{display:none}
+.chat{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
+.chat + .chat{border-top:1px solid var(--line)}
+.msgs{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere;padding:12px 14px;font-size:var(--fs-m);line-height:1.5}
+.msgs > div{margin:0 0 8px}
 .cuser{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-l);padding:7px 10px;margin-top:14px;white-space:normal}
 /* pasted images: thumbnails in the message, and above the box before sending (× removes one) */
 .cthumbs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.cthumbs img{display:block;max-width:160px;max-height:110px;border-radius:var(--r-m);border:1px solid var(--line)}
@@ -294,14 +296,14 @@ body.desktop header.wleft{padding-left:6px}
 .cthumb{position:relative}.cthumb button{position:absolute;top:-6px;right:-6px;display:grid;place-items:center;width:18px;height:18px;padding:0;border-radius:50%;border:0;background:var(--fg);color:var(--bg);font-size:12px;line-height:1}
 .ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
 .ctext code{background:var(--bg);border-radius:var(--r-xs);padding:0 3px;font-size:var(--fs-s)}
-.ctext .cblock{position:relative}#msgs .cblock pre{padding-right:30px}
+.ctext .cblock{position:relative}.msgs .cblock pre{padding-right:30px}
 .ctext .copy{position:absolute;top:4px;right:4px;padding:3px;line-height:0;border-radius:var(--r-s);color:var(--muted);background:var(--card);border:1px solid var(--line);opacity:.55;cursor:pointer}
 .ctext .cblock:hover .copy{opacity:1}.ctext .copy:hover{color:var(--fg)}
 .ctext .copy.done{opacity:1;color:var(--ok);border-color:var(--ok)}
 .ctext a.fref{color:var(--accent);cursor:pointer;text-decoration:none}.ctext a.fref:hover{text-decoration:underline}
-#msgs pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-s);padding:6px 8px;overflow:auto;font-size:var(--fs-s);max-height:260px;white-space:pre-wrap;word-break:break-word}
-#msgs pre.diff{padding:6px 0}#msgs pre.diff>span{display:block;padding:0 8px}#msgs pre.diff .da{background:var(--add-bg);color:var(--add)}#msgs pre.diff .dd{background:var(--del-bg);color:var(--del)}#msgs pre.diff .dh{color:var(--accent)}#msgs pre.diff .df{color:var(--muted);font-weight:600}
-#msgs .mdtable{overflow-x:auto;margin:6px 0}#msgs .mdtable table{border-collapse:collapse;font-size:var(--fs-s)}#msgs .mdtable th,#msgs .mdtable td{overflow-wrap:break-word;min-width:6ch;border:1px solid var(--line);padding:3px 7px;text-align:left;vertical-align:top}#msgs .mdtable th{background:var(--bg);font-weight:600}
+.msgs pre{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-s);padding:6px 8px;overflow:auto;font-size:var(--fs-s);max-height:260px;white-space:pre-wrap;word-break:break-word}
+.msgs pre.diff{padding:6px 0}.msgs pre.diff>span{display:block;padding:0 8px}.msgs pre.diff .da{background:var(--add-bg);color:var(--add)}.msgs pre.diff .dd{background:var(--del-bg);color:var(--del)}.msgs pre.diff .dh{color:var(--accent)}.msgs pre.diff .df{color:var(--muted);font-weight:600}
+.msgs .mdtable{overflow-x:auto;margin:6px 0}.msgs .mdtable table{border-collapse:collapse;font-size:var(--fs-s)}.msgs .mdtable th,.msgs .mdtable td{overflow-wrap:break-word;min-width:6ch;border:1px solid var(--line);padding:3px 7px;text-align:left;vertical-align:top}.msgs .mdtable th{background:var(--bg);font-weight:600}
 .ctool{display:flex;align-items:baseline;gap:6px;color:var(--muted);font-size:var(--fs-s);margin-bottom:2px!important}
 .ctool.sub{padding-left:16px}
 .ctool details,.ctool > span:not(.spin):not(.ok):not(.bad){flex:1;min-width:0}
@@ -315,9 +317,9 @@ body.desktop header.wleft{padding-left:6px}
 .cdone{color:var(--muted);font-size:var(--fs-s);text-align:right;border-top:1px dashed var(--line);padding-top:2px}
 .cnote{color:var(--muted);font-style:italic;font-size:var(--fs-s)}.cnote.bad{color:var(--bad)}
 .cempty{color:var(--fg);padding:8px 0}.cempty button{margin-top:6px}
-#composer{border-top:1px solid var(--line);padding:8px}
-#composer textarea{display:block;width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:var(--fs-m);line-height:18px;max-height:calc(14 * 18px + 14px);overflow-y:auto;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-m);padding:6px 8px;outline:none}
-#composer textarea:focus{border-color:var(--accent)}
+.composer{border-top:1px solid var(--line);padding:8px}
+.composer textarea{display:block;width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:var(--fs-m);line-height:18px;max-height:calc(14 * 18px + 14px);overflow-y:auto;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-m);padding:6px 8px;outline:none}
+.composer textarea:focus{border-color:var(--accent)}
 .crow{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:var(--fs-s)}
 button.csend{display:grid;place-items:center;flex:none;width:26px;height:26px;padding:0;border:0;border-radius:50%;background:var(--accent);color:var(--on-accent)}
 button.csend:hover{background:color-mix(in oklab,var(--accent) 88%,var(--shade))}
@@ -417,7 +419,7 @@ button.chip:hover{border-color:var(--accent);color:var(--accent)}
 #zcode{left:0;right:0;top:34px;bottom:30px}
 
 /* chat */
-#chat.hide{display:none}
+.chat.hide{display:none}
 #right.hide{display:none}
 .ctools{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line)}
 /* the open conversation: a raised pill like the sidebar's segments, opening the list */
@@ -439,13 +441,12 @@ button.csess{display:flex;flex-direction:column;flex:1;min-width:0;padding:5px 8
 button.cdel{display:none;place-items:center;flex:none;width:22px;height:22px;margin:0;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted)}
 .csrow:hover button.cdel{display:grid}button.cdel:hover{color:var(--bad);background:var(--btn)}
 button.cdel svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-button.cdel.armed{display:grid;width:auto;padding:0 7px;background:var(--bad);color:var(--on-accent);font-size:var(--fs-s);font-weight:600}
 .cst{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 button.csess .muted{font-size:var(--fs-s)}
 .ctool .chip{flex:none}
 .meters{display:flex;flex-direction:column;gap:2px;margin-top:7px;font-size:var(--fs-xs);color:var(--muted)}
 .meter{display:flex;align-items:center;gap:7px;cursor:default}
-#chat .ctx{position:relative;display:inline-flex} /* scoped: diffs use tr.ctx for context lines */
+.chat .ctx{position:relative;display:inline-flex} /* scoped: diffs use tr.ctx for context lines */
 button.ring{padding:2px;border:0;background:none;border-radius:50%;display:inline-flex;cursor:pointer;color:var(--accent)}
 button.ring:hover,button.ring[aria-expanded=true]{background:var(--sel)}
 button.ring.warn{color:var(--warn)}button.ring.bad{color:var(--bad)}

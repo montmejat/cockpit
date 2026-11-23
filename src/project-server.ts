@@ -357,16 +357,19 @@ const routes: Record<string, Handler> = {
   "GET /api/chat/events": (req, res) => events(req, res, { type: "init", ...chat.snapshot() }, chat.subscribe),
   "GET /api/chat/sessions": async (_req, res) => json(res, await chat.sessions()),
   "GET /api/chat/usage": async (_req, res) => json(res, await chat.usage()),
-  "POST /api/chat/send": post(({ text, images = [] }) => {
+  // `pane`: which chat pane (none: the top one).
+  "POST /api/chat/send": post(({ pane, text, images = [] }) => {
     if (typeof text !== "string") throw new Error("expected text");
     if (!Array.isArray(images) || !images.every((i) => i && IMAGE_TYPES.includes(i.media) && typeof i.data === "string" && typeof i.thumb === "string")) throw new Error("images: expected { media, data, thumb } (png, jpeg, gif or webp)");
-    chat.send(text, images);
+    chat.send(pane, text, images);
   }),
   "POST /api/chat/answer": post(({ id, allow }) => chat.answer(String(id), !!allow)),
-  "POST /api/chat/stop": post(() => chat.stop()),
+  "POST /api/chat/stop": post(({ pane }) => chat.stop(pane)),
   "POST /api/chat/model": post(({ model }) => chat.setModel(String(model))),
-  "POST /api/chat/new": post(() => chat.reset()),
-  "POST /api/chat/open": post(({ id }) => chat.open(String(id))),
+  "POST /api/chat/new": post(({ pane }) => chat.reset(pane)),
+  "POST /api/chat/open": post(({ pane, id }) => chat.open(pane, String(id))),
+  "POST /api/chat/split": post(() => chat.split()),
+  "POST /api/chat/close": post(({ pane }) => chat.closePane(pane)),
   "POST /api/chat/delete": post(({ id }) => chat.remove(String(id))),
 
   // terminals

@@ -202,8 +202,8 @@
   {#if S.live}
     {@const who = S.live.chat ? "chat agent" : "Claude Code (terminal)"}
     {@const tip = `${S.live.chat ? "The chat's agent" : "A Claude Code session outside cockpit"} is working, for ${since(S.live.startedAt)}, on:\n${S.live.prompt.slice(0, 300)}${S.live.touched.length ? "\n\nChanged so far: " + S.live.touched.join(", ") : ""}`}
-    {#if S.live.chat}<button class="livepill" title={tip} onclick={showChat}>◉ {who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</button>
-    {:else}<span class="livepill" title={tip}>◉ {who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</span>{/if}
+    {#if S.live.chat}<button class="livepill" title={tip} onclick={showChat}><i class="livedot"></i>{who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</button>
+    {:else}<span class="livepill" title={tip}><i class="livedot"></i>{who}{#if S.live.touched.length} · {plural(S.live.touched.length, "file")}{/if}</span>{/if}
   {/if}
   <!-- Ctrl+` opens the terminal; the button only shows with the hints on (F1) -->
   {#if ui.help}<button onclick={ontoggleterm} title="Terminal  (Ctrl+`)">▭ terminal <span class="muted">Ctrl+`</span></button>
