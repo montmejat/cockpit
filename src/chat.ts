@@ -18,7 +18,8 @@
 // resumes its session.
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
+import { execFile } from "node:child_process";
 import {
   createSdkMcpServer, deleteSession, getSessionMessages, listSessions, query, tool,
   type Query, type SDKMessage, type SDKUserMessage,
@@ -73,6 +74,31 @@ function inbox() {
   };
 }
 async function* never(): AsyncGenerator<SDKUserMessage> { await new Promise(() => {}); }
+
+// The guardrails' checks that passed when they last ran in a project.
+const passing = (name: string) => new Set(Object.values(lastResults(name)).filter((r) => r.ok).map((r) => r.id));
+
+// The workspace's other project a file is in, if it is in one (not this one).
+function otherOf(ws: Workspace | null, file: unknown) {
+  if (!ws || typeof file !== "string" || !isAbsolute(file)) return null;
+  const inside = (d: string) => file === d || file.startsWith(d + "/");
+  const here = ws.projects.find((p) => p.here);
+  return ws.projects.find((p) => !p.here && inside(p.path) && !(here && inside(here.path))) ?? null;
+}
+
+// Another project's .cockpit/ against its code, by the check-arch command (its own index, cached on
+// disk, rebuilt only if the code changed), so this server neither indexes it nor waits on it.
+function archProblems(path: string, name: string): Promise<{ where: string; problem: string }[]> {
+  return new Promise((done) => {
+    execFile(process.execPath, ["--import", "tsx", "src/check-arch.ts", path], { cwd: COCKPIT, maxBuffer: 16 << 20, timeout: 300_000 }, (err, out) => {
+      if (err && (err as any).code !== 1) { done([]); return; } // it couldn't run: nothing to send back
+      done(String(out).split("\n").filter((l) => l.startsWith("- ")).map((l) => {
+        const i = l.indexOf(": ");
+        return { where: `${name}: ${l.slice(2, i)}`, problem: l.slice(i + 2) };
+      }));
+    });
+  });
+}
 
 // What .cockpit/ says, in short, so the agent knows the project and where its parts live without
 // reading the folder: the summary, each feature (status, note, modules) and each diagram's tldr.
@@ -250,8 +276,13 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     // Guardrails (src/guardrails.ts), only in a project that has .cockpit/guardrails.json. A turn that
     // edited files runs its checks; the agent is sent back only for checks that passed before the
     // turn (a failure that was already there is shown in cockpit, not pinned on this agent).
-    let edited = false, gRounds = 0, gLast = "";
+    let edited = false, gRounds = 0;
+    const gLast = new Map<string, string>(); // per project: what its checks failed with last time
     let passedBefore = new Set<string>();
+    // The workspace's other projects this turn edited: a turn is open in each, and their
+    // .cockpit/ and guardrails are checked at its end too.
+    const others = new Map<string, { name: string; passedBefore: Set<string> }>();
+    let prompt = "";
     let seq = 0; // for item ids made here (notes): two in the same millisecond must not collide
     const uid = (p: string) => `${p}-${Date.now()}-${++seq}`;
 
@@ -344,26 +375,43 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           },
           hooks: {
             UserPromptSubmit: [{ hooks: [async (i) => {
-              checks = 0; edited = false; gRounds = 0;
-              passedBefore = new Set(Object.values(lastResults(project)).filter((r) => r.ok).map((r) => r.id));
+              checks = 0; edited = false; gRounds = 0; prompt = (i as HookInput).prompt ?? "";
+              others.clear();
+              passedBefore = passing(project);
               try { turnStart(i as HookInput); } catch {}
               return {};
             }] }],
+            // The first edit in another project of the workspace opens a turn there too, snapshot
+            // first, so its own map lights up and its history has the turn.
+            PreToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
+              const p = otherOf(ws, i.tool_input?.file_path ?? i.tool_input?.notebook_path);
+              if (p && !others.has(p.path)) {
+                others.set(p.path, { name: p.name, passedBefore: passing(p.name) });
+                try { turnStart({ ...(i as HookInput), cwd: p.path, prompt }); } catch {}
+              }
+              return {};
+            }] }],
             PostToolUse: [{ matcher: "Edit|Write|MultiEdit|NotebookEdit", hooks: [async (i: any) => {
-              edited = true;
-              try { turnTool(i as HookInput); } catch {}
+              const f = i.tool_input?.file_path ?? i.tool_input?.notebook_path;
+              const p = otherOf(ws, f), at = p?.path ?? root;
+              if (!p) edited = true;
+              try { turnTool({ ...(i as HookInput), cwd: at }); } catch {}
               // The agent changed the checks: trusted as it wrote them (guardrails.ts).
-              const f = i.tool_input?.file_path;
-              if (typeof f === "string" && resolve(root, f) === join(root, GUARDRAILS)) { const { g } = loadGuardrails(root); if (g) trust(root, g); }
+              if (typeof f === "string" && resolve(root, f) === join(at, GUARDRAILS)) { const { g } = loadGuardrails(at); if (g) trust(at, g); }
               return {};
             }] }],
             Stop: [{ hooks: [async (i) => {
-              // .cockpit/ must match the code: up to 3 rounds of "fix what the check found" per
-              // turn, against the live index once it has caught up with the agent's edits. A round
-              // that leaves exactly the same problems means the agent can't fix them (say, links into
-              // code cockpit doesn't index): stop there instead of sending it back again.
-              if (existsSync(join(root, ARCH_DIR)) && checks < 3) {
-                const problems = checkArch(loadArch(root), await index.fresh());
+              // .cockpit/ must match the code, here and in each other project this turn edited: up
+              // to 3 rounds of "fix what the check found" per turn, here against the live index once
+              // it has caught up with the agent's edits. A round that leaves exactly the same
+              // problems means the agent can't fix them (say, links into code cockpit doesn't
+              // index): stop there instead of sending it back again.
+              const there = [...others].filter(([path]) => existsSync(join(path, ARCH_DIR)));
+              if ((existsSync(join(root, ARCH_DIR)) || there.length) && checks < 3) {
+                const problems = [
+                  ...(existsSync(join(root, ARCH_DIR)) ? checkArch(loadArch(root), await index.fresh()) : []),
+                  ...(await Promise.all(there.map(([path, o]) => archProblems(path, o.name)))).flat(),
+                ];
                 const sig = problems.map((x) => x.where + "\t" + x.problem).sort().join("\n");
                 if (problems.length && sig === lastProblems) {
                   note(`${ARCH_DIR}/ still doesn't match the code (${problems.length} problem${problems.length > 1 ? "s" : ""}), and the agent's last round changed nothing, so it wasn't sent back again.`,
@@ -377,9 +425,15 @@ export function createChat(root: string, project: string, terms: Terminals, inde
                   return { decision: "block", reason };
                 }
               }
-              const sent = await guard();
-              if (sent) return { decision: "block", reason: sent };
+              if (gRounds < 3) {
+                // One project after another: their checks may build the same things.
+                const sent: string[] = [];
+                if (edited) { const r = await guard(root, project, passedBefore, false); if (r) sent.push(r); }
+                for (const [path, o] of others) { const r = await guard(path, o.name, o.passedBefore, true); if (r) sent.push(r); }
+                if (sent.length) { gRounds++; return { decision: "block", reason: sent.join("\n\n") }; }
+              }
               try { turnEnd(i as HookInput); } catch {}
+              for (const path of others.keys()) try { turnEnd({ ...(i as HookInput), cwd: path }); } catch {}
               return {};
             }] }],
           },
@@ -390,34 +444,36 @@ export function createChat(root: string, project: string, terms: Terminals, inde
         .finally(() => { if (q === mine) { q = null; box = null; busy = false; state(); } });
     }
 
-    // The guardrails' checks at the end of a turn that edited files. Returns what to send the agent
-    // back with, or null. At most 3 rounds, and not again when a round changed nothing.
-    async function guard(): Promise<string | null> {
-      const { g } = loadGuardrails(root);
-      if (!g?.checks.length || !edited || gRounds >= 3) return null;
-      if (!isTrusted(root, g)) {
-        note("Guardrails: their checks weren't run, since they aren't trusted yet (they run commands from the project). Look at them in the guardrails tab.");
+    // The guardrails' checks of one project (this one, or another of the workspace that the turn
+    // edited) at the end of a turn. Returns what to send the agent back with, or null. Not again
+    // when a round changed nothing.
+    async function guard(at: string, name: string, before: Set<string>, other: boolean): Promise<string | null> {
+      const { g } = loadGuardrails(at);
+      if (!g?.checks.length) return null;
+      const where = other ? ` of ${name}` : "";
+      if (!isTrusted(at, g)) {
+        note(`Guardrails${where}: their checks weren't run, since they aren't trusted yet (they run commands from the project). Look at them in the guardrails tab${other ? " of " + name : ""}.`);
         return null;
       }
-      note(`Running the guardrails' checks (${g.checks.map((c) => c.name).join(", ")})…`);
-      const results = await runChecks(root, project, g, undefined, onChecks);
+      note(`Running the guardrails' checks${where} (${g.checks.map((c) => c.name).join(", ")})…`);
+      const results = await runChecks(at, name, g, undefined, other ? undefined : onChecks);
       const failed = results.filter((r) => !r.ok);
-      const broke = failed.filter((r) => passedBefore.has(r.id)), already = failed.filter((r) => !passedBefore.has(r.id));
-      const name = (id: string) => g.checks.find((c) => c.id === id)?.name ?? id;
-      if (already.length) note(`Already failing before this turn, not sent back: ${already.map((r) => name(r.id)).join(", ")}.`, { detail: failureReport(g, already) });
+      const broke = failed.filter((r) => before.has(r.id)), already = failed.filter((r) => !before.has(r.id));
+      const nameOf = (id: string) => g.checks.find((c) => c.id === id)?.name ?? id;
+      if (already.length) note(`Already failing${where} before this turn, not sent back: ${already.map((r) => nameOf(r.id)).join(", ")}.`, { detail: failureReport(g, already) });
       if (!broke.length) {
-        if (!failed.length) note(`Guardrails: ${results.length} check${results.length > 1 ? "s" : ""} pass.`);
+        if (!failed.length) note(`Guardrails${where}: ${results.length} check${results.length > 1 ? "s" : ""} pass.`);
         return null;
       }
       const sig = broke.map((r) => r.id + "\t" + r.output).join("\n");
-      if (sig === gLast) {
-        note(`Still failing after the agent's last round, which changed nothing: ${broke.map((r) => name(r.id)).join(", ")}. Not sent back again.`, { error: true, detail: failureReport(g, broke) });
+      if (sig === gLast.get(at)) {
+        note(`Still failing${where} after the agent's last round, which changed nothing: ${broke.map((r) => nameOf(r.id)).join(", ")}. Not sent back again.`, { error: true, detail: failureReport(g, broke) });
         return null;
       }
-      gLast = sig; gRounds++;
-      const reason = `This turn broke ${broke.length > 1 ? "checks" : "a check"} that passed before it (${GUARDRAILS}). Fix the cause in the code, not the check; ` +
+      gLast.set(at, sig);
+      const reason = `This turn broke ${broke.length > 1 ? "checks" : "a check"} that passed before it (${other ? join(at, GUARDRAILS) : GUARDRAILS}). Fix the cause in the code, not the check; ` +
         `if the check itself is wrong, say so instead of changing it.\n\n` + failureReport(g, broke);
-      note(`This turn broke ${broke.map((r) => name(r.id)).join(", ")}: sent the agent back to fix it.`, { detail: reason });
+      note(`This turn broke ${broke.map((r) => nameOf(r.id)).join(", ")}${where}: sent the agent back to fix it.`, { detail: reason });
       return reason;
     }
 
