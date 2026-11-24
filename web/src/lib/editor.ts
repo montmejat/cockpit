@@ -109,11 +109,13 @@ export const look: Extension = [
     ".cm-fat-cursor": { background: "color-mix(in oklab, var(--accent) 55%, transparent) !important", outline: "none !important" },
     "&:not(.cm-focused) .cm-fat-cursor": { background: "none !important", outline: "1px solid color-mix(in oklab, var(--accent) 55%, transparent) !important" },
     ".cm-panels": { backgroundColor: "var(--bg)", color: "var(--fg)" },
-    ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--line)" },
-    // One fixed height whatever it shows (--NORMAL--, or the : line with its input), so the editor doesn't jump.
-    ".cm-vim-panel": { display: "flex", alignItems: "center", boxSizing: "border-box", height: "24px", padding: "0 8px", fontFamily: "inherit", lineHeight: "24px" },
-    ".cm-vim-panel > *": { display: "flex", alignItems: "center", height: "100%" },
-    ".cm-vim-panel input": { fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit", height: "100%", margin: 0, padding: 0, border: 0, outline: 0, background: "transparent", color: "var(--fg)" },
+    // vim's : and / line floats over the bottom of the editor while you type it, so nothing moves
+    // (there is no status bar: the block or bar cursor shows the mode).
+    ".cm-panels.cm-panels-bottom": { position: "absolute", left: "10px", right: "10px", bottom: "10px", top: "auto", zIndex: 20, border: 0, background: "transparent" },
+    ".cm-vim-panel": { display: "flex", alignItems: "center", gap: "6px", boxSizing: "border-box", height: "30px", padding: "0 12px", fontFamily: "var(--mono)", fontSize: "var(--fs-code)",
+      background: "var(--card)", color: "var(--fg)", border: "1px solid var(--line)", borderRadius: "var(--r-l)", boxShadow: "var(--shadow-pop)" },
+    ".cm-vim-panel > *": { display: "flex", alignItems: "center", flex: 1, height: "100%" },
+    ".cm-vim-panel input": { flex: 1, fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit", height: "100%", margin: 0, padding: 0, border: 0, outline: 0, background: "transparent", color: "var(--fg)" },
     ".cm-searchMatch": { backgroundColor: "color-mix(in oklab, var(--warn) 30%, transparent)" },
     ".cm-searchMatch-selected": { backgroundColor: "color-mix(in oklab, var(--warn) 55%, transparent)" },
     ".cm-matchingBracket": { backgroundColor: "color-mix(in oklab, var(--accent) 20%, transparent)", outline: "none" },

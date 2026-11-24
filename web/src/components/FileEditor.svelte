@@ -60,7 +60,7 @@
     return EditorState.create({
       doc: text,
       extensions: [
-        vim({ status: true }),
+        vim(), // no status bar: the cursor shows the mode; : and / open a floating line (editor.ts)
         gutters({ fixed: false }), lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(),
         indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
         indentUnit.of(indentOf(text)), EditorState.tabSize.of(4),
