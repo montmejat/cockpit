@@ -173,16 +173,10 @@ button.mrrow .mm{font-size:var(--fs-s);color:var(--muted);white-space:nowrap;ove
 /* center: tabs, then a diagram or code */
 #center{flex:1;min-width:0;display:flex;flex-direction:column}
 /* Center tabs, libadwaita-like: rounded tabs on the bar, the open one raised like a card. The map is the same tab, icon only. */
-#tabbar{display:flex;align-items:center;gap:3px;overflow-x:auto;height:var(--bar-h);padding:0 6px;border-bottom:1px solid var(--line);background:var(--bg);flex-shrink:0;scrollbar-width:none}
-.ctab{display:flex;align-items:center;gap:6px;height:28px;padding:0 4px 0 11px;border-radius:var(--r-m);cursor:pointer;white-space:nowrap;color:var(--muted);font-size:var(--fs-m);font-weight:500;flex-shrink:0;transition:background .12s,color .12s;outline-offset:-2px}
-.ctab:hover{color:var(--fg);background:var(--btn)}
-.ctab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
+#tabbar{height:var(--bar-h);padding:0 6px;margin:0;border-bottom:1px solid var(--line);background:var(--bg);flex-shrink:0}
 .ctab .ti{color:var(--accent);font-size:10px;flex:none}.ctab .mark{margin-left:0}
-.ctab svg{fill:none;stroke:currentColor;stroke-width:1.3;stroke-linejoin:round;stroke-linecap:round}
-.ctab .tx{display:grid;place-items:center;width:20px;height:20px;border:0;border-radius:50%;background:none;padding:0;color:var(--muted);font-size:14px;line-height:1;opacity:0;transition:opacity .12s}
-.ctab:hover .tx,.ctab.on .tx{opacity:1}.ctab .tx:hover{color:var(--fg);background:var(--btn-hover)}
-.ctab.maptab{width:34px;padding:0;justify-content:center}.ctab.maptab.on{color:var(--accent)}
-.ctab.maptab + .ctab{margin-left:6px;position:relative}.ctab.maptab + .ctab::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:var(--line)}
+.seg.maptab{width:34px;padding:0}.seg.maptab.on{color:var(--accent)}
+.maptab + .ctab{margin-left:6px}.maptab + .ctab::before{content:"";position:absolute;left:-6px;top:6px;bottom:6px;width:1px;background:var(--line)}
 #canvas[hidden],#codeview[hidden]{display:none}
 /* min-width:0: a long line scrolls inside the view instead of widening the page (and the view follows the panels' widths) */
 #codeview{flex:1;min-height:0;min-width:0;display:flex;flex-direction:column;background:var(--card)}
@@ -345,15 +339,8 @@ button.csend.stop{background:var(--fg);color:var(--bg)}button.csend.stop svg{fil
 #tsplit:hover{background:color-mix(in oklab,var(--accent) 40%,transparent)}
 #tsplit[hidden],#term[hidden]{display:none}
 #term{flex-shrink:0;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--card);min-height:0}
-/* the slim bar: a tab per shell, raised like the sidebar's segments; ask and new on the right */
+/* the slim bar: a tab per shell (ui/Tab.svelte), ask and new on the right */
 .tbar{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line);background:var(--bg)}
-.ttabs{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none;padding:4px 2px;margin:0 -2px} /* room for the raised tab's ring, which the scroller would clip */
-.ttab{display:flex;align-items:center;gap:6px;flex:none;max-width:220px;height:26px;padding:0 4px 0 10px;border-radius:var(--r-m);color:var(--muted);font-size:var(--fs-s);font-weight:500;cursor:pointer;white-space:nowrap}
-.ttab:hover{color:var(--fg);background:var(--btn)}.ttab:focus{outline:0}.ttab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
-.ttab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
-.ttab button.tx{display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted);opacity:0}
-.ttab:hover .tx,.ttab.on .tx{opacity:1}.ttab button.tx:hover{color:var(--fg);background:var(--btn-hover)}
-.ttab .tx svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
 .trun,.tbad{display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:var(--fs-xs);font-weight:700}.tbad{color:var(--bad)}
 #tbody{flex:1;min-height:0;position:relative;padding:4px 0 0 8px}
 .tview{position:absolute;inset:4px 0 0 8px}.tview[hidden]{display:none}
@@ -434,7 +421,7 @@ button.chip:hover{border-color:var(--accent);color:var(--accent)}
 #right.hide{display:none}
 .ctools{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line)}
 /* the open conversation: a raised pill like the sidebar's segments, opening the list */
-button.ctitle{min-width:0;max-width:100%;display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-m);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise);color:var(--fg);font-size:var(--fs-s);font-weight:500}
+button.ctitle{min-width:0;max-width:100%;display:flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:var(--r-m);font-size:var(--fs-s);font-weight:500}button.ctitle:hover{background:var(--card)}
 button.ctitle .chev{color:var(--muted);font-size:var(--fs-xs)}button.ctitle:hover .chev,button.ctitle.on .chev{color:var(--fg)}
 .ctname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* other agents at work: a small count by the title; "!" when one waits for an Allow/Deny */
@@ -446,7 +433,6 @@ button.ctitle .chev{color:var(--muted);font-size:var(--fs-xs)}button.ctitle:hove
 .clist p{padding:4px 12px;margin:0}
 /* the conversations: rounded rows, the whole row lights up; the open one is raised like a tab */
 .csrow{display:flex;align-items:center;gap:4px;padding-right:8px;border-radius:var(--r-m)}.csrow+.csrow{margin-top:1px}.csrow:hover{background:var(--btn)}
-.csrow:has(.on){background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
 button.csess{display:flex;flex-direction:column;flex:1;min-width:0;padding:5px 8px}button.csess:hover,button.csess:active{background:none}button.csess:focus-visible{border-radius:var(--r-m)}
 .csess .cwhen,.csess .cprev{font-size:var(--fs-s)}.cprev{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 button.cdel{display:none;place-items:center;flex:none;width:22px;height:22px;margin:0;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted)}
@@ -673,6 +659,18 @@ header .gpill.bad{border-color:var(--bad);color:var(--bad)}
 button.ibtn{display:grid;place-items:center;flex:none;padding:3px;border:0;border-radius:var(--r-m);background:none;color:var(--muted)}
 button.ibtn:hover,button.ibtn.on{background:var(--btn-hover);color:var(--fg)}
 .ibtn svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+/* tabs and segments (ui/Tab.svelte) in a .segs strip: quiet until hovered, the open one raised like a
+   card. The strip pads its tabs so a scrolling strip doesn't clip the ring. The raised look is written
+   once, here (.raised for anything else that is "the picked one"): .cockpit/checks/pieces.mjs keeps it so. */
+.segs{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none;padding:4px 2px;margin:0 -2px}
+.seg{position:relative;display:flex;align-items:center;justify-content:center;gap:6px;flex:none;height:26px;max-width:240px;padding:0 10px;border-radius:var(--r-m);color:var(--muted);font-size:var(--fs-s);font-weight:500;white-space:nowrap;cursor:pointer;transition:background .12s,color .12s}
+.seg:has(.segx){padding-right:4px}.seg.fill{flex:1;max-width:none;padding:0 6px}
+.seg:hover{color:var(--fg);background:var(--btn)}
+.seg:focus{outline:0}.seg:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.raised,.seg.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
+.seg svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+button.segx{display:grid;place-items:center;flex:none;width:18px;height:18px;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted);opacity:0;transition:opacity .12s}
+.seg:hover .segx,.seg.on .segx,.seg:focus-visible .segx{opacity:1}button.segx:hover{color:var(--fg);background:var(--btn-hover)}
 .pop{position:absolute;z-index:30;background:var(--card);border:1px solid var(--line);border-radius:var(--r-l);box-shadow:var(--shadow-pop);padding:4px}
 .menu{position:relative;display:inline-flex}
 button.mtrig{display:inline-flex;align-items:center;gap:3px;border:0;background:none;padding:1px 6px;border-radius:var(--r-m);font-size:var(--fs-s);color:var(--muted);text-transform:capitalize}
@@ -683,12 +681,7 @@ button.mtrig:hover,button.mtrig.on{background:var(--btn-hover);color:var(--fg)}
 .mlist button:hover{background:var(--btn-hover)}.mlist button.on{color:var(--accent)}
 
 /* sidebar: icon tabs, a badge when a tab needs a look */
-.stabs{display:flex;align-items:center;gap:2px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line)}
-/* a segmented control, like iOS: one track, the picked segment raised on it */
-button.stab{position:relative;flex:1;display:flex;align-items:center;justify-content:center;gap:6px;height:26px;padding:0 6px;border:0;border-radius:var(--r-m);background:none;color:var(--muted);font-size:var(--fs-s);font-weight:500}
-button.stab:hover{color:var(--fg);background:var(--btn)}
-button.stab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
-.stab svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.stabs{height:var(--bar-h);flex-shrink:0;padding:0 8px;margin:0;border-bottom:1px solid var(--line);overflow:visible}
 .sbadge{min-width:15px;height:15px;padding:0 4px;border-radius:var(--r-pill);background:var(--accent);color:var(--on-accent);font-size:9px;font-weight:600;line-height:15px;text-align:center}
 .stab.bad .sbadge{background:var(--bad)}
 /* the project tab: a grouped list, like iOS settings */

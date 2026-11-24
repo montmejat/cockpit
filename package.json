@@ -11,6 +11,7 @@
     "check": "node node_modules/@typescript/native/bin/tsc --noEmit",
     "check-arch": "tsx src/check-arch.ts",
     "modules": "tsx src/modules.ts",
+    "shot": "tsx src/shot.ts",
     "test": "node --import tsx --test test/*.test.ts"
   },
   "devDependencies": {
@@ -19,6 +20,7 @@
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
     "@typescript/native": "npm:typescript@^7.0.2",
+    "puppeteer-core": "^25.18.1",
     "svelte": "^5.57.3",
     "svelte-check": "^4.7.8",
     "tsx": "^4.23.15",

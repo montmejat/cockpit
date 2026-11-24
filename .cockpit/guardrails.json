@@ -9,6 +9,7 @@
     { "id": "dialogs", "name": "No browser dialogs", "run": "node .cockpit/checks/dialogs.mjs", "timeout": 30 },
     { "id": "gated", "name": "Servers gated", "run": "node .cockpit/checks/gated.mjs", "timeout": 30 },
     { "id": "sync-calls", "name": "No new sync commands", "run": "node .cockpit/checks/sync-calls.mjs", "timeout": 30 },
+    { "id": "pieces", "name": "Shared UI pieces", "run": "node .cockpit/checks/pieces.mjs", "timeout": 30 },
     { "id": "tests", "name": "Tests", "run": "out=$(npm test 2>&1); s=$?; echo \"$out\" | grep -E -A12 '^not ok' | head -60; echo \"$out\" | grep -E '^# (pass|fail)'; exit $s", "timeout": 120 }
   ],
   "rules": [
@@ -58,9 +59,14 @@
       "why": "the page had drifted to 10 corner radii and 12 shadows; one-off values make panels look subtly unrelated"
     },
     {
-      "id": "ui-pieces", "layer": "prose", "since": "2026-11-22",
-      "rule": "Build controls from web/src/components/ui/ (IconButton, Menu) before writing new button or popover CSS; add a piece there when a pattern repeats",
-      "why": "every panel had grown its own popover and button styles"
+      "id": "ui-pieces", "layer": "static", "checks": ["pieces"], "since": "2026-11-22",
+      "rule": "Build controls from web/src/components/ui/ (IconButton, Menu, Tab) before writing new button, tab or popover CSS; add a piece there when a pattern repeats. Tabs are <Tab> in a .segs strip, and the raised look (the picked tab or row) is only the .raised / .seg.on rule in app.css",
+      "why": "every panel had grown its own popover and button styles; the terminal's hand-made tabs then had their ring clipped by their scroller and a focus outline on click, which the shared piece already handled"
+    },
+    {
+      "id": "look-before-done", "layer": "prose", "since": "2026-11-24",
+      "rule": "A change to how the page looks is looked at before it's called done: npm run -s shot -- . [--query file=…] [--key …] [--clip selector --zoom 3] takes a screenshot from its own server and headless Firefox; read the picture",
+      "why": "UI changes were committed after only a type check and a build; odd borders on the terminal tabs reached the owner. The desktop app is WebKitGTK, so Firefox shows most but not all of what the owner sees"
     },
     {
       "id": "quiet-settings", "layer": "prose", "since": "2026-11-22",

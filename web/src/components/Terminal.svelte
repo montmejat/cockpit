@@ -11,6 +11,7 @@
   import { initialTerminals, S, store } from "../lib/state.svelte";
   import type { TermMeta } from "../lib/types";
   import IconButton from "./ui/IconButton.svelte";
+  import Tab from "./ui/Tab.svelte";
 
   type View = { id: string; meta: TermMeta; el: HTMLElement; term: XTerm; fit: FitAddon; ws: WebSocket; opened: boolean; size: string };
 
@@ -183,14 +184,12 @@
 <div id="tsplit" class:hide={!open} onpointerdown={split} role="separator"></div>
 <section id="term" class:hide={!open} style="height:{h}px">
   <div class="tbar">
-    <div class="ttabs" role="tablist">
+    <div class="segs" role="tablist">
       {#each metas as m (m.id)}
-        <div class="ttab" class:on={m.id === active} title={(m.running ?? tilde(m.cwd)) + "  (Ctrl+PageUp / Ctrl+PageDown to switch)"} role="tab" tabindex="0" aria-selected={m.id === active}
-          onclick={() => showView(m.id)} onauxclick={(e) => e.button === 1 && api.post("api/term/close", { id: m.id })} onkeydown={(e) => e.key === "Enter" && showView(m.id)}>
+        <Tab on={m.id === active} title={(m.running ?? tilde(m.cwd)) + "  (Ctrl+PageUp / Ctrl+PageDown to switch)"} onselect={() => showView(m.id)}
+          onclose={() => api.post("api/term/close", { id: m.id })} closeLabel="Close this shell">
           {@render tstate(m)}<span class="ctname">{label(m)}</span>
-          <button class="tx" title="Close this shell" aria-label="Close this shell" onclick={(e) => { e.stopPropagation(); api.post("api/term/close", { id: m.id }); }}>
-            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
-        </div>
+        </Tab>
       {/each}
     </div>
     <span class="grow"></span>

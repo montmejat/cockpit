@@ -14,7 +14,7 @@
         "cockpit/web/src/components/NodeCard", "cockpit/web/src/components/ProjectPane", "cockpit/web/src/components/ZoomCode", "cockpit/web/src/components/Header",
         "cockpit/web/src/components/TabBar", "cockpit/web/src/components/Sidebar", "cockpit/web/src/components/Grip",
         "cockpit/web/src/components/Palette",
-        "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu", "cockpit/web/src/components/ui/Confirm",
+        "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu", "cockpit/web/src/components/ui/Confirm", "cockpit/web/src/components/ui/Tab",
         "cockpit/listpatch", "cockpit/web/src/lib/listmerge", "cockpit/http", "cockpit/live-turn", "cockpit/tests-of"
       ]
     },
@@ -64,7 +64,7 @@
       "name": "Guardrails",
       "status": "working",
       "description": "Checks (commands) and rules (with why and enforcement layer) in .cockpit/guardrails.json, run at the end of a turn that edited files; the agent is sent back for checks it broke. They are the project's own shell commands, so none run until you trust them as they are (again after a pull or branch changes them; the chat agent's own edits are trusted).",
-      "modules": ["cockpit/guardrails", "cockpit/web/src/components/Guardrails"]
+      "modules": ["cockpit/guardrails", "cockpit/web/src/components/Guardrails", "cockpit/shot"]
     },
     {
       "id": "private-and-workspaces",

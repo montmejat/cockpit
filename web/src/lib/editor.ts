@@ -110,8 +110,10 @@ export const look: Extension = [
     "&:not(.cm-focused) .cm-fat-cursor": { background: "none !important", outline: "1px solid color-mix(in oklab, var(--accent) 55%, transparent) !important" },
     ".cm-panels": { backgroundColor: "var(--bg)", color: "var(--fg)" },
     ".cm-panels.cm-panels-bottom": { borderTop: "1px solid var(--line)" },
-    ".cm-vim-panel": { padding: "2px 8px", fontFamily: "inherit" },
-    ".cm-vim-panel input": { fontFamily: "inherit", color: "var(--fg)" },
+    // One fixed height whatever it shows (--NORMAL--, or the : line with its input), so the editor doesn't jump.
+    ".cm-vim-panel": { display: "flex", alignItems: "center", boxSizing: "border-box", height: "24px", padding: "0 8px", fontFamily: "inherit", lineHeight: "24px" },
+    ".cm-vim-panel > *": { display: "flex", alignItems: "center", height: "100%" },
+    ".cm-vim-panel input": { fontFamily: "inherit", fontSize: "inherit", lineHeight: "inherit", height: "100%", margin: 0, padding: 0, border: 0, outline: 0, background: "transparent", color: "var(--fg)" },
     ".cm-searchMatch": { backgroundColor: "color-mix(in oklab, var(--warn) 30%, transparent)" },
     ".cm-searchMatch-selected": { backgroundColor: "color-mix(in oklab, var(--warn) 55%, transparent)" },
     ".cm-matchingBracket": { backgroundColor: "color-mix(in oklab, var(--accent) 20%, transparent)", outline: "none" },

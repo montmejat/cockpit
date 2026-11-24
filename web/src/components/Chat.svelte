@@ -216,7 +216,7 @@
 
 <section class="chat" class:hide={hidden} data-pane={pane} onfocusin={() => (chatFocus.pane = pane)}>
   <div class="ctools">
-    <button class="ctitle" class:on={!!list} bind:this={titleEl} onclick={showList} title="Your conversations in this project">
+    <button class="ctitle raised" class:on={!!list} bind:this={titleEl} onclick={showList} title="Your conversations in this project">
       <span class="ctname">{title}</span>
       {#if others.length}<span class="cagents" class:asking={othersAsking > 0} title={othersAsking ? `${othersAsking} waiting for you` : `${others.length} more working`}>{#if othersAsking}!{:else}<span class="spin"></span>{/if}{others.length}</span>{/if}
       <span class="chev" aria-hidden="true">▾</span>
@@ -242,7 +242,7 @@
         </button><span class="cstate" class:asking={a.asking}>{#if a.asking}!{:else}<span class="spin"></span>{/if}</span></div>
       {/each}
       {#each list as s (s.id)}
-        <div class="csrow">
+        <div class="csrow" class:raised={s.id === session}>
           <button class="csess" class:on={s.id === session} onclick={() => openSession(s.id)} title={s.preview}>
             <span class="cst">{s.title}<span class="muted cwhen"> · {s.asking ? "waiting for you" : s.busy ? "working" : ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span></span>
             {#if s.preview}<span class="muted cprev">{s.preview}</span>{/if}

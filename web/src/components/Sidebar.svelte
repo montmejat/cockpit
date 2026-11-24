@@ -6,6 +6,7 @@
   import ProjectPane from "./ProjectPane.svelte";
   import Grip, { savedWidth } from "./Grip.svelte";
   import IconButton from "./ui/IconButton.svelte";
+  import Tab from "./ui/Tab.svelte";
   import { collapseAll, M, store, ui, type Side } from "../lib/state.svelte";
   import { many, projects } from "../lib/projects.svelte";
 
@@ -52,14 +53,14 @@
 
 <nav id="side" style:width="{width}px">
   <Grip bind:width def={280} key="cockpit-side-width" edge="right" />
-  <div class="stabs" role="tablist">
+  <div class="stabs segs" role="tablist">
     {#each tabs as x (x.id)}
       <!-- clicking the files tab while on it folds every folder -->
-      <button type="button" class="stab" class:on={ui.side === x.id} class:bad={x.id === "project"} role="tab" aria-selected={ui.side === x.id} title={x.label}
-        onclick={() => { if (x.id === "files" && ui.side === "files") collapseAll(dirs); else ui.side = x.id; }}>
+      <Tab fill class={x.id === "project" ? "stab bad" : "stab"} on={ui.side === x.id} title={x.label}
+        onselect={() => { if (x.id === "files" && ui.side === "files") collapseAll(dirs); else ui.side = x.id; }}>
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d={x.icon} /></svg>{x.word}
         {#if badge(x.id)}<span class="sbadge">{badge(x.id)}</span>{/if}
-      </button>
+      </Tab>
     {/each}
   </div>
   <!-- over the tree but outside its scroller, clear of the scrollbar -->
