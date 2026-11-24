@@ -237,14 +237,14 @@
       {#if !list.length && !unlisted.length}<p class="muted">{!listed ? "loading…" : listErr ? "Couldn't list the conversations: " + listErr : "No conversations yet."}</p>{/if}
       {#each unlisted as a (a.session ?? a.preview)}
         <div class="csrow"><button class="csess" disabled={!a.session} onclick={() => a.session && openSession(a.session)} title={a.preview}>
-          <span class="cst">New chat<span class="muted cwhen"> · {a.asking ? "waiting for you" : "working"}</span></span>
+          <span class="cst">New chat<span class="muted cwhen">{" · "}{a.asking ? "waiting for you" : "working"}</span></span>
           {#if a.preview}<span class="muted cprev">{a.preview}</span>{/if}
         </button><span class="cstate" class:asking={a.asking}>{#if a.asking}!{:else}<span class="spin"></span>{/if}</span></div>
       {/each}
       {#each list as s (s.id)}
         <div class="csrow" class:raised={s.id === session}>
           <button class="csess" class:on={s.id === session} onclick={() => openSession(s.id)} title={s.preview}>
-            <span class="cst">{s.title}<span class="muted cwhen"> · {s.asking ? "waiting for you" : s.busy ? "working" : ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span></span>
+            <span class="cst">{s.title}<span class="muted cwhen">{" · "}{s.asking ? "waiting for you" : s.busy ? "working" : ago(s.at)}{s.branch ? " · " + s.branch : ""}{s.here ? "" : " · terminal"}</span></span>
             {#if s.preview}<span class="muted cprev">{s.preview}</span>{/if}
           </button>
           {#if s.busy || s.asking}<span class="cstate" class:asking={s.asking}>{#if s.asking}!{:else}<span class="spin"></span>{/if}</span>{/if}

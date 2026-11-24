@@ -55,8 +55,8 @@
     },
     {
       "id": "style-tokens", "layer": "static", "checks": ["style-tokens"], "since": "2026-11-22",
-      "rule": "Colours, corners and shadows come from the tokens in web/src/app.css :root (var(--r-m), var(--shadow-pop), var(--accent)…), never raw values",
-      "why": "the page had drifted to 10 corner radii and 12 shadows; one-off values make panels look subtly unrelated"
+      "rule": "Colours, corners, shadows, font sizes and control sizes come from the tokens in web/src/app.css :root (var(--r-m), var(--shadow-pop), var(--accent), var(--fs-s), var(--ctl)…), never raw values",
+      "why": "the page had drifted to 10 corner radii, 12 shadows, 8 off-scale font sizes and buttons of 18 to 26px; one-off values make panels look subtly unrelated"
     },
     {
       "id": "ui-pieces", "layer": "static", "checks": ["pieces"], "since": "2026-11-22",

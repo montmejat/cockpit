@@ -98,6 +98,8 @@
   // ---- the PR/MR of this branch (gh or glab), looked up again when the branch or HEAD moves
   // and every two minutes (CI and reviews change on their own).
   let mr = $state<BranchMr | null>(null), mrErr = $state(""), mrLoading = $state(false);
+  // The lookup's error in a few words (the whole of it on hover): not signed in to gh/glab is the usual one.
+  const mrNote = $derived(/auth|to get started|not logged|log ?in/i.test(mrErr) ? "PR info off: sign in with gh or glab" : "Couldn't look up the PR");
   async function loadMr(fresh = false) {
     mrLoading = true;
     const r = await api.get<{ mr: BranchMr | null; error?: string }>(B + "api/git/mr" + (fresh ? "?fresh=1" : "")).catch((e) => ({ mr: null, error: String(e) }));
@@ -227,7 +229,7 @@
         {#if !R && mr.state === "open"}<button class="gicon" disabled={!!busy} onclick={() => startMr(mr!)} title="Review this {kind}: what it changes against {mr.target}, on the map and in the files">◆</button>{/if}
         <button class="gicon" class:busy={mrLoading} onclick={() => loadMr(true)} disabled={mrLoading} title="Refresh">{#if mrLoading}<span class="spin"></span>{:else}↻{/if}</button>
       </div>
-    {:else if mrErr}<div class="gmuted" title={mrErr}>PR lookup: {mrErr}</div>{/if}
+    {:else if mrErr}<div class="gmuted" title={mrErr}>{mrNote}</div>{/if}
   </div>
 
   {#if P && (P.mode === "on" || P.busy || (P.mode === "off" && hasDesc))}
@@ -343,23 +345,23 @@
 
   {#if conflicts.length}
     {@render head("conflicts", "conflicts", conflicts.length)}
-    {#if open.conflicts}{#each conflicts as f (f.path)}{@render row(f, "C", undefined, "+")}{/each}{/if}
+    {#if open.conflicts}<div class="gsec">{#each conflicts as f (f.path)}{@render row(f, "C", undefined, "+")}{/each}</div>{/if}
   {/if}
   {#if staged.length}
     {#snippet unstageAll()}<button class="gall" disabled={gitBusy} onclick={() => unstage(staged.map((f) => f.path))} title="Unstage all">− all</button>{/snippet}
     {@render head("staged", "staged", staged.length, unstageAll)}
-    {#if open.staged}{#each staged as f (f.path)}{@render row(f, letter(f.x), counts.staged[f.path], "−")}{/each}{/if}
+    {#if open.staged}<div class="gsec">{#each staged as f (f.path)}{@render row(f, letter(f.x), counts.staged[f.path], "−")}{/each}</div>{/if}
   {/if}
   {#snippet stageAll()}{#if unstaged.length}<button class="gall" disabled={gitBusy} onclick={() => stage(unstaged.map((f) => f.path))} title="Stage all">+ all</button>{/if}{/snippet}
   {@render head("changes", "changes", unstaged.length, stageAll)}
-  {#if open.changes}
+  {#if open.changes}<div class="gsec">
     {#each unstaged as f (f.path)}{@render row(f, letter(f.x === "?" ? "?" : f.y), counts.unstaged[f.path], "+")}{:else}<div class="gempty">{L.status.length ? "everything is staged" : "working tree clean"}</div>{/each}
-  {/if}
+  </div>{/if}
 
   {@render head("history", "history", 0)}
   {#if open.history}
-    {#if !commits}<div class="gempty">loading…</div>{/if}
-    <div class="graph">
+    <div class="graph gsec">
+      {#if !commits}<div class="gempty">loading…</div>{/if}
       {#each rows as r (r.c.hash)}
         {@const rf = refsOf(r.c.refs)}
         <button class="grow-row" class:sel={selSha === r.c.sha} onclick={() => commitOf(r.c.sha)} oncontextmenu={(e) => openMenu(e, r.c)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>

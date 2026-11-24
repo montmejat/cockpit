@@ -69,7 +69,7 @@
   <p class="lead">What keeps the agents' work right without re-reading every line. A correction should move <i>up</i>: from prose to a check, from a check to design.</p>
 
   {#if !on}
-    <div class="gempty">
+    <div class="groff">
       <p>Off in this project: nothing runs and nothing is enforced. Guardrails live in <code>.cockpit/guardrails.json</code> only. Setting them up doesn't add configs, scripts or dependencies to the project.</p>
       <button onclick={setUp}>Ask the agent to set them up</button>
     </div>
