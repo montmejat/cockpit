@@ -345,12 +345,16 @@ button.csend.stop{background:var(--fg);color:var(--bg)}button.csend.stop svg{fil
 #tsplit:hover{background:color-mix(in oklab,var(--accent) 40%,transparent)}
 #tsplit[hidden],#term[hidden]{display:none}
 #term{flex-shrink:0;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--card);min-height:0}
-/* the slim bar: the shell you're in (its name opens the list, as in the chat), ask and new on the right */
+/* the slim bar: a tab per shell, raised like the sidebar's segments; ask and new on the right */
 .tbar{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line);background:var(--bg)}
-#term{position:relative}#term .clist{max-height:70%}
-.tcount{flex:none;font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
+.ttabs{display:flex;align-items:center;gap:2px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.ttab{display:flex;align-items:center;gap:6px;flex:none;max-width:220px;height:26px;padding:0 4px 0 10px;border-radius:var(--r-m);color:var(--muted);font-size:var(--fs-s);font-weight:500;cursor:pointer;white-space:nowrap}
+.ttab:hover{color:var(--fg);background:var(--btn)}
+.ttab.on{color:var(--fg);background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise)}
+.ttab button.tx{display:grid;place-items:center;width:18px;height:18px;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted);opacity:0}
+.ttab:hover .tx,.ttab.on .tx{opacity:1}.ttab button.tx:hover{color:var(--fg);background:var(--btn-hover)}
+.ttab .tx svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
 .trun,.tbad{display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:var(--fs-xs);font-weight:700}.tbad{color:var(--bad)}
-.csrow .trun,.csrow .tbad{width:22px}
 #tbody{flex:1;min-height:0;position:relative;padding:4px 0 0 8px}
 .tview{position:absolute;inset:4px 0 0 8px}.tview[hidden]{display:none}
 .tview .xterm{height:100%}.tview .xterm-viewport{background:var(--card)!important}

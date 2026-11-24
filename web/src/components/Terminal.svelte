@@ -3,7 +3,7 @@
   // page: a reload reattaches to them. Keys first: Ctrl+` shows and hides the drawer, Ctrl+Shift+`
   // opens another shell, Ctrl+PageUp/PageDown go between them, Ctrl+K opens the ask line, which
   // turns words into a command on the prompt (src/ask.ts) and never runs anything. The slim bar
-  // above says which shell you're in; its name opens the list of them (like the chat's title).
+  // above has a tab per shell (middle-click closes one), ask and new on the right.
   import { onMount } from "svelte";
   import { Terminal as XTerm } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
@@ -89,7 +89,6 @@
     if (ids.length > 1) showView(ids[(i + d + ids.length) % ids.length]);
   }
   async function newTerm() {
-    list = false;
     const { id } = await api.post("api/term/new", { cols: 100, rows: 20 });
     view({ id, n: 0, cwd: "", running: null, last: null });
     showView(id);
@@ -133,10 +132,6 @@
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   }
 
-  // The list of shells, from the bar's title: pick one, close one.
-  let list = $state(false), listEl = $state<HTMLElement>(), titleEl = $state<HTMLElement>();
-  const outside = (e: PointerEvent) => { if (list && !listEl?.contains(e.target as Node) && !titleEl?.contains(e.target as Node)) list = false; };
-  const cur = $derived(metas.find((m) => m.id === active) ?? null);
   const failed = (m: TermMeta) => !m.running && m.last != null && m.last.exit !== 0 && m.last.exit !== undefined;
   const tilde = (p: string) => p.replace(/^\/home\/[^/]+/, "~");
   const label = (m: TermMeta) => (m.running ? m.running.split(/\s+/).slice(0, 2).join(" ") : m.cwd.split("/").pop() || "/");
@@ -182,39 +177,28 @@
   }
 </script>
 
-<svelte:window onpointerdown={outside} onkeydown={(e) => e.key === "Escape" && list && (list = false)} />
 {#snippet tstate(m: TermMeta)}
   {#if m.running}<span class="trun" title="running {m.running}"><span class="spin"></span></span>{:else if failed(m)}<span class="tbad" title="last command failed (exit {m.last?.exit})">!</span>{/if}
 {/snippet}
 <div id="tsplit" class:hide={!open} onpointerdown={split} role="separator"></div>
 <section id="term" class:hide={!open} style="height:{h}px">
   <div class="tbar">
-    <button class="ctitle" class:on={list} bind:this={titleEl} onclick={() => (list = !list)} title="Your shells  (Ctrl+PageUp / Ctrl+PageDown to switch)">
-      {#if cur}{@render tstate(cur)}<span class="ctname">{label(cur)}</span>{/if}
-      {#if metas.length > 1}<span class="tcount">{metas.findIndex((m) => m.id === active) + 1}/{metas.length}</span>{/if}
-      <span class="chev" aria-hidden="true">▾</span>
-    </button>
+    <div class="ttabs" role="tablist">
+      {#each metas as m (m.id)}
+        <div class="ttab" class:on={m.id === active} title={(m.running ?? tilde(m.cwd)) + "  (Ctrl+PageUp / Ctrl+PageDown to switch)"} role="tab" tabindex="0" aria-selected={m.id === active}
+          onclick={() => showView(m.id)} onauxclick={(e) => e.button === 1 && api.post("api/term/close", { id: m.id })} onkeydown={(e) => e.key === "Enter" && showView(m.id)}>
+          {@render tstate(m)}<span class="ctname">{label(m)}</span>
+          <button class="tx" title="Close this shell" aria-label="Close this shell" onclick={(e) => { e.stopPropagation(); api.post("api/term/close", { id: m.id }); }}>
+            <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
+        </div>
+      {/each}
+    </div>
     <span class="grow"></span>
     <IconButton label="Ask for a command  (Ctrl+K)" onclick={openAsk} on={asking}>
       <path d="M8 2.5l1.2 3.3 3.3 1.2-3.3 1.2L8 11.5 6.8 8.2 3.5 7l3.3-1.2zM12.5 11v3M11 12.5h3" />
     </IconButton>
     <IconButton label="New shell  (Ctrl+Shift+`)" onclick={newTerm}><path d="M8 3.5v9M3.5 8h9" /></IconButton>
   </div>
-  {#if list}
-    <div class="clist" bind:this={listEl}>
-      {#each metas as m (m.id)}
-        <div class="csrow">
-          <button class="csess" class:on={m.id === active} onclick={() => { list = false; showView(m.id); }} title={m.running ?? m.cwd}>
-            <span class="cst">{label(m)}{#if m.running}<span class="muted cwhen"> · running</span>{:else if failed(m)}<span class="muted cwhen"> · exit {m.last?.exit}</span>{/if}</span>
-            <span class="muted cprev">{tilde(m.cwd)}</span>
-          </button>
-          {@render tstate(m)}
-          <button class="cdel" onclick={() => api.post("api/term/close", { id: m.id })} title="Close this shell" aria-label="Close this shell">
-            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
-        </div>
-      {/each}
-    </div>
-  {/if}
   <div id="tbody" bind:this={tbody}></div>
   {#if asking && (picks.length || note)}
     <div id="tsugg">
