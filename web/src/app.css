@@ -481,14 +481,6 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 #dlist button.on{border-left-color:var(--accent);font-weight:600}
 #dlist .dsec{padding:8px 10px 3px;font-size:var(--fs-xs);font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}#dlist .dsec:first-child{padding-top:4px}
 #dlist .dnone{margin:0;padding:2px 16px 4px;font-size:var(--fs-s)}
-#crumbs .cproj{position:relative;display:inline-flex}
-#crumbs button.cprojbtn{display:inline-flex;align-items:center;gap:4px;border:0;background:none;color:var(--fg);font-weight:600;padding:1px 6px;margin:-1px -6px;border-radius:var(--r-m)}
-#crumbs button.cprojbtn:hover,#crumbs button.cprojbtn.on{background:var(--btn-hover)}
-#crumbs .cprojbtn svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;color:var(--muted)}
-#crumbs .cpmenu{position:absolute;top:calc(100% + 8px);left:-10px;min-width:220px;padding:4px;display:flex;flex-direction:column;z-index:8}
-#crumbs .cpmenu .mrow{display:flex;align-items:baseline;gap:12px;width:100%;border:0;background:none;color:var(--fg);text-align:left;padding:5px 10px;border-radius:var(--r-m);font-weight:400}
-#crumbs .cpmenu .mrow:hover{background:var(--btn-hover)}#crumbs .cpmenu .mrow.on .mname{font-weight:600}
-#crumbs .cpmenu .mval{margin-left:auto;font-size:var(--fs-s)}
 /* the file editor (FileEditor.svelte) */
 .ewrap{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}.ewrap[hidden]{display:none}
 /* the confirmation for what a click would lose (ui/Confirm.svelte) */

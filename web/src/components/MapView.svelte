@@ -9,7 +9,7 @@
   import DiagramList from "./DiagramList.svelte";
   import NodeCard from "./NodeCard.svelte";
   import { buildCy, legend, nudge, positionsOf, relayout, restyle, snapWhileDragging, syncCy, type Guides } from "../lib/diagram";
-  import { byId, C, diagramChanges, homeOf, M, mapTab, mp, nameOf, nodeState, openDiagram, parentOfDiagram, saveTabs, tldr, ui } from "../lib/state.svelte";
+  import { byId, C, diagramChanges, M, mapTab, mp, nameOf, nodeState, openDiagram, parentOfDiagram, saveTabs, tldr, ui } from "../lib/state.svelte";
   import { api } from "../lib/code";
   import { many, projects } from "../lib/projects.svelte";
 
@@ -21,13 +21,6 @@
   let tip = $state<{ html: string; x: number; y: number } | null>(null);
   let listOpen = $state(false); // the list of every diagram, over the top left of the map
   let about = $state(false); // the card about the diagram on screen (ⓘ by the breadcrumb)
-  let projOpen = $state(false); // in a workspace: the projects, first in the breadcrumb
-  // Another project's diagrams, on this map: its main one (or none yet, until its server answers).
-  function showProject(name: string) {
-    projOpen = false; closeCard();
-    const p = projects.find((x) => x.name === name)!;
-    openDiagram(homeOf(p.L) ?? "", undefined, p.name);
-  }
   const closeCard = () => { ui.picked = null; about = false; };
   // How many diagrams uncommitted changes reach (and whether the agent is in one): on the ☰ button.
   const changed = $derived.by(() => {
@@ -292,11 +285,11 @@
       }
       return;
     }
-    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (projOpen) projOpen = false; else if (listOpen) listOpen = false; else if (ui.picked || about) closeCard(); else ascend(); }
+    if (e.key === "Escape" && !hidden && !(e.target as HTMLElement).closest?.("input,textarea,.xterm,.cm-editor")) { if (listOpen) listOpen = false; else if (ui.picked || about) closeCard(); else ascend(); }
   }
 </script>
 
-<svelte:window onkeydown={keys} onpointerdown={(e) => { if (projOpen && !(e.target as HTMLElement).closest?.(".cproj")) projOpen = false; }} />
+<svelte:window onkeydown={keys} />
 
 <section id="canvas" class:hide={hidden} bind:this={box}>
   {#if !d}<div id="nodiagram">{many && !mp().L.project ? `Loading ${mp().name}…` : `No diagrams yet. Ask the agent to describe ${many ? mp().name : "this project"}.`}</div>{/if}
@@ -316,21 +309,6 @@
     <div id="crumbs">
       <button class="dtoggle" class:on={listOpen} class:chg={changed.n > 0} class:live={changed.live}
         title={changed.n ? `All diagrams: ${changed.n} touched by uncommitted changes${changed.live ? ", the agent is editing now" : ""}` : "All diagrams  (F1: hints)"} aria-expanded={listOpen} onclick={() => (listOpen = !listOpen)}>☰{#if changed.n}<span class="dchg" class:live={changed.live}>{changed.n}</span>{/if}</button>
-      {#if many}
-        <span class="cproj">
-          <button class="cprojbtn" class:on={projOpen} title="The workspace's projects: show another one's diagrams" aria-haspopup="menu" aria-expanded={projOpen} onclick={() => (projOpen = !projOpen)}>{mp().name}<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></button>
-          {#if projOpen}
-            <div class="pop cpmenu" role="menu" aria-label="Projects">
-              {#each projects as p (p.name)}
-                <button class="mrow" class:on={p.name === mp().name} role="menuitemradio" aria-checked={p.name === mp().name} onclick={() => showProject(p.name)}>
-                  <span class="mname">{p.name}</span><span class="muted mval">{p.L.project ? (p.L.diagrams.length ? `${p.L.diagrams.length} diagram${p.L.diagrams.length > 1 ? "s" : ""}` : "no diagrams") : "loading…"}</span>
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </span>
-        {#if chain.length}<span class="muted csep">›</span>{/if}
-      {/if}
       {#each chain as x, i (x.id)}
         {#if i}<span class="muted csep">›</span>{/if}
         {#if i === chain.length - 1 && !codeNode}<b>{nameOf(x)}</b>{:else}<button class="link" onclick={() => jumpTo(x.id)}>{nameOf(x)}</button>{/if}
