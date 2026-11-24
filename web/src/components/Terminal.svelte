@@ -1,13 +1,16 @@
 <script lang="ts">
   // Real shells in the project folder (src/term.ts), in a drawer under the center. They outlive the
-  // page: a reload reattaches to them. Ctrl+` shows and hides the drawer; Ctrl+K opens the ask line,
-  // which turns words into a command on the prompt (src/ask.ts) and never runs anything.
+  // page: a reload reattaches to them. Keys first: Ctrl+` shows and hides the drawer, Ctrl+Shift+`
+  // opens another shell, Ctrl+PageUp/PageDown go between them, Ctrl+K opens the ask line, which
+  // turns words into a command on the prompt (src/ask.ts) and never runs anything. The slim bar
+  // above says which shell you're in; its name opens the list of them (like the chat's title).
   import { onMount } from "svelte";
   import { Terminal as XTerm } from "@xterm/xterm";
   import { FitAddon } from "@xterm/addon-fit";
   import { api, wsUrl } from "../lib/code";
   import { initialTerminals, S, store } from "../lib/state.svelte";
   import type { TermMeta } from "../lib/types";
+  import IconButton from "./ui/IconButton.svelte";
 
   type View = { id: string; meta: TermMeta; el: HTMLElement; term: XTerm; fit: FitAddon; ws: WebSocket; opened: boolean; size: string };
 
@@ -42,6 +45,7 @@
       if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) return false;
       if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "k" || e.key === "K")) { if (e.type === "keydown") openAsk(); return false; }
       if (e.ctrlKey && (e.code === "Backquote" || e.key === "`")) return false;
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === "PageUp" || e.key === "PageDown")) { if (e.type === "keydown") cycle(e.key === "PageDown" ? 1 : -1); return false; }
       // Ctrl+L goes to the chat, from here too (`clear` still clears the screen).
       if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && (e.key === "l" || e.key === "L")) return false;
       return true;
@@ -79,7 +83,13 @@
     if (v && !v.opened) { v.term.open(v.el); v.opened = true; }
     requestAnimationFrame(() => { fitView(v); if (open) v?.term.focus(); });
   }
+  // Ctrl+PageUp/PageDown: the previous or next shell, wrapping around.
+  function cycle(d: number) {
+    const ids = [...views.keys()], i = ids.indexOf(active ?? "");
+    if (ids.length > 1) showView(ids[(i + d + ids.length) % ids.length]);
+  }
   async function newTerm() {
+    list = false;
     const { id } = await api.post("api/term/new", { cols: 100, rows: 20 });
     view({ id, n: 0, cwd: "", running: null, last: null });
     showView(id);
@@ -92,6 +102,11 @@
   }
   // Ctrl+`: open the terminal and go to it; when it's open but you're elsewhere (the chat, the
   // editor), go to it; close it only when you're in it already. A button (`plain`) just shows or hides it.
+  // Ctrl+Shift+`: another shell (opening the drawer if it's shut).
+  export async function another() {
+    if (!open) { open = true; store.set("cockpit-term-open-" + S.project, "1"); }
+    await newTerm();
+  }
   export function toggle(plain = false) {
     if (open && !plain && !document.activeElement?.closest?.("#term")) { const v = views.get(active ?? ""); asking ? input?.focus() : v?.term.focus(); return; }
     show(!open);
@@ -118,6 +133,12 @@
     addEventListener("pointermove", move); addEventListener("pointerup", up);
   }
 
+  // The list of shells, from the bar's title: pick one, close one.
+  let list = $state(false), listEl = $state<HTMLElement>(), titleEl = $state<HTMLElement>();
+  const outside = (e: PointerEvent) => { if (list && !listEl?.contains(e.target as Node) && !titleEl?.contains(e.target as Node)) list = false; };
+  const cur = $derived(metas.find((m) => m.id === active) ?? null);
+  const failed = (m: TermMeta) => !m.running && m.last != null && m.last.exit !== 0 && m.last.exit !== undefined;
+  const tilde = (p: string) => p.replace(/^\/home\/[^/]+/, "~");
   const label = (m: TermMeta) => (m.running ? m.running.split(/\s+/).slice(0, 2).join(" ") : m.cwd.split("/").pop() || "/");
 
   // ---- the ask line ----
@@ -161,23 +182,39 @@
   }
 </script>
 
+<svelte:window onpointerdown={outside} onkeydown={(e) => e.key === "Escape" && list && (list = false)} />
+{#snippet tstate(m: TermMeta)}
+  {#if m.running}<span class="trun" title="running {m.running}"><span class="spin"></span></span>{:else if failed(m)}<span class="tbad" title="last command failed (exit {m.last?.exit})">!</span>{/if}
+{/snippet}
 <div id="tsplit" class:hide={!open} onpointerdown={split} role="separator"></div>
 <section id="term" class:hide={!open} style="height:{h}px">
-  <div class="ttabs">
-    <span id="tlist">
-      {#each metas as m (m.id)}
-        <span class="ttab" class:on={m.id === active} title={m.running ?? m.cwd} role="tab" tabindex="0" aria-selected={m.id === active} onclick={() => showView(m.id)} onkeydown={(e) => e.key === "Enter" && showView(m.id)}>
-          {#if m.running}<span class="trun" title="running">●</span>{:else if m.last && m.last.exit !== 0 && m.last.exit !== undefined}<span class="tbad" title="last command failed (exit {m.last.exit})">✕</span>{/if}
-          {label(m)}
-          <button class="tx" title="Close this terminal" onclick={(e) => { e.stopPropagation(); api.post("api/term/close", { id: m.id }); }}>×</button>
-        </span>
-      {/each}
-    </span>
-    <button title="New terminal" onclick={newTerm}>+</button>
+  <div class="tbar">
+    <button class="ctitle" class:on={list} bind:this={titleEl} onclick={() => (list = !list)} title="Your shells  (Ctrl+PageUp / Ctrl+PageDown to switch)">
+      {#if cur}{@render tstate(cur)}<span class="ctname">{label(cur)}</span>{/if}
+      {#if metas.length > 1}<span class="tcount">{metas.findIndex((m) => m.id === active) + 1}/{metas.length}</span>{/if}
+      <span class="chev" aria-hidden="true">▾</span>
+    </button>
     <span class="grow"></span>
-    <button title="Ask for a command  (Ctrl+K)" onclick={openAsk}>✦ ask</button>
-    <button title="Hide  (Ctrl+`)" onclick={() => show(false)}>hide</button>
+    <IconButton label="Ask for a command  (Ctrl+K)" onclick={openAsk} on={asking}>
+      <path d="M8 2.5l1.2 3.3 3.3 1.2-3.3 1.2L8 11.5 6.8 8.2 3.5 7l3.3-1.2zM12.5 11v3M11 12.5h3" />
+    </IconButton>
+    <IconButton label="New shell  (Ctrl+Shift+`)" onclick={newTerm}><path d="M8 3.5v9M3.5 8h9" /></IconButton>
   </div>
+  {#if list}
+    <div class="clist" bind:this={listEl}>
+      {#each metas as m (m.id)}
+        <div class="csrow">
+          <button class="csess" class:on={m.id === active} onclick={() => { list = false; showView(m.id); }} title={m.running ?? m.cwd}>
+            <span class="cst">{label(m)}{#if m.running}<span class="muted cwhen"> · running</span>{:else if failed(m)}<span class="muted cwhen"> · exit {m.last?.exit}</span>{/if}</span>
+            <span class="muted cprev">{tilde(m.cwd)}</span>
+          </button>
+          {@render tstate(m)}
+          <button class="cdel" onclick={() => api.post("api/term/close", { id: m.id })} title="Close this shell" aria-label="Close this shell">
+            <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
+        </div>
+      {/each}
+    </div>
+  {/if}
   <div id="tbody" bind:this={tbody}></div>
   {#if asking && (picks.length || note)}
     <div id="tsugg">

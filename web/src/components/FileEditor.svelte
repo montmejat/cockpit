@@ -1,5 +1,5 @@
 <script lang="ts">
-  // The open file, editable (CodeMirror 6, vim keys unless you turn them off). It keeps showing
+  // The open file, editable (CodeMirror 6, vim keys). It keeps showing
   // the file's uncommitted changes like before: bars in the margin, click one for the removed lines.
   //   Save: :w (vim), Ctrl+S. :q closes the tab, :wq / :x saves and closes.
   //   While you have no unsaved changes, it follows the file live (an agent editing it). When the
@@ -25,9 +25,9 @@
   const lspOf = (p: string) => { const at = split(p); return lspFor(at.p.L.root, at.path, at.p.base); };
 
   type FileData = { path: string; text: string | null; hash?: string; hunks: Hunk[] };
-  let { path, data, want, boxLines, showAll, vimOn, threads = [], onask = () => {}, onview, oncursor, onhover, onchanges }: {
+  let { path, data, want, boxLines, showAll, threads = [], onask = () => {}, onview, oncursor, onhover, onchanges }: {
     path: string; data: FileData | null; want: { line?: number; end?: number; at?: number };
-    boxLines: [number, number][]; showAll: boolean; vimOn: boolean;
+    boxLines: [number, number][]; showAll: boolean;
     threads?: Thread[]; onask?: (th: Thread) => void;
     onview: (v: [number, number]) => void; oncursor: (line: number) => void; onhover: (line: number) => void; onchanges: (n: number, at: number) => void;
   } = $props();
@@ -42,7 +42,7 @@
   let shown: string | null = null; // the path the view shows
   let conflict: { text: string; hash: string } | null = $state(null);
   let saving = $state(false), error = $state("");
-  const vimSlot = new Compartment(), lspSlot = new Compartment();
+  const lspSlot = new Compartment();
   const wantMarks = lineMarks("cm-want"), boxMarks = lineMarks("cm-boxhl");
 
   // Indentation the file already uses: tabs, else its smallest common step of spaces.
@@ -60,7 +60,7 @@
     return EditorState.create({
       doc: text,
       extensions: [
-        vimSlot.of(vimOn ? vim({ status: true }) : []),
+        vim({ status: true }),
         gutters({ fixed: false }), lineNumbers(), highlightActiveLineGutter(), highlightSpecialChars(), history(), drawSelection(),
         indentOnInput(), bracketMatching(), highlightActiveLine(), highlightSelectionMatches(),
         indentUnit.of(indentOf(text)), EditorState.tabSize.of(4),
@@ -217,17 +217,6 @@
     Vim.mapCommand("<Space>f", "action", "lspFormat", {}, { context: "normal" });
   }
 
-  // Vim keys on or off (the header's "vim" button): every buffer follows.
-  let vimWas: boolean | null = null;
-  $effect(() => {
-    const on = vimOn;
-    if (vimWas === null || vimWas === on) { vimWas = on; return; }
-    vimWas = on;
-    const ext = () => (on ? vim({ status: true }) : []);
-    view?.dispatch({ effects: vimSlot.reconfigure(ext()) });
-    for (const [k, b] of bufs) if (k !== shown) b.state = b.state.update({ effects: vimSlot.reconfigure(ext()) }).state;
-    view?.focus();
-  });
   export const isSaving = () => saving;
 
   // How many changes, and which one the cursor is on (the last one starting at or above it; 0 above all).

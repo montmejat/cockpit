@@ -46,7 +46,7 @@
   // A diagram that disappeared from .cockpit/: the map goes back home.
   $effect(() => { const t = mapTab(); if (M.diagrams.length && !byId(t.id)) { t.id = homeOf(M); t.code = null; saveTabs(); } });
 
-  // Ctrl+` goes to the terminal drawer and Ctrl+L to the chat (opening it; pressed again from
+  // Ctrl+` goes to the terminal drawer (Ctrl+Shift+` opens another shell) and Ctrl+L to the chat (opening it; pressed again from
   // inside, closing it), Ctrl+K opens the ask line, F1 shows or hides the hints, anywhere.
   // Focus the open file's editor; from another tab, go back to the last file tab first.
   async function focusEditor() {
@@ -63,7 +63,7 @@
     const inEditor = !!(e.target as HTMLElement).closest?.(".cm-editor");
     // Ctrl+S saves the open file (and never opens the browser's "save page").
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); e.stopPropagation(); (window as any).__cockpitEditor?.save(); return; }
-    if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
+    if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); if (e.shiftKey) term?.another(); else term?.toggle(); }
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") { e.preventDefault(); toggleChat(); }
     else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
     // Ctrl+1, as in VS Code: back to the editor (by key position, so it works on AZERTY too).

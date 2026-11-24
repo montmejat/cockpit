@@ -79,7 +79,6 @@
   const LSPCMD: Record<string, string> = { rust: "rust-analyzer", typescript: "typescript-language-server", python: "pyright", zig: "zls", c: "clangd" };
   const srv = $derived(path ? serverOf(path)?.server ?? null : null);
   const lsp = $derived(srv ? lspStatus[lspKey(at.p.base, srv)] ?? "starting" : null);
-  let vimOn = $state(store.get("cockpit-vim", "1") === "1");
   let changes = $state(0), changeAt = $state(0);
   // Requested lines (from a diagram link or a test) are highlighted and scrolled to.
   const want = $derived(tab.kind === "file" ? { line: tab.line, end: tab.end, at: tab.at } : {});
@@ -106,8 +105,6 @@
       <span class="grow"></span>
       {#if threads.length}<span class="muted" title="Discussions on this file in the merge request, under their lines">💬 {threads.length}{threadsOpen < threads.length ? ` (${threadsOpen} open)` : ""}</span>{/if}
       {#if srv && lsp}<span class="lsp {lsp}" title={lsp === "ready" ? `${srv} language server: hover, completion, diagnostics; F12 / gd definition, Shift+F12 / gr references, F2 / Space rn rename, Shift+Alt+F / Space f format` : lsp === "missing" ? `No ${srv} language server installed (${LSPCMD[srv] ?? srv})` : `${srv} language server ${lsp}`}>{srv}{lsp === "ready" ? "" : lsp === "missing" ? " ×" : " …"}</span>{/if}
-      <button class="vimtoggle" class:on={vimOn} title={vimOn ? "Vim keys on: :w saves, :q closes, :wq both. Click to turn off." : "Vim keys off. Click to turn on."}
-        onclick={() => { vimOn = !vimOn; store.set("cockpit-vim", vimOn ? "1" : "0"); }}>vim</button>
       {#if changes}
         <span class="muted">{changeAt ? changeAt + "/" : ""}{changes} change{changes > 1 ? "s" : ""}{S.review?.base && file?.path === path ? " vs " + S.review.target : ""}</span>
         <button title="Previous change ([c in vim)" onclick={() => editor?.jump(-1)}>↑</button><button title="Next change (]c in vim)" onclick={() => editor?.jump(1)}>↓</button>
@@ -118,7 +115,7 @@
     {:else if file.path === path && (file.error || file.text == null)}<div class="dbody"><p class="dnote">{file.error ?? file.note}</p></div>
     {/if}
     <div class="ewrap" hidden={!file || (file.path === path && file.text == null)}>
-      <FileEditor bind:this={editor} {path} data={file} {want} {boxLines} {showAll} {vimOn} {threads}
+      <FileEditor bind:this={editor} {path} data={file} {want} {boxLines} {showAll} {threads}
         onask={(th) => askAboutThread(th, L.review, at.p.prefix ? at.p.name : undefined)}
         onview={(v) => (view = v)} oncursor={(n) => (caretLine = n)} onhover={(n) => (hoverLine = n)} onchanges={(n, at) => { changes = n; changeAt = at; }} />
     </div>

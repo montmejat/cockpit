@@ -286,7 +286,15 @@ body.desktop header.wleft{padding-left:6px}
 #right{width:390px;flex-shrink:0;display:flex;flex-direction:column;background:var(--side);border-left:1px solid var(--line);min-height:0;position:relative}
 .chats{flex:1;min-height:0;display:flex;flex-direction:column}.chats.hide{display:none}
 .chat{flex:1;min-height:0;display:flex;flex-direction:column;position:relative}
-.chat + .chat{border-top:1px solid var(--line)}
+/* several panes: the line between two resizes them, a pane's bar drags it (the blue line: where it lands) */
+.chats{position:relative}
+.cpane{flex:1 1 0;min-height:120px;display:flex;flex-direction:column}
+.cpane.lifted{opacity:.55}
+.chats.many .ctools{cursor:grab}.chats.dragging,.chats.dragging *{cursor:grabbing !important}
+.csplit{flex:none;height:1px;background:var(--line);position:relative;cursor:row-resize}
+.csplit::before{content:"";position:absolute;inset:-3px 0;z-index:5}
+.csplit:hover,.csplit:active{background:var(--accent)}
+.cdrop{position:absolute;left:6px;right:6px;height:2px;margin-top:-1px;border-radius:var(--r-xs);background:var(--accent);z-index:40;pointer-events:none}
 .msgs{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;overflow-wrap:anywhere;padding:12px 14px;font-size:var(--fs-m);line-height:1.5}
 .msgs > div{margin:0 0 8px}
 .cuser{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-l);padding:7px 10px;margin-top:14px;white-space:normal}
@@ -337,13 +345,12 @@ button.csend.stop{background:var(--fg);color:var(--bg)}button.csend.stop svg{fil
 #tsplit:hover{background:color-mix(in oklab,var(--accent) 40%,transparent)}
 #tsplit[hidden],#term[hidden]{display:none}
 #term{flex-shrink:0;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--card);min-height:0}
-.ttabs{display:flex;align-items:center;gap:4px;padding:3px 8px;border-bottom:1px solid var(--line);font-size:var(--fs-m)}
-.ttabs button{padding:0 7px}
-#tlist{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
-.ttab{display:flex;align-items:center;gap:5px;padding:1px 4px 1px 9px;border-radius:var(--r-s);color:var(--muted);cursor:pointer;white-space:nowrap}
-.ttab:hover{color:var(--fg)}.ttab.on{color:var(--fg);background:var(--bg)}
-.ttab .tx{border:0;background:none;padding:0 3px;color:var(--muted);visibility:hidden}.ttab:hover .tx,.ttab.on .tx{visibility:visible}
-.trun{color:var(--accent);font-size:9px}.tbad{color:var(--bad);font-size:10px}
+/* the slim bar: the shell you're in (its name opens the list, as in the chat), ask and new on the right */
+.tbar{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line);background:var(--bg)}
+#term{position:relative}#term .clist{max-height:70%}
+.tcount{flex:none;font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
+.trun,.tbad{display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:var(--fs-xs);font-weight:700}.tbad{color:var(--bad)}
+.csrow .trun,.csrow .tbad{width:22px}
 #tbody{flex:1;min-height:0;position:relative;padding:4px 0 0 8px}
 .tview{position:absolute;inset:4px 0 0 8px}.tview[hidden]{display:none}
 .tview .xterm{height:100%}.tview .xterm-viewport{background:var(--card)!important}
@@ -491,7 +498,6 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 .confirm .cyes{background:var(--bad);border-color:var(--bad);color:var(--on-accent);font-weight:600}.confirm .cyes:hover{background:color-mix(in oklab,var(--bad) 88%,var(--shade))}
 
 .editor{flex:1;min-height:0;overflow:hidden}.editor .cm-editor{height:100%}
-.vimtoggle{color:var(--muted);opacity:.7;font-size:var(--fs-s);padding:0 6px}.vimtoggle.on{color:var(--fg);opacity:1;border-color:var(--accent)}
 .econflict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px;background:color-mix(in oklab,var(--warn) 14%,var(--card));border-bottom:1px solid var(--line);font-size:var(--fs-m)}
 .econflict.bad{background:color-mix(in oklab,var(--bad) 14%,var(--card))}
 #tabbar .unsaved{color:var(--accent);font-size:10px;margin-left:4px}
