@@ -37,8 +37,8 @@
   const trees = $derived(projects.map((p) => ({ p, tree: treeOf(p.L, p.prefix) })));
   // git status letters by page path, for every project shown
   const statuses = $derived.by(() => {
-    const m = new Map<string, "A" | "D" | "M">();
-    for (const p of projects) for (const s of p.L.status) m.set(p.prefix + s.path, s.x === "?" || s.x === "A" ? "A" : s.x === "D" || s.y === "D" ? "D" : "M");
+    const m = new Map<string, "U" | "A" | "D" | "M">();
+    for (const p of projects) for (const s of p.L.status) m.set(p.prefix + s.path, s.x === "?" ? "U" : s.x === "A" ? "A" : s.x === "D" || s.y === "D" ? "D" : "M");
     return m;
   });
   const statusOf = (path: string) => statuses.get(path) ?? null;
@@ -68,14 +68,14 @@
     {@const st = statusOf(f.path)}
     {@const rv = S.review?.files.find((x) => x.path === f.path)}
     {@const ic = fileIcon(f.name)}
-    <button class="trow file st-{st ?? (rv ? 'rev' : '')}" class:sel={openPath === f.path} style={rowStyle(depth)} onclick={() => openFile(f.path)} title={f.path}>
+    <button class="trow file st-{st === 'U' ? 'A' : st ?? (rv ? 'rev' : '')}" class:sel={openPath === f.path} style={rowStyle(depth)} onclick={() => openFile(f.path)} title={f.path}>
       <span class="tlead fi fi-{ic.color}">
         {#if C.touched.has(f.path)}<span class="agentdot" title="the agent is editing it">◉</span>
         {:else if ic.shape}<svg viewBox="0 0 16 16">{@html SHAPES[ic.shape]}</svg>
         {:else}<span class="fl" class:long={ic.label!.length > 1}>{ic.label}</span>{/if}
       </span>
       <span class="tname">{f.name}</span>
-      {#if st}<span class="mark {st}">{st === "A" ? "U" : st}</span>{:else if rv}<span class="mark rev" title="changed in this review">◆</span>{/if}
+      {#if st}<span class="mark {st === 'U' ? 'A' : st}" title={st === "U" ? "new, not in git yet" : st === "A" ? "added" : st === "D" ? "deleted" : "modified"}>{st}</span>{:else if rv}<span class="mark rev" title="changed in this review">◆</span>{/if}
     </button>
   {/each}
 {/snippet}

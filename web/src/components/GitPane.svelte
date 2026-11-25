@@ -76,7 +76,7 @@
   const conflicts = $derived(L.status.filter(conflicted));
   const staged = $derived(L.status.filter((f) => !conflicted(f) && f.x !== " " && f.x !== "?"));
   const unstaged = $derived(L.status.filter((f) => !conflicted(f) && (f.y !== " " || f.x === "?")));
-  const letter = (c: string) => (c === "?" ? "A" : c === "T" ? "M" : c === "C" ? "A" : c);
+  const letter = (c: string) => (c === "?" ? "U" : c === "T" ? "M" : c === "C" ? "A" : c);
   let counts = $state<{ staged: Record<string, [number, number]>; unstaged: Record<string, [number, number]> }>({ staged: {}, unstaged: {} });
   $effect(() => { void L.status; void L.fileRevs; api.get(B + "api/git/numstat").then((r) => (counts = r)).catch(() => {}); });
   let message = $state(""), gitBusy = $state(false), gitErr = $state("");
@@ -171,7 +171,7 @@
 
 {#snippet head(key: Sec, label: string, n: number, extra?: import("svelte").Snippet)}
   <div class="ghead">
-    <button class="gtoggle" onclick={() => toggle(key)} aria-expanded={open[key]}><span class="chev" class:shut={!open[key]}>▾</span>{label}{#if n}<span class="gcount">{n}</span>{/if}</button>
+    <button class="gtoggle" onclick={() => toggle(key)} aria-expanded={open[key]}><svg class="chev" class:open={open[key]} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg>{label}{#if n}<span class="gcount">{n}</span>{/if}</button>
     {#if extra && open[key]}{@render extra()}{/if}
   </div>
 {/snippet}
@@ -182,7 +182,7 @@
   <div class="gitrow" class:sel={cur().kind === "diff" && (cur() as { path: string; staged: boolean }).path === f.path && (cur() as { staged: boolean }).staged === staged}>
     <!-- a click shows what changed (a conflict opens the file, to resolve it) -->
     <button class="gitfile" onclick={() => (conflict ? openFile(pre + f.path) : openDiff(pre + f.path, staged))} title={(conflict ? "Open " : staged ? "Staged changes in " : "Changes in ") + f.path}>
-      <span class="mark {mark}">{mark}</span><span class="gname">{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>
+      <span class="mark {mark === 'U' ? 'A' : mark}">{mark}</span><span class="gname">{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>
       {#if n}<span class="gnum">{#if n[0] < 0}bin{:else}{#if n[0]}<i class="a">+{n[0]}</i>{/if}{#if n[1]}<i class="d">−{n[1]}</i>{/if}{/if}</span>{/if}
     </button>
     {#if act === "+" && !conflict}

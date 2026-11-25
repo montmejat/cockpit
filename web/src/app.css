@@ -15,6 +15,13 @@
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
 --k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#24364f;--edge:#3c3c41;--rev:#b392f0;--fi-blue:#5fa8e0;--fi-yellow:#d6c14a;--fi-orange:#e8894f;--fi-green:#8dc149;--fi-purple:#a982e0;--fi-red:#e5535a;--fi-teal:#4fc1c1;color-scheme:dark}
 *{box-sizing:border-box}
+/* Scrollbars: cockpit's own, thin and always there. Styled, WebKit draws them in their own space
+   instead of GTK's overlay bars, which appear on hover over the content's right edge (and its buttons). */
+::-webkit-scrollbar{width:8px;height:8px;background:transparent}
+::-webkit-scrollbar-thumb{background:color-mix(in oklab,var(--fg) 18%,transparent);border-radius:var(--r-pill);border:2px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:color-mix(in oklab,var(--fg) 32%,transparent)}
+::-webkit-scrollbar-corner{background:transparent}
+.segs::-webkit-scrollbar{display:none}
 html,body,#app{margin:0;height:100%}
 #app{display:flex;flex-direction:column}
 body{background:var(--bg);color:var(--fg);font:var(--fs-m)/1.45 var(--ui)}
@@ -69,9 +76,6 @@ main{flex:1;min-height:0;display:flex;position:relative}
 body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 /* never sideways: long names end in "…" instead */
 #sidebody{flex:1;overflow-x:hidden;overflow-y:auto}
-/* actions over a sidebar list (collapse all): top right, left of the scrollbar, shown while the mouse is on the sidebar */
-.sfloat{position:absolute;top:calc(var(--bar-h) + 5px);z-index:3;opacity:0;transition:opacity .12s}
-#side:hover .sfloat,.sfloat:focus-within{opacity:1}.sfloat button.ibtn{background:var(--side);box-shadow:0 0 0 1px var(--line)}.sfloat button.ibtn:hover{background:var(--card)}
 
 /* diagrams list */
 .dl{padding:10px}
@@ -408,7 +412,7 @@ header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--a
 .tree .chev{color:var(--muted);transition:transform .1s}.tree .chev.open{transform:rotate(90deg)}
 .tree .tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .gproj+.gproj{border-top:1px solid var(--line)}
-button.gprojhead{display:flex;align-items:center;gap:6px;width:100%;padding:8px 12px;border:0;border-radius:0;background:none;font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left}
+button.gprojhead{display:flex;align-items:center;gap:6px;width:100%;padding:8px 10px 8px 8px;border:0;border-radius:0;background:none;font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left}
 button.gprojhead:hover{color:var(--fg);background:none}.gprojhead svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gprojhead svg.open{transform:rotate(90deg)}
 .gprojhead .gcount{margin-left:auto;font-weight:500;letter-spacing:0;color:var(--accent)}
 /* a project's root folder, in a workspace: its name in small caps, like VS Code */
@@ -632,7 +636,7 @@ button.gpbtn:hover{background:color-mix(in oklab,var(--accent) 10%,transparent)}
 /* folding sections */
 .ghead{display:flex;align-items:center;gap:6px;padding:0 10px 0 6px;margin-top:12px;height:24px}
 button.gtoggle{flex:1;display:flex;align-items:center;gap:4px;background:none;border:0;padding:0 4px;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;height:100%}
-button.gtoggle:hover{color:var(--fg);background:none}
+button.gtoggle:hover{color:var(--fg);background:none}.gtoggle svg.chev{width:12px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gtoggle svg.chev.open{transform:rotate(90deg)}
 .chev{display:inline-block;width:10px;transition:transform .12s;font-size:var(--fs-xs)}.chev.shut{transform:rotate(-90deg)}
 .gcount{font-size:var(--fs-xs);letter-spacing:0;font-weight:600;background:var(--btn);border-radius:var(--r-l);padding:0 6px;margin-left:4px}
 button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:none}button.gall:hover{color:var(--fg);background:var(--btn)}
