@@ -55,14 +55,12 @@
       <!-- the git pane fills the side's height: its history takes what's left and scrolls in itself -->
       <div class="gitwrap">
       {#if many}
-        <!-- one repository shown, picked from a list of the projects (any number fits); the
-             others' uncommitted files are counted on the picker so they aren't missed -->
-        {@const others = projects.filter((x) => x !== gitP).reduce((n, x) => n + x.L.status.length, 0)}
-        <button class="gprojpick" class:on={!!gpMenu} title="{gitP.path}: pick another project" onclick={(e) => {
-          const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); gpMenu = gpMenu ? null : { x: r.left, y: r.bottom + 4, w: r.width };
+        <!-- one repository shown, picked from a list of the projects (any number fits; their
+             uncommitted counts are in the list): a flat title button, the name and a chevron -->
+        <button class="gprojpick" class:on={!!gpMenu} title={gitP.path} onclick={(e) => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); gpMenu = gpMenu ? null : { x: r.left, y: r.bottom + 4, w: Math.max(200, r.width) };
         }}>
-          <span class="gpname">{gitP.name}</span>{#if gitP.L.status.length}<span class="gcount">{gitP.L.status.length}</span>{/if}
-          <span class="grow"></span>{#if others}<span class="gpother" title="{others} uncommitted file{others > 1 ? 's' : ''} in the other projects">+{others} elsewhere</span>{/if}
+          <span class="gpname">{gitP.name}</span>
           <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
         </button>
         {#key gitP.name}<GitPane p={gitP} />{/key}

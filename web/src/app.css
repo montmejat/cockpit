@@ -4,14 +4,14 @@
 --bar-h:37px;--ctl:26px;--ctl-s:22px;--ctl-xs:18px;--r-xs:3px;--r-s:4px;--r-m:6px;--r-l:8px;--r-pill:999px;
 --shadow-raise:0 1px 2px rgb(0 0 0 / .16);--shadow-pop:0 6px 24px rgb(0 0 0 / .17);--shadow-modal:0 12px 40px rgb(0 0 0 / .24);
 --on-accent:#fff;--shade:#000;
---ui:system-ui,"Adwaita Sans",Cantarell,sans-serif;--mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--bg:#fafafb;--fg:#2e2e32;--muted:#6e6e73;--line:#e2e2e6;--card:#ffffff;--accent:#1c71d8;
+--ui:system-ui,"Adwaita Sans",Cantarell,sans-serif;--mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;--bg:#fafafb;--fg:#2e2e32;--muted:#6e6e73;--line:#e2e2e6;--card:#ffffff;--well:#ffffff;--well-line:var(--line);--accent:#1c71d8;
 --ok:#1f9e7a;--warn:#c98a0b;--bad:#d1453b;--hot:#ef6a2d;--add-bg:#e6f6ec;--del-bg:#fdecea;--add:#1a7f45;--del:#b8332a;
 --k:#a626a4;--s:#2a8a3e;--n:#b76b01;--c:#8a929a;--t:#2b6cb0;--f:#3a57c9;--sel:#dce8f9;--edge:#d8d8dc;--rev:#8250df;
 --guide:color-mix(in oklab,var(--fg) 13%,transparent);--fi-blue:#3b82c4;--fi-yellow:#b08800;--fi-orange:#d9682b;--fi-green:#3f9a3a;--fi-purple:#8a5cc9;--fi-red:#cc3e44;--fi-teal:#1f9a9a}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--head:#2e2e32;--side:#2e2e32;--bg:#222226;--fg:#eeeef0;--muted:#9a9a9f;--line:#3a3a3f;--card:#1d1d20;--accent:#78aeed;
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--head:#2e2e32;--side:#2e2e32;--bg:#222226;--fg:#eeeef0;--muted:#9a9a9f;--line:#3a3a3f;--card:#1d1d20;--well:rgb(255 255 255 / .055);--well-line:rgb(255 255 255 / .07);--accent:#78aeed;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
 --k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#24364f;--edge:#3c3c41;--rev:#b392f0;--fi-blue:#5fa8e0;--fi-yellow:#d6c14a;--fi-orange:#e8894f;--fi-green:#8dc149;--fi-purple:#a982e0;--fi-red:#e5535a;--fi-teal:#4fc1c1;color-scheme:dark}}
-:root[data-theme="dark"]{--head:#2e2e32;--side:#2e2e32;--bg:#222226;--fg:#eeeef0;--muted:#9a9a9f;--line:#3a3a3f;--card:#1d1d20;--accent:#78aeed;
+:root[data-theme="dark"]{--head:#2e2e32;--side:#2e2e32;--bg:#222226;--fg:#eeeef0;--muted:#9a9a9f;--line:#3a3a3f;--card:#1d1d20;--well:rgb(255 255 255 / .055);--well-line:rgb(255 255 255 / .07);--accent:#78aeed;
 --ok:#3ec79c;--warn:#f0b43c;--bad:#f06a5f;--hot:#ff7a3d;--add-bg:#14301f;--del-bg:#3a1a19;--add:#6fd49a;--del:#ff8a80;
 --k:#d38cf2;--s:#8fd18f;--n:#f0b46a;--c:#6b737c;--t:#7cb7ff;--f:#8aa6ff;--sel:#24364f;--edge:#3c3c41;--rev:#b392f0;--fi-blue:#5fa8e0;--fi-yellow:#d6c14a;--fi-orange:#e8894f;--fi-green:#8dc149;--fi-purple:#a982e0;--fi-red:#e5535a;--fi-teal:#4fc1c1;color-scheme:dark}
 *{box-sizing:border-box}
@@ -364,9 +364,9 @@ button.csend.stop{background:var(--fg);color:var(--bg)}button.csend.stop svg{fil
 /* the slim bar: a tab per shell (ui/Tab.svelte), ask and new on the right */
 .tbar{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line);background:var(--bg)}
 .trun,.tbad{display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:var(--fs-xs);font-weight:700}.tbad{color:var(--bad)}
-#tpick{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:var(--fs-m);outline:none;flex-wrap:wrap}
+/* a new shell's project, picked in the tab bar itself */
+#tpick{display:flex;align-items:center;gap:4px;min-width:0;margin-left:4px;font-size:var(--fs-s);outline:none;overflow:hidden;white-space:nowrap}
 #tpick .tpproj{padding:2px 10px}#tpick .tpproj.on{border-color:var(--accent);color:var(--fg)}
-#tpick .tphint{margin-left:auto}
 #tbody{flex:1;min-height:0;position:relative;padding:4px 0 0 8px}
 .tview{position:absolute;inset:4px 0 0 8px}.tview[hidden]{display:none}
 .tview .xterm{height:100%}.tview .xterm-viewport{background:var(--card)!important}
@@ -412,12 +412,11 @@ header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--a
 .tree .chev{color:var(--muted);transition:transform .1s}.tree .chev.open{transform:rotate(90deg)}
 .tree .tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* git in a workspace: one project shown, picked from a list (Sidebar.svelte) */
-button.gprojpick{display:flex;align-items:center;gap:6px;width:calc(100% - 16px);margin:8px 8px 0;padding:4px 10px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);font-weight:600;text-align:left;min-width:0}
-button.gprojpick:hover,button.gprojpick.on{border-color:color-mix(in oklab,var(--accent) 45%,var(--line));background:var(--card)}
-.gprojpick .gpname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.gprojpick .gpother{flex:none;font-size:var(--fs-xs);font-weight:500;color:var(--muted)}
+button.gprojpick{display:flex;align-items:center;justify-content:space-between;gap:8px;width:calc(100% - 16px);height:32px;margin:8px 8px 0;padding:0 12px;border:1px solid var(--line);border-radius:10px;background:var(--card);font-size:var(--fs-m);font-weight:500;text-align:left;min-width:0;transition:border-color .12s}
+button.gprojpick:hover,button.gprojpick.on{background:var(--card);border-color:color-mix(in oklab,var(--accent) 45%,var(--line))}
+.gprojpick .gpname{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .gprojpick svg{flex:none;fill:none;stroke:var(--muted);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gprojpick.on svg{transform:rotate(180deg)}
-.gprojpick .gcount,.gprojmenu .gcount,.gviews .gcount{margin-left:2px;color:var(--accent)}
+.gprojmenu .gcount,.gviews .gcount{margin-left:2px;color:var(--accent)}
 .cmenu.gprojmenu{min-width:0;max-width:none;max-height:60vh;overflow-y:auto}.gprojmenu button.cur{font-weight:600;background:var(--sel)}
 /* a project's root folder, in a workspace: its name in small caps, like VS Code */
 .tree .troot{padding-left:8px;font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
@@ -781,3 +780,15 @@ button.gco svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:rou
 .ddellines .dl i{display:inline-block;width:4.5ch;margin-right:12px;padding-right:6px;text-align:right;font-style:normal;color:var(--muted);user-select:none}
 /* the review card's line keeps its height whether it shows the end button or a spinner */
 .review .rhead{min-height:22px}.review .rhead .spin{margin-left:auto}
+/* Home (Home.svelte): the workspace's name over its projects as one small boxed list, centered */
+#home{flex:1;min-height:0;overflow:auto;background:var(--bg);display:flex}
+#home .hwrap{width:100%;max-width:340px;margin:auto;padding:48px 24px}
+#home h1{margin:0 0 14px 4px;font-size:22px;font-weight:700;letter-spacing:-.01em}
+#home .hgrid{display:flex;flex-direction:column;border-radius:12px;background:var(--card);box-shadow:0 0 0 1px var(--line),var(--shadow-raise);overflow:hidden}
+#home button.hcard{display:flex;align-items:center;width:100%;height:44px;padding:0 16px;border:0;border-radius:0;background:none;font-weight:500;text-align:left}
+#home button.hcard+button.hcard{border-top:1px solid var(--line)}
+#home button.hcard:hover{background:color-mix(in oklab,var(--fg) 4%,transparent)}
+#home button.hcard::after{content:"";margin-left:auto;width:7px;height:7px;border-right:1.5px solid var(--muted);border-top:1.5px solid var(--muted);transform:rotate(45deg)}
+/* the side panel's boxes (git: project picker, commit box, changes, history): --well, soft in dark mode */
+#side .gsec{background:var(--well)}
+#side .gsec{border-color:var(--well-line)}

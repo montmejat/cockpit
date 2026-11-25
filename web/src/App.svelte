@@ -13,6 +13,7 @@
   import Confirm from "./components/ui/Confirm.svelte";
   import Chats from "./components/Chats.svelte";
   import Guardrails from "./components/Guardrails.svelte";
+  import Home from "./components/Home.svelte";
   import { byId, homeOf, M, openCommit, openDiagram, openFile, openGuardrails, showChat, showProject, ui, cur, mapTab, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
   import { projects } from "./lib/projects.svelte";
   import Grip, { savedWidth } from "./components/Grip.svelte";
@@ -40,7 +41,7 @@
   // The address follows what's open, so a reload comes back to it.
   $effect(() => {
     const t = cur();
-    const hash = t.kind === "map" ? (t.project ? t.project + ":" : "") + (t.id ?? "") : t.kind === "guardrails" ? "guardrails" : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
+    const hash = ui.home ? "" : t.kind === "map" ? (t.project ? t.project + ":" : "") + (t.id ?? "") : t.kind === "guardrails" ? "guardrails" : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
     history.replaceState(null, "", location.pathname + (hash ? "#" + encodeURIComponent(hash) : ""));
   });
   // A diagram that disappeared from .cockpit/: the map goes back home.
@@ -99,8 +100,8 @@
   <section id="center">
     <TabBar />
     <div id="work">
-      <MapView hidden={cur().kind !== "map"} />
-      {#if cur().kind === "guardrails"}<Guardrails />{:else if cur().kind !== "map"}<CodeView />{/if}
+      <MapView hidden={ui.home || cur().kind !== "map"} />
+      {#if ui.home}<Home />{:else if cur().kind === "guardrails"}<Guardrails />{:else if cur().kind !== "map"}<CodeView />{/if}
     </div>
     <Terminal bind:this={term} />
   </section>

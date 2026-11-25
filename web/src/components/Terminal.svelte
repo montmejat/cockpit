@@ -22,7 +22,10 @@
   type View = { id: string; meta: TermMeta; el: HTMLElement; term: XTerm; fit: FitAddon; ws: WebSocket; opened: boolean; size: string; blocks: Block[] };
 
   let open = $state(false);
-  let h = $state(Math.max(120, +store.get("cockpit-term-h", "260") || 260));
+  // Its height: dragged from its top edge and kept; until then a good share of the window (it opens
+  // when needed and closes after, so it can be generous).
+  const defH = Math.max(260, Math.round(innerHeight * 0.45));
+  let h = $state(Math.max(120, +store.get("cockpit-term-h", String(defH)) || defH));
   let metas: TermMeta[] = $state([]);
   let active: string | null = $state(null);
   const views = new Map<string, View>();
@@ -324,21 +327,20 @@
         </Tab>
       {/each}
     </div>
+    <!-- a new shell: which project it opens in, picked right here in the bar -->
+    {#if picking}
+      <div id="tpick" bind:this={pickEl} tabindex="-1" role="listbox" aria-label="Open the terminal in" onkeydown={pickKeys}>
+          {#each projects as p, i (p.name)}
+          <button class="tpproj" class:on={i === pick} title={p.path} role="option" aria-selected={i === pick} onclick={() => startTerm(p.name)} onmouseenter={() => (pick = i)}>{p.name}</button>
+        {/each}
+      </div>
+    {/if}
     <span class="grow"></span>
     <IconButton label="Ask for a command  (Ctrl+K)" onclick={openAsk} on={asking}>
       <path d="M8 2.5l1.2 3.3 3.3 1.2-3.3 1.2L8 11.5 6.8 8.2 3.5 7l3.3-1.2zM12.5 11v3M11 12.5h3" />
     </IconButton>
     <IconButton label="New shell  (Ctrl+Shift+`)" onclick={newTerm}><path d="M8 3.5v9M3.5 8h9" /></IconButton>
   </div>
-  {#if picking}
-    <div id="tpick" bind:this={pickEl} tabindex="-1" role="listbox" aria-label="Open the terminal in" onkeydown={pickKeys}>
-      <span class="muted">Open in</span>
-      {#each projects as p, i (p.name)}
-        <button class="tpproj" class:on={i === pick} title={p.path} role="option" aria-selected={i === pick} onclick={() => startTerm(p.name)} onmouseenter={() => (pick = i)}><span class="muted">{i + 1}</span> {p.name}</button>
-      {/each}
-      <span class="muted tphint">h/l · Enter · Esc</span>
-    </div>
-  {/if}
   <div id="tbody" bind:this={tbody}></div>
   {#if hov}
     <div class="tblock" class:bad={hov.bad} style="top:{hov.top}px;height:{hov.height}px;left:{hov.left}px;width:{hov.width}px"></div>

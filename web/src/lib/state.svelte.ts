@@ -222,6 +222,7 @@ export const ui = $state({
   side: (sideTab === "git" || sideTab === "project" ? sideTab : "files") as Side,
   tabs: [{ kind: "map", id: homeOf(S), code: null } as Tab, ...saved()],
   active: Math.max(0, +store.get("cockpit-active-" + S.project, "0") || 0),
+  home: true, // the Home view (Home.svelte) over the tabs: where cockpit opens; any tab opened leaves it
   picked: null as string | null, // the box clicked on the map
   insp: null as Insp, // the section open in the sidebar's project tab
   right: store.get("cockpit-right-open", "1") === "1", // the chat panel is shown: Ctrl+L
@@ -245,6 +246,7 @@ const sameTab = (a: Tab, b: Tab) => a.kind === b.kind && (a.kind === "file" ? a.
 export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : t.kind === "guardrails" ? "guardrails" : t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + (t.project ? t.project + ":" : "") + t.sha : (t.staged ? "s:" : "d:") + t.path);
 // Open (or focus) a tab next to the current one. Old file tabs make room past 14.
 export function openTab(spec: Tab) {
+  ui.home = false;
   let i = ui.tabs.findIndex((t) => sameTab(t, spec));
   if (i < 0) {
     i = Math.min(ui.active + 1, ui.tabs.length);
@@ -281,6 +283,7 @@ export async function closeTab(i: number) {
 // Going to a diagram moves the map there; `project` names the workspace's project it is in (by
 // default the one the map shows now).
 export function openDiagram(id: string, node?: string, project?: string) {
+  ui.home = false;
   const t = mapTab();
   if (project !== undefined) t.project = project === S.project ? undefined : project;
   t.id = id; t.code = null; ui.active = 0;
