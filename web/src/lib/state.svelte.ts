@@ -185,6 +185,9 @@ export function draftInChat(text: string) {
 }
 // Context for the next message (a terminal command and its output): a chip in the chat's message
 // box until you send (Chat.svelte takes it). With `send`, it goes now, with that text.
+// Where the open editor is (FileEditor.svelte keeps it up to date): its file, the lines on screen,
+// and the selection. The chat tells the agent what you look at with it (lib/viewing.ts).
+export const looking = $state({ path: "", lo: 0, hi: 0, sel: null as { from: number; to: number; text: string } | null });
 export type ChatAttached = { label: string; text: string; bad?: boolean };
 export const chatAttach = $state({ item: null as ChatAttached | null, n: 0 });
 export function attachToChat(a: ChatAttached, send?: string) {

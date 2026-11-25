@@ -6,7 +6,9 @@
   // elsewhere or waiting for you. The ring by "send" shows how full this conversation is, and
   // hovering it, how much of your plan's limits you've used.
   import { onMount, tick, untrack } from "svelte";
-  import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
+  import { api, codeRefs, copyTargetAt, fileRefAt, mdGrowing } from "../lib/code";
+  import { projects } from "../lib/projects.svelte";
+  import { viewing } from "../lib/viewing";
   import { chatAttach, chatDraft, chatFocus, openFile, S, type ChatAttached } from "../lib/state.svelte";
   import type { ChatAgent, ChatItem, ChatSession, Usage } from "../lib/types";
   import IconButton from "./ui/IconButton.svelte";
@@ -78,7 +80,8 @@
     if (pinned && !ctxEl?.contains(e.target as Node)) pinned = false;
     if (list && !listEl?.contains(e.target as Node) && !titleEl?.contains(e.target as Node)) list = null;
   };
-  const resolve = $derived(fileResolver(S.files ?? []));
+  // File and code-name links in replies: every project of the window, this one first.
+  const resolve = $derived(codeRefs([...projects].sort((a, b) => +b.here - +a.here).map((p) => ({ name: p.name, prefix: p.prefix, files: p.L.files ?? [], modules: p.L.modules ?? [] }))));
   // Copy a code block; the button shows a tick for a moment.
   async function copy(button: HTMLElement, text: string) {
     try { await navigator.clipboard.writeText(text); }
@@ -89,7 +92,7 @@
     button.classList.add("done");
     setTimeout(() => button.classList.remove("done"), 1200);
   }
-  // A click on a file reference in a reply opens that file at that line.
+  // A click on a file reference or a code name in a reply opens that file at that line.
   function clickRef(e: MouseEvent) {
     const c = copyTargetAt(e.target);
     if (c) return copy(c.button, c.text);
@@ -114,6 +117,7 @@
   onMount(() => {
     const off = listen(pane, (e) => {
       if (e.type === "pane") {
+        sentView = ""; // another conversation, or this one again: it hears what's open anew
         items = e.items; busy = e.busy; background = e.background ?? []; model = e.model; models = e.models; context = e.context; session = e.session;
         stick(true);
       } else if (e.type === "state") { busy = e.busy; background = e.background ?? []; model = e.model; context = e.context; session = e.session; }
@@ -137,12 +141,18 @@
   });
   $effect(() => { if (!hidden) stick(true); });
 
+  // What you have open (lib/viewing.ts) goes with your message when it changed since the last one
+  // in this conversation; its chip over the message box shows it, and its × leaves it out.
+  const view = $derived(viewing());
+  let sentView = $state(""), skipView = $state("");
+  const shownView = $derived(view && view.key !== sentView && view.key !== skipView ? view : null);
   const post = (what: string, body: object = {}) => api.post("api/chat/" + what, { pane, ...body });
   function send() {
     const t = text.trim();
     if (!t && !images.length && !attached.length) return;
     const imgs = images.map(({ media, data, thumb }) => ({ media, data, thumb }));
     const att = attached.map(({ label, text }) => ({ label, text }));
+    if (shownView) { att.unshift({ label: shownView.label, text: shownView.text }); sentView = shownView.key; }
     text = ""; images = []; attached = []; pasteErr = ""; near = true;
     post("send", { text: t, images: imgs, attached: att });
   }
@@ -311,7 +321,6 @@
       {/if}
     {:else}
       <div class="cempty">
-        <p>Talk to the agent here. It works in <b>{S.project}</b>{#if wsNames.length > 1}, and in the rest of the workspace <b>{S.workspace?.name}</b> ({wsNames.filter((n) => n !== S.project).join(", ")}){/if}, and what it changes lights up on the diagrams.</p>
         {#if fresh}<p class="muted">{wsNames.length > 1 ? "These projects have" : "This project has"} no description yet.</p>
           <button onclick={describe}>{wsNames.length > 1 ? `Describe the ${wsNames.length} projects` : "Describe this project"}</button>{/if}
       </div>
@@ -326,8 +335,9 @@
         {/each}
       </div>
     {/if}
-    {#if attached.length}
+    {#if attached.length || shownView}
       <div class="cchips pending">
+        {#if shownView}<span class="cchip cview" title={"Sent with your message, so the agent knows what \"this\" is:\n\n" + shownView.text.split("\n").slice(1).join("\n")}>{shownView.label}<button type="button" title="Don't send it" aria-label="Don't send what's open" onclick={() => (skipView = shownView!.key)}>×</button></span>{/if}
         {#each attached as a, i (a.label)}<span class="cchip" class:bad={a.bad} title={a.text.length > 1500 ? a.text.slice(0, 1500) + "\n…" : a.text}>{a.label}<button type="button" title="Remove" aria-label="Remove" onclick={() => (attached = attached.filter((_, j) => j !== i))}>×</button></span>{/each}
       </div>
     {/if}

@@ -18,7 +18,7 @@
   import { changeBars, changeStarts, languageFor, lineMarks, look, reviewThreads, setHunks, setThreads, toggleRemoved } from "../lib/editor";
   import { api } from "../lib/code";
   import { smoothWheel } from "../lib/smoothwheel";
-  import { closeTab, dirtyFiles, openFile, S, ui } from "../lib/state.svelte";
+  import { closeTab, dirtyFiles, looking, openFile, S, ui } from "../lib/state.svelte";
   import type { Hunk, Thread } from "../lib/types";
   import { projects, split } from "../lib/projects.svelte";
   // A file's language server: its project's, for its path there ("@name/…" is another project's).
@@ -69,6 +69,7 @@
         EditorView.updateListener.of((u) => {
           if (u.docChanged) markDirty();
           if (u.selectionSet || u.docChanged) reportChanges();
+          if (u.selectionSet) reportSel(u.state);
           if (u.selectionSet && (u.transactions.some((t) => t.isUserEvent("select") || t.isUserEvent("input") || t.isUserEvent("delete")) || u.view.hasFocus))
             oncursor(u.state.doc.lineAt(u.state.selection.main.head).number);
           if (u.docChanged || u.viewportChanged || u.geometryChanged) reportView();
@@ -112,6 +113,7 @@
     if (!b) { b = { state: newState(p, d.text ?? ""), saved: d.text ?? "", hash: d.hash ?? "", scroll: 0 }; bufs.set(p, b); }
     shown = p;
     view.setState(b.state);
+    reportSel(b.state);
     connectLsp();
     conflict = b.disk ?? null;
     error = "";
@@ -231,6 +233,13 @@
 
   // ---- what the rest of the page sees: lines on screen, the line you're on, the changes ---------
   let raf = 0, lastView: [number, number] = [0, 0];
+  // The selection, for the chat (state.svelte.ts, looking): its lines and up to 4000 characters.
+  function reportSel(st: EditorState) {
+    const r = st.selection.main, doc = st.doc;
+    const sel = r.empty ? null : { from: doc.lineAt(r.from).number, to: doc.lineAt(r.to).number, text: st.sliceDoc(r.from, Math.min(r.to, r.from + 4000)) };
+    if (shown) looking.path = shown;
+    if (sel?.from !== looking.sel?.from || sel?.to !== looking.sel?.to || sel?.text !== looking.sel?.text) looking.sel = sel;
+  }
   function reportView() {
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(() => {
@@ -238,6 +247,7 @@
       const top = view.scrollDOM.scrollTop, h = view.scrollDOM.clientHeight, doc = view.state.doc;
       const lo = doc.lineAt(view.lineBlockAtHeight(top).from).number, hi = doc.lineAt(view.lineBlockAtHeight(top + h - 1).from).number;
       if (lo !== lastView[0] || hi !== lastView[1]) { lastView = [lo, hi]; onview([lo, hi]); }
+      if (shown && (looking.path !== shown || looking.lo !== lo || looking.hi !== hi)) { looking.path = shown; looking.lo = lo; looking.hi = hi; }
       reportChanges();
     });
   }

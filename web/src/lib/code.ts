@@ -100,20 +100,80 @@ function codeBlock(code: string[], tag: string) {
 }
 
 // File references in agent replies ("src/a.zig:30", "a.zig:30-42", "src/a.zig") become links
-// that open the file at that line. Only names that resolve to one of the project's files are linked:
-// the exact path, or the one file whose path ends with that name.
+// that open the file at that line. Only names that resolve to one of the projects' files are linked:
+// the exact path, or the one file whose path ends with that name. In a workspace every project
+// counts (the page's own first); another project's file is "@name/path", as everywhere on the page.
 export type FileRef = { path: string; line?: number; end?: number };
-export function fileResolver(files: string[]) {
-  const set = new Set(files), cache = new Map<string, string | null>();
+export type RefProject = { name: string; prefix: string; files: string[]; modules: { id: string; file: string; items: { key: string; line: number; end?: number }[] }[] };
+export function fileResolver(projects: RefProject[]) {
+  const sets = projects.map((p) => new Set(p.files)), cache = new Map<string, string | null>();
   return (name: string): string | null => {
     name = name.replace(/^\.\//, "");
-    if (set.has(name)) return name;
     if (cache.has(name)) return cache.get(name)!;
-    const hits = files.filter((f) => f.endsWith("/" + name));
-    const r = hits.length === 1 ? hits[0] : null;
+    let r: string | null = null;
+    // "path" in a project, or "<project>/path"
+    for (let i = 0; i < projects.length && !r; i++) {
+      const p = projects[i], own = name.startsWith(p.name + "/") ? name.slice(p.name.length + 1) : null;
+      if (sets[i].has(name)) r = p.prefix + name;
+      else if (own && sets[i].has(own)) r = p.prefix + own;
+    }
+    // the one file ending with that name, in the page's project first, then in all of them
+    if (!r) {
+      const hits = (p: RefProject) => p.files.filter((f) => f.endsWith("/" + name)).map((f) => p.prefix + f);
+      const mine = projects[0] ? hits(projects[0]) : [];
+      const all = mine.length ? mine : projects.slice(1).flatMap(hits);
+      r = all.length === 1 ? all[0] : null;
+    }
     cache.set(name, r);
     return r;
   };
+}
+
+// Code names in agent replies (`legacy_gains_ok()`, `Node::build_layout`, `robot_->connected()`)
+// become links to their definition, from the code index (the modules' items). Only inline code
+// that is just a name, maybe qualified and called, and only names that resolve to one definition:
+// the "Type::" or "x->" before it narrows by owner; a declaration and its definition (a header and
+// its .cpp) count as one, opening the definition.
+const HEADER = /\.(h|hh|hpp|hxx|h\+\+|d\.ts)$/;
+export function symbolResolver(projects: RefProject[]) {
+  type Def = FileRef & { owner?: string; q: string };
+  let byName: Map<string, Def[]> | null = null;
+  const build = () => {
+    byName = new Map();
+    for (const p of projects) for (const m of p.modules) for (const it of m.items) {
+      const parts = it.key.slice(m.id.length + 2).split("::"), name = parts.pop()!, owner = parts.at(-1);
+      if (!name) continue;
+      const d: Def = { path: p.prefix + m.file, line: it.line, end: it.end, owner, q: p.prefix + [...parts, name].join("::") };
+      (byName.get(name) ?? byName.set(name, []).get(name)!).push(d);
+    }
+    return byName;
+  };
+  const cache = new Map<string, FileRef | null>();
+  return (code: string): FileRef | null => {
+    const c = code.trim().replace(/\((?:[^()]|\([^()]*\))*\)$/, "");
+    if (!/^~?[A-Za-z_]\w*(?:(?:::|->|\.)~?[A-Za-z_]\w*)*$/.test(c)) return null;
+    if (cache.has(c)) return cache.get(c)!;
+    const parts = c.split(/::|->|\./), name = parts.at(-1)!, owner = parts.at(-2);
+    let hits = (byName ?? build()).get(name) ?? [];
+    if (owner) { const o = hits.filter((h) => h.owner === owner); if (o.length) hits = o; }
+    const one = new Set(hits.map((h) => h.q)).size === 1;
+    const r = one ? (hits.find((h) => !HEADER.test(h.path)) ?? hits[0]) : null;
+    const ref = r ? { path: r.path, line: r.line, end: r.end } : null;
+    cache.set(c, ref);
+    return ref;
+  };
+}
+export type Refs = { file: (name: string) => string | null; symbol?: (code: string) => FileRef | null };
+export const codeRefs = (projects: RefProject[]): Refs => ({ file: fileResolver(projects), symbol: symbolResolver(projects) });
+const refLink = (r: FileRef, label: string, title: string) =>
+  `<a class=fref data-path="${esc(r.path)}"${r.line ? ` data-line=${r.line}` : ""}${r.end ? ` data-end=${r.end}` : ""} title="${esc(title)}">${label}</a>`;
+function linkSymbols(html: string, symbol: (code: string) => FileRef | null) {
+  // Inline code outside links whose text is a name ("&gt;" is the escaped "->").
+  return html.replace(/(<a\b[\s\S]*?<\/a>)|<code>([^<]+)<\/code>/g, (m, a, code) => {
+    if (a != null) return m;
+    const r = symbol(code.replace(/&gt;/g, ">"));
+    return r ? refLink(r, m, `Open ${r.path.replace(/^@/, "")}${r.line ? " at line " + r.line : ""}`) : m;
+  });
 }
 const REF = /(^|[\s(`'"[])((?:\.?\.?\/)?[\w@+-][\w@+.\/-]*\.[A-Za-z][\w]{0,9})(?::(\d+)(?:[-:](\d+))?)?(?=$|[\s),.;:!?`'"\]])/g;
 function linkFiles(html: string, resolve: (n: string) => string | null) {
@@ -123,7 +183,7 @@ function linkFiles(html: string, resolve: (n: string) => string | null) {
       const path = resolve(name);
       if (!path) return all;
       const ref = name + (l ? ":" + l + (e ? "-" + e : "") : "");
-      return `${pre}<a class=fref data-path="${esc(path)}"${l ? ` data-line=${l}` : ""}${e ? ` data-end=${e}` : ""} title="Open ${esc(path)}${l ? " at line " + l : ""}">${ref}</a>`;
+      return pre + refLink({ path, line: l ? +l : undefined, end: e ? +e : undefined }, ref, `Open ${path.replace(/^@/, "")}${l ? " at line " + l : ""}`);
     }));
 }
 /** The file reference a click landed on, if any (for links made by md with a resolver). */
@@ -135,8 +195,8 @@ export function fileRefAt(target: EventTarget | null): FileRef | null {
 }
 
 // Just enough Markdown for agent replies: code blocks, inline code, bold, links, lists, headings, tables.
-// With a resolver, file references in the text become links (see linkFiles).
-export function md(src: string, resolve?: (name: string) => string | null) {
+// With refs, file references and code names in the text become links (see linkFiles, linkSymbols).
+export function md(src: string, refs?: Refs) {
   const inline = (t: string) => esc(t)
     .replace(/`([^`]+)`/g, (_, c) => "<code>" + c + "</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
@@ -178,9 +238,13 @@ export function md(src: string, resolve?: (name: string) => string | null) {
   }
   flush();
   const html = out.join("");
-  if (!resolve) return html;
-  // Code blocks stay as they are; everything else gets its file references linked.
-  return html.split(/(<pre[\s\S]*?<\/pre>)/).map((part) => part.startsWith("<pre") ? part : linkFiles(part, resolve)).join("");
+  if (!refs) return html;
+  // Code blocks stay as they are; everything else gets its file references, then its code names, linked.
+  return html.split(/(<pre[\s\S]*?<\/pre>)/).map((part) => {
+    if (part.startsWith("<pre")) return part;
+    const f = linkFiles(part, refs.file);
+    return refs.symbol ? linkSymbols(f, refs.symbol) : f;
+  }).join("");
 }
 
 // md for a message that keeps growing (a streamed reply): the part up to its last blank line
@@ -189,7 +253,7 @@ export function md(src: string, resolve?: (name: string) => string | null) {
 // reply on every token cost ~13 ms at 24k characters.
 const grown = new Map<string, { pre: string; html: string }>();
 // Returned as two parts, the kept one and the rest, so the page can leave the kept part's DOM alone.
-export function mdGrowing(key: string, src: string, resolve?: (name: string) => string | null): [string, string] {
+export function mdGrowing(key: string, src: string, refs?: Refs): [string, string] {
   let cut = -1, fences = 0, i = 0;
   for (;;) {
     const nl = src.indexOf("\n", i);
@@ -199,15 +263,15 @@ export function mdGrowing(key: string, src: string, resolve?: (name: string) => 
     if (!line.trim() && i > 0 && fences % 2 === 0) cut = i - 1; // the "\n" before this blank line
     i = nl + 1;
   }
-  if (cut <= 0) return ["", md(src, resolve)];
+  if (cut <= 0) return ["", md(src, refs)];
   const pre = src.slice(0, cut);
   let hit = grown.get(key);
   if (hit?.pre !== pre) {
-    hit = { pre, html: md(pre, resolve) };
+    hit = { pre, html: md(pre, refs) };
     grown.set(key, hit);
     if (grown.size > 50) grown.delete(grown.keys().next().value!);
   }
-  return [hit.html, md(src.slice(cut + 1), resolve)];
+  return [hit.html, md(src.slice(cut + 1), refs)];
 }
 
 // A reply that isn't JSON (a route this server doesn't have, an older server still running) says

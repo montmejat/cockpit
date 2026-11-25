@@ -296,6 +296,7 @@ body.desktop header.wleft{padding-left:6px}
 .cchips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}.cchips.pending{padding:0 2px}
 .cchip{position:relative;display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 8px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);font:var(--fs-s)/1.5 "JetBrains Mono",ui-monospace,monospace;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cchip.bad{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.cchip.cview{border-style:dashed}
 .cchip button{padding:0 2px;border:0;background:none;color:var(--muted);font-size:13px;line-height:1;cursor:pointer}.cchip button:hover{color:var(--fg)}
 .cthumb{position:relative}.cthumb button{position:absolute;top:-6px;right:-6px;display:grid;place-items:center;width:18px;height:18px;padding:0;border-radius:50%;border:0;background:var(--fg);color:var(--bg);font-size:12px;line-height:1}
 .ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
