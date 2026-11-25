@@ -57,9 +57,13 @@ function indexFiles(root: string, name: string) {
 const toolOf = (lang: Lang, config: IndexConfig) => (lang === "rust" ? "rust-analyzer" : lang === "zig" ? "the Zig scanner" : lang === "ts" ? "the TypeScript scanner" : `scip-clang${config.image ? ` in ${config.image}` : ""}`);
 
 export function createIndex(root: string, name: string, log: (s: string) => void = console.log) {
-  const f = indexFiles(root, name);
+  let f = indexFiles(root, name);
   if (!f.lang) log(`index: ${root} has no Cargo.toml (Rust), build.zig (Zig), CMakeLists.txt (C/C++) or package.json (TypeScript): no code index`);
+  // The index file as last read: another process (check-arch, a second window) may write a newer one.
+  let readAt = 0;
+  const mtime = () => { try { return statSync(f.scip).mtimeMs; } catch { return 0; } };
   const read = () => {
+    readAt = mtime();
     try {
       const sk = skeletonFrom(f.lang!, root, f.scip, PROTO);
       log(`index: ${sk.crates.length} ${f.lang === "cpp" ? "projects" : f.lang === "zig" || f.lang === "ts" ? "packages" : "crates"}, ${sk.modules.length} modules`);
@@ -76,7 +80,14 @@ export function createIndex(root: string, name: string, log: (s: string) => void
   // code changed while it ran (but not straight away after a failure: the next change retries).
   function refresh(): Promise<void> {
     if (running) return running;
-    if (!f.lang || !f.stale()) return Promise.resolve();
+    // index.json (build image, compile databases) may have changed since the server started
+    f = indexFiles(root, name);
+    if (!f.lang) return Promise.resolve();
+    if (!f.stale()) {
+      // fresh, but maybe written by someone else since we read it
+      if (mtime() > readAt) { sk = read(); for (const l of listeners) l(); }
+      return Promise.resolve();
+    }
     const lang = f.lang;
     const { t, tmp, list } = f.begin();
     log(`index: running ${toolOf(lang, f.config)}…`);
