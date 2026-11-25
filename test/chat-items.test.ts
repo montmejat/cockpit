@@ -16,7 +16,9 @@ function sink() {
 test("tool calls get a short title, paths inside the project relative", () => {
   assert.deepEqual(describe(root, "Edit", { file_path: "/p/src/a.ts" }), { title: "edit src/a.ts", file: "src/a.ts" });
   assert.deepEqual(describe(root, "Read", { file_path: "/elsewhere/b.ts" }), { title: "read /elsewhere/b.ts", file: "/elsewhere/b.ts" });
-  assert.equal(describe(root, "Bash", { command: "npm test\nmore", description: "run" }).title, "$ npm test");
+  // A command reads as what it does; the command itself is folded away (or the title, without a description).
+  assert.deepEqual(describe(root, "Bash", { command: "npm test\nmore", description: "Run the tests" }), { title: "Run the tests", detail: "$ npm test\nmore" });
+  assert.equal(describe(root, "Bash", { command: "npm test\nmore" }).title, "$ npm test");
   assert.equal(describe(root, "TodoWrite", { todos: [{ status: "completed", content: "a" }, { status: "in_progress", content: "b" }, { status: "pending", content: "c" }] }).detail, "✓ a\n▸ b\n· c");
   assert.equal(describe(root, "Unknown", { x: 1 }).detail, '{"x":1}');
 });

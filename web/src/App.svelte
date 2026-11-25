@@ -64,13 +64,14 @@
     // Ctrl+S saves the open file (and never opens the browser's "save page").
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "s") { e.preventDefault(); e.stopPropagation(); (window as any).__cockpitEditor?.save(); return; }
     if (e.ctrlKey && !e.altKey && !e.metaKey && (e.code === "Backquote" || e.key === "`")) { e.preventDefault(); e.stopPropagation(); term?.toggle(); }
-    else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") { e.preventDefault(); toggleChat(); }
+    // From the terminal, Ctrl+L also takes the selection, or else the last command and its output, to the chat.
+    else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "l") { e.preventDefault(); if ((e.target as HTMLElement).closest?.("#term")) term?.toChat(); toggleChat(); }
     else if (e.key === "F1" && !e.ctrlKey && !e.altKey && !e.metaKey) { e.preventDefault(); toggleHelp(); }
     // Ctrl+1, as in VS Code: back to the editor (by key position, so it works on AZERTY too).
     else if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && e.code === "Digit1") { e.preventDefault(); e.stopPropagation(); focusEditor(); }
     // In the desktop app there is no browser menu: Ctrl+R / F5 reload the page.
-    // (Not in the editor, where Ctrl+R is vim's redo.)
-    else if (window.cockpitDesktop && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor))) { e.preventDefault(); location.reload(); }
+    // (Not in the editor, where Ctrl+R is vim's redo, nor in the terminal, where it searches the shell's history.)
+    else if (window.cockpitDesktop && (e.key === "F5" || ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "r" && !inEditor && !(e.target as HTMLElement).closest?.("#term")))) { e.preventDefault(); location.reload(); }
     // Ctrl+P opens a file by name, Ctrl+Shift+F searches the project.
     else if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && e.key.toLowerCase() === "p") { e.preventDefault(); e.stopPropagation(); palette?.open("files"); }
     else if (e.ctrlKey && e.shiftKey && !e.altKey && !e.metaKey && e.key.toLowerCase() === "f") { e.preventDefault(); e.stopPropagation(); palette?.open("search"); }

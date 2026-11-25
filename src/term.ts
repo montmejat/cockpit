@@ -90,10 +90,11 @@ export function createTerminals(root: string, project: string) {
     if (changed) send(t, "m" + JSON.stringify(meta(t)));
   }
 
-  function open(cols = 100, rows = 24) {
+  // `cwd`: another folder to start in (a project of the workspace); the caller checks it.
+  function open(cols = 100, rows = 24, cwd = root) {
     const n = ++count, id = "t" + n;
-    const pty = ptySpawn("bash", ["--rcfile", rcFile, "-i"], { name: "xterm-256color", cols, rows, cwd: root, env: env() });
-    const t: Term = { id, n, pty, cwd: root, exited: null, screen: "", cmds: [], cur: null, pend: "", nextCmd: "", clients: new Set() };
+    const pty = ptySpawn("bash", ["--rcfile", rcFile, "-i"], { name: "xterm-256color", cols, rows, cwd, env: env() });
+    const t: Term = { id, n, pty, cwd, exited: null, screen: "", cmds: [], cur: null, pend: "", nextCmd: "", clients: new Set() };
     pty.onData((d) => {
       t.screen += d;
       if (t.screen.length > SCREEN_MAX) t.screen = t.screen.slice(-SCREEN_MAX * 0.75);

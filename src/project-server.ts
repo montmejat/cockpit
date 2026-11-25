@@ -7,7 +7,7 @@
 // opened with the server's token gets in (auth.ts): the link it prints, or the desktop app.
 
 import { execFile, spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, statSync, watch, writeFileSync, type FSWatcher } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
 import { hostname } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
@@ -142,6 +142,17 @@ const readDLayout = () => { try { return existsSync(dlayoutPath) ? JSON.parse(re
 // Everything the page shows, as named parts: the page gets the whole thing once, then only the
 // parts that changed.
 // The workspace this project is shown in (workspace.ts), if any.
+// Is cockpit itself older than its code? `restart`: its server files changed since it started
+// (only a restart runs them); `page`: when the page was last built (the page compares it with
+// the one it loaded, and asks for a reload).
+const startedAt = Date.now();
+function freshness() {
+  const mtime = (f: string) => { try { return statSync(f).mtimeMs; } catch { return 0; } };
+  let restart: string[] = [];
+  try { restart = readdirSync(join(COCKPIT, "src")).filter((f) => f.endsWith(".ts") && mtime(join(COCKPIT, "src", f)) > startedAt); } catch {}
+  return { restart, page: Math.round(mtime(join(WEB, "index.html"))) };
+}
+
 function workspaceState() {
   const w = workspace();
   return w && { name: w.name, dir: w.dir, system: existsSync(w.system) ? w.system : null, projects: w.projects };
@@ -184,6 +195,7 @@ async function state() {
     workspace: workspaceState(),
     guardrails: guardrailsState(),
     private: priv.state(),
+    cockpit: freshness(),
   };
 }
 type State = Awaited<ReturnType<typeof state>>;
@@ -358,10 +370,12 @@ const routes: Record<string, Handler> = {
   "GET /api/chat/sessions": async (_req, res) => json(res, await chat.sessions()),
   "GET /api/chat/usage": async (_req, res) => json(res, await chat.usage()),
   // `pane`: which chat pane (none: the top one).
-  "POST /api/chat/send": post(({ pane, text, images = [] }) => {
+  // `attached`: context sent along ({ label, text }, e.g. a terminal command and its output).
+  "POST /api/chat/send": post(({ pane, text, images = [], attached = [] }) => {
     if (typeof text !== "string") throw new Error("expected text");
     if (!Array.isArray(images) || !images.every((i) => i && IMAGE_TYPES.includes(i.media) && typeof i.data === "string" && typeof i.thumb === "string")) throw new Error("images: expected { media, data, thumb } (png, jpeg, gif or webp)");
-    chat.send(pane, text, images);
+    if (!Array.isArray(attached) || !attached.every((a) => a && typeof a.label === "string" && typeof a.text === "string")) throw new Error("attached: expected { label, text }");
+    chat.send(pane, text, images, attached.map((a) => ({ label: a.label.slice(0, 200), text: a.text.slice(0, 60_000) })));
   }),
   "POST /api/chat/answer": post(({ id, allow }) => chat.answer(String(id), !!allow)),
   "POST /api/chat/stop": post(({ pane }) => chat.stop(pane)),
@@ -374,7 +388,11 @@ const routes: Record<string, Handler> = {
 
   // terminals
   "GET /api/term/list": (_req, res) => json(res, terms.list()),
-  "POST /api/term/new": post(({ cols, rows }) => ({ id: terms.open(cols, rows) })),
+  // `project`: start in another project of the workspace instead of this one.
+  "POST /api/term/new": post(({ cols, rows, project }) => {
+    const p = project ? workspace()?.projects.find((x) => x.name === project) : null;
+    return { id: terms.open(cols, rows, p && existsSync(p.path) ? p.path : root) };
+  }),
   "POST /api/term/close": post(({ id }) => terms.close(String(id))),
   "POST /api/term/ask": post(async ({ id, text }) => {
     if (typeof text !== "string" || !text.trim()) throw new Error("expected text");

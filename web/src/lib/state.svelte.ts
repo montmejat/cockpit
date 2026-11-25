@@ -183,6 +183,20 @@ export function draftInChat(text: string) {
   showChat();
   requestAnimationFrame(focusChat);
 }
+// Context for the next message (a terminal command and its output): a chip in the chat's message
+// box until you send (Chat.svelte takes it). With `send`, it goes now, with that text.
+export type ChatAttached = { label: string; text: string; bad?: boolean };
+export const chatAttach = $state({ item: null as ChatAttached | null, n: 0 });
+export function attachToChat(a: ChatAttached, send?: string) {
+  if (send != null) {
+    api.post("api/chat/send", { text: send, pane: chatFocus.pane, attached: [{ label: a.label, text: a.text }] });
+    showChat();
+    return;
+  }
+  chatAttach.item = a; chatAttach.n++;
+  showChat();
+  requestAnimationFrame(focusChat);
+}
 // "ask" on a merge request's discussion: the chat's box gets which one it is, you add the question.
 export function askAboutThread(th: Thread, r: Review | null, project?: string) {
   const where = !th.path ? "on the merge request" : `on ${th.path}${th.line ? ":" + th.line : th.oldLine ? ` (removed line ${th.oldLine})` : ""}`;

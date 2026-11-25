@@ -10,6 +10,7 @@
   import { homeOf, openDiagram } from "../lib/state.svelte";
 
   let { ontoggleterm }: { ontoggleterm: () => void } = $props();
+  const bootPage = S.cockpit?.page ?? 0; // the build this page was loaded from
 
 
   // Desktop app (desktop/, GTK 4): no system title bar, so the header drags the window.
@@ -118,6 +119,12 @@
       <span class="muted">{r.files.length} files</span>
       <button title="End the review" onclick={() => api.post("api/review/stop", { back: false })}>✕</button>
     </span>
+  {/if}
+  <!-- cockpit itself changed: its server code needs a restart, or the page a reload -->
+  {#if S.cockpit?.restart.length}
+    <span class="pill gpill bad" title={"Cockpit's server code changed since it started (" + S.cockpit.restart.join(", ") + "); restart cockpit to run it. A page reload is not enough."}>⟳ restart cockpit</span>
+  {:else if S.cockpit && bootPage && S.cockpit.page !== bootPage}
+    <button class="pill gpill warn" title="Cockpit's page was rebuilt since this one loaded" onclick={() => location.reload()}>⟳ reload page</button>
   {/if}
   <!-- Guardrails speak up only when a check fails; otherwise they live in the sidebar's project tab -->
   {#if S.guardrails.on}

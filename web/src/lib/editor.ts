@@ -3,9 +3,9 @@
 // place while you type), the removed lines under a clicked bar, highlighted line ranges, and in
 // review mode the merge request's discussions under the lines they are on.
 
-import { EditorView, Decoration, type DecorationSet, gutter, GutterMarker, WidgetType } from "@codemirror/view";
+import { EditorView, Decoration, type DecorationSet, gutter, GutterMarker, MatchDecorator, ViewPlugin, type ViewUpdate, WidgetType } from "@codemirror/view";
 import { RangeSet, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
-import { HighlightStyle, LanguageSupport, StreamLanguage, syntaxHighlighting, type StreamParser } from "@codemirror/language";
+import { HighlightStyle, LanguageSupport, StreamLanguage, syntaxHighlighting, syntaxTree, type StreamParser } from "@codemirror/language";
 import { tags as t } from "@lezer/highlight";
 import { rust } from "@codemirror/lang-rust";
 import { cpp } from "@codemirror/lang-cpp";
@@ -15,7 +15,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { css } from "@codemirror/lang-css";
 import { html } from "@codemirror/lang-html";
-import { yaml } from "@codemirror/lang-yaml";
+import { yaml, yamlLanguage } from "@codemirror/lang-yaml";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
 import { cmake } from "@codemirror/legacy-modes/mode/cmake";
@@ -60,12 +60,35 @@ const zigParser: StreamParser<{ afterFn: boolean }> = {
   languageData: { commentTokens: { line: "//" } },
 };
 
+// ---- YAML: the grammar tags every plain value as text, so true/false/null and numbers are found
+// here, and so are the ${VAR:-default} interpolations of docker compose (and CI files), in plain
+// and quoted values alike. Never inside comments.
+const yamlValue = Decoration.mark({ class: "cm-yval" }), yamlVar = Decoration.mark({ class: "cm-yvar" });
+const yamlMarks = new MatchDecorator({
+  regexp: /\$\{(?:[^{}\n]|\$\{[^{}\n]*\})*\}|\$[A-Za-z_]\w*|(?<=(?::|^\s*-|[[,])\s*)(?:true|false|yes|no|on|off|null|~|[-+]?(?:\d[\d_]*(?:\.\d+)?(?:[eE][-+]?\d+)?|0x[\da-fA-F]+|\.inf|\.nan))(?=\s*(?:#.*)?$|\s*[,\]}])/gi,
+  decorate(add, from, to, m, view) {
+    if (/^comment$/i.test(syntaxTree(view.state).resolveInner(from, 1).name)) return;
+    add(from, to, m[0][0] === "$" ? yamlVar : yamlValue);
+  },
+});
+const yamlPlus = ViewPlugin.fromClass(class {
+  decorations: DecorationSet;
+  constructor(view: EditorView) { this.decorations = yamlMarks.createDeco(view); }
+  update(u: ViewUpdate) { this.decorations = yamlMarks.updateDeco(u, this.decorations); }
+}, { decorations: (v) => v.decorations });
+// Keys and anchors/aliases (&stack, *stack), in YAML only (propertyName is member access in JS).
+const yamlColors = HighlightStyle.define([
+  { tag: t.definition(t.propertyName), color: "var(--t)" },
+  { tag: t.labelName, color: "var(--k)" },
+], { scope: yamlLanguage });
+const yamlFull = () => [yaml(), yamlPlus, syntaxHighlighting(yamlColors)];
+
 const legacy = (p: StreamParser<any>) => new LanguageSupport(StreamLanguage.define(p));
 const BY_EXT: Record<string, () => Extension> = {
   rs: rust, ron: rust,
   c: cpp, h: cpp, cc: cpp, cpp: cpp, cxx: cpp, hh: cpp, hpp: cpp, hxx: cpp, ipp: cpp, inl: cpp, tpp: cpp, metal: cpp,
   ts: () => javascript({ typescript: true }), mts: () => javascript({ typescript: true }), js: javascript, mjs: javascript, cjs: javascript,
-  json: json, md: markdown, py: python, css: css, html: html, svelte: html, yml: yaml, yaml: yaml,
+  json: json, md: markdown, py: python, css: css, html: html, svelte: html, yml: yamlFull, yaml: yamlFull,
   toml: () => legacy(toml), sh: () => legacy(shell), bash: () => legacy(shell), cmake: () => legacy(cmake), swift: () => legacy(swift),
   glsl: () => legacy(shader), vert: () => legacy(shader), frag: () => legacy(shader), comp: () => legacy(shader), geom: () => legacy(shader),
   m: () => legacy(objectiveC), mm: () => legacy(objectiveCpp), zig: () => legacy(zigParser), zon: () => legacy(zigParser),

@@ -7,7 +7,7 @@
   // hovering it, how much of your plan's limits you've used.
   import { onMount, tick, untrack } from "svelte";
   import { api, copyTargetAt, fileRefAt, fileResolver, md, mdGrowing } from "../lib/code";
-  import { chatDraft, chatFocus, openFile, S } from "../lib/state.svelte";
+  import { chatAttach, chatDraft, chatFocus, openFile, S, type ChatAttached } from "../lib/state.svelte";
   import type { ChatAgent, ChatItem, ChatSession, Usage } from "../lib/types";
   import IconButton from "./ui/IconButton.svelte";
   import Menu from "./ui/Menu.svelte";
@@ -21,6 +21,20 @@
   let busy = $state(false), model = $state("opus"), models: string[] = $state([]);
   let context = $state<{ used: number; max: number } | null>(null);
   let session: string | null = $state(null);
+  // Jobs the agent left running in the background (shell commands, subagents), and since when.
+  let background: { id: string; description: string; type: string; since: string }[] = $state([]);
+  // A clock for "running for…", ticking only while something runs.
+  let clock = $state(Date.now());
+  $effect(() => {
+    if (!busy && !background.length) return;
+    const t = setInterval(() => (clock = Date.now()), 1000);
+    return () => clearInterval(t);
+  });
+  // "45 s", "2 min 10 s", "1 h 05 min".
+  const dur = (ms: number) => {
+    const s = Math.max(0, Math.round(ms / 1000));
+    return s < 60 ? s + " s" : s < 3600 ? Math.floor(s / 60) + " min " + String(s % 60).padStart(2, "0") + " s" : Math.floor(s / 3600) + " h " + String(Math.floor((s % 3600) / 60)).padStart(2, "0") + " min";
+  };
   // The agents working on conversations no pane shows, and those of them waiting for an Allow/Deny.
   const others = $derived(agents.filter((a) => a.pane == null && (a.busy || a.asking)));
   const othersAsking = $derived(others.filter((a) => a.asking).length);
@@ -33,6 +47,16 @@
     if (n === draftSeen) return;
     draftSeen = n;
     if (untrack(() => chatFocus.pane) === pane) text = untrack(() => chatDraft.text + text);
+  });
+  // Context attached from elsewhere (the terminal's Ctrl+L): chips over the message box, sent with it.
+  let attached: ChatAttached[] = $state([]);
+  let attachSeen = chatAttach.n;
+  $effect(() => {
+    const n = chatAttach.n;
+    if (n === attachSeen) return;
+    attachSeen = n;
+    const a = untrack(() => chatAttach.item);
+    if (a && untrack(() => chatFocus.pane) === pane) attached = [...untrack(() => attached).filter((x) => x.label !== a.label), a];
   });
   let msgs: HTMLElement;
   // The composer grows with what's typed (whole pixels, up to its max-height) instead of scrolling:
@@ -90,9 +114,9 @@
   onMount(() => {
     const off = listen(pane, (e) => {
       if (e.type === "pane") {
-        items = e.items; busy = e.busy; model = e.model; models = e.models; context = e.context; session = e.session;
+        items = e.items; busy = e.busy; background = e.background ?? []; model = e.model; models = e.models; context = e.context; session = e.session;
         stick(true);
-      } else if (e.type === "state") { busy = e.busy; model = e.model; context = e.context; session = e.session; }
+      } else if (e.type === "state") { busy = e.busy; background = e.background ?? []; model = e.model; context = e.context; session = e.session; }
       else if (e.type === "delta") {
         // A streamed reply's new text: gathered, and shown once per frame.
         pending.set(e.id, (pending.get(e.id) ?? "") + e.text);
@@ -116,10 +140,11 @@
   const post = (what: string, body: object = {}) => api.post("api/chat/" + what, { pane, ...body });
   function send() {
     const t = text.trim();
-    if (!t && !images.length) return;
+    if (!t && !images.length && !attached.length) return;
     const imgs = images.map(({ media, data, thumb }) => ({ media, data, thumb }));
-    text = ""; images = []; pasteErr = ""; near = true;
-    post("send", { text: t, images: imgs });
+    const att = attached.map(({ label, text }) => ({ label, text }));
+    text = ""; images = []; attached = []; pasteErr = ""; near = true;
+    post("send", { text: t, images: imgs, attached: att });
   }
   // Images pasted (Ctrl+V) or dropped into the message box go along with the message. Claude takes
   // png, jpeg, gif and webp up to 5 MB; big ones are scaled down to 1568 px, the most it looks at.
@@ -258,7 +283,7 @@
   {/if}
    <div class="msgs" bind:this={msgs} onscroll={() => (near = msgs.scrollHeight - msgs.scrollTop - msgs.clientHeight < 60)}>
     {#each items as it (it.id)}
-      {#if it.kind === "user"}<div class="cuser">{#if it.thumbs?.length || it.images}<div class="cthumbs">{#each it.thumbs ?? [] as t}<img src={t} alt="pasted" />{:else}<span class="muted">🖼 image</span>{/each}</div>{/if}{it.text}</div>
+      {#if it.kind === "user"}<div class="cuser">{#if it.chips?.length}<div class="cchips">{#each it.chips as c}<span class="cchip">{c}</span>{/each}</div>{/if}{#if it.thumbs?.length || it.images}<div class="cthumbs">{#each it.thumbs ?? [] as t}<img src={t} alt="pasted" />{:else}<span class="muted">🖼 image</span>{/each}</div>{/if}{it.text}</div>
       {:else if it.kind === "text"}{#if it.text}{@const [kept, rest] = mdGrowing(it.id, it.text, resolve)}<div class="ctext" onclick={clickRef} role="presentation">{@html kept}{@html rest}</div>{/if}
       {:else if it.kind === "tool"}
         <div class="ctool" class:sub={it.sub}>
@@ -266,6 +291,9 @@
           {#if it.detail || it.output}
             <details><summary>{it.title}</summary>{#if it.detail}<pre>{it.detail}</pre>{/if}{#if it.output}<pre>{it.output}</pre>{/if}</details>
           {:else}<span>{it.title}</span>{/if}
+          <!-- how long: counting while it runs (from 3 s), kept on the long ones once done -->
+          {#if it.status === "running" && busy && clock - Date.parse(it.at) >= 3000}<small class="cdur">{dur(clock - Date.parse(it.at))}</small>
+          {:else if it.status !== "running" && Number(it.ms) >= 10000}<small class="cdur">{dur(Number(it.ms))}</small>{/if}
           {#if it.file}<button class="chip" onclick={() => openFile(it.file)}>open</button>{/if}
         </div>
       {:else if it.kind === "ask"}
@@ -290,6 +318,19 @@
     {/each}
   </div>
   <form class="composer" onsubmit={(e) => { e.preventDefault(); send(); }}>
+    <!-- what the agent left running in the background, until it ends -->
+    {#if background.length}
+      <div class="cbg">
+        {#each background as b (b.id)}
+          <div class="muted"><span class="spin"></span><span class="cbgt" title={b.description}>in the background: {b.description}</span><small class="cdur">{dur(clock - Date.parse(b.since))}</small></div>
+        {/each}
+      </div>
+    {/if}
+    {#if attached.length}
+      <div class="cchips pending">
+        {#each attached as a, i (a.label)}<span class="cchip" class:bad={a.bad} title={a.text.length > 1500 ? a.text.slice(0, 1500) + "\n…" : a.text}>{a.label}<button type="button" title="Remove" aria-label="Remove" onclick={() => (attached = attached.filter((_, j) => j !== i))}>×</button></span>{/each}
+      </div>
+    {/if}
     {#if images.length || pasteErr}
       <div class="cthumbs pending">
         {#each images as img, i}<span class="cthumb"><img src={img.thumb} alt="pasted" /><button type="button" title="Remove" aria-label="Remove image" onclick={() => (images = images.filter((_, j) => j !== i))}>×</button></span>{/each}
@@ -297,7 +338,7 @@
       </div>
     {/if}
     <textarea onpaste={onPaste} ondrop={onDrop} rows="3" bind:this={ta} bind:value={text} placeholder="Ask the agent…"
-      onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } }}></textarea>
+      onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } else if (e.key === "Backspace" && !text && attached.length) { e.preventDefault(); attached = attached.slice(0, -1); } }}></textarea>
     <div class="crow">
       {#if busy}<span class="muted cwork"><span class="spin"></span>working…</span>{/if}
       <span class="grow"></span>
