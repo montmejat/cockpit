@@ -36,7 +36,7 @@
       "name": "Agent chat",
       "status": "working",
       "description": "Runs Claude Code through the Agent SDK on the user's login: sessions, split into chats stacked top to bottom (up to 4, each on its own conversation), several agents working at once (one per conversation, switching leaves the others running, the title shows how many work or wait for you), a model menu (opus by default), messages typed while it works, images pasted or dropped into the message, one send/stop button, Allow/Deny cards, context and plan-limit meters, and a self-check that sends the agent back when .cockpit/ or a guardrail no longer holds.",
-      "modules": ["cockpit/chat", "cockpit/chat-items", "cockpit/chat-turn", "cockpit/chat-brief", "cockpit/chat-usage", "cockpit/claude", "cockpit/web/src/components/Chat", "cockpit/web/src/components/Chats"]
+      "modules": ["cockpit/chat", "cockpit/chat-items", "cockpit/chat-turn", "cockpit/chat-brief", "cockpit/chat-usage", "cockpit/claude", "cockpit/web/src/components/Chat", "cockpit/web/src/components/Chats", "cockpit/web/src/lib/viewing"]
     },
     {
       "id": "turns",

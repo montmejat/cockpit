@@ -295,6 +295,11 @@ body.desktop header.wleft{padding-left:6px}
 /* pasted images: thumbnails in the message, and above the box before sending (× removes one) */
 .cthumbs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.cthumbs img{display:block;max-width:160px;max-height:110px;border-radius:var(--r-m);border:1px solid var(--line)}
 .cthumbs.pending{align-items:center}.cthumbs.pending img{max-width:72px;max-height:56px}
+.cchips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}.cchips.pending{padding:0 2px}
+.cchip{position:relative;display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 8px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);font:var(--fs-s)/1.5 "JetBrains Mono",ui-monospace,monospace;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cchip.bad{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
+.cchip.cview{border-style:dashed}
+.cchip button{padding:0 2px;border:0;background:none;color:var(--muted);font-size:var(--fs-m);line-height:1;cursor:pointer}.cchip button:hover{color:var(--fg)}
 .cthumb{position:relative}.cthumb button{position:absolute;top:-6px;right:-6px;display:grid;place-items:center;width:var(--ctl-xs);height:var(--ctl-xs);padding:0;border-radius:50%;border:0;background:var(--fg);color:var(--bg);font-size:var(--fs-s);line-height:1}
 .ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
 .ctext code{background:var(--bg);border-radius:var(--r-xs);padding:0 3px;font-size:var(--fs-s)}
@@ -313,6 +318,10 @@ body.desktop header.wleft{padding-left:6px}
 .ctool summary::-webkit-details-marker{display:none}
 .ctool > span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ctool .ok{color:var(--ok)}.ctool .bad{color:var(--bad)}
+.cdur{flex:none;font-size:inherit;font-variant-numeric:tabular-nums;opacity:.75}
+.cbg{display:flex;flex-direction:column;gap:2px;margin-bottom:6px;font-size:var(--fs-s)}
+.cbg > div{display:flex;align-items:center;gap:6px;min-width:0}
+.cbgt{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cask{border:1px solid var(--warn);border-radius:var(--r-l);padding:8px 10px}
 .cask.allowed{border-color:var(--line);opacity:.7}.cask.denied{border-color:var(--line);opacity:.7;text-decoration:line-through}
 .cask .mono{font-size:var(--fs-s);word-break:break-all}.cask p{margin:4px 0;font-size:var(--fs-s)}
@@ -338,13 +347,25 @@ button.csend.stop{background:var(--fg);color:var(--bg)}button.csend.stop svg{fil
 #tsplit{height:5px;margin-top:-2px;cursor:row-resize;flex-shrink:0;position:relative;z-index:2}
 #tsplit:hover{background:color-mix(in oklab,var(--accent) 40%,transparent)}
 #tsplit[hidden],#term[hidden]{display:none}
-#term{flex-shrink:0;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--card);min-height:0}
+#term{position:relative;flex-shrink:0;display:flex;flex-direction:column;border-top:1px solid var(--line);background:var(--card);min-height:0}
 /* the slim bar: a tab per shell (ui/Tab.svelte), ask and new on the right */
 .tbar{display:flex;align-items:center;gap:6px;height:var(--bar-h);flex-shrink:0;padding:0 8px;border-bottom:1px solid var(--line);background:var(--bg)}
 .trun,.tbad{display:inline-flex;align-items:center;justify-content:center;flex:none;font-size:var(--fs-xs);font-weight:700}.tbad{color:var(--bad)}
+#tpick{display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--line);font-size:var(--fs-m);outline:none;flex-wrap:wrap}
+#tpick .tpproj{padding:2px 10px}#tpick .tpproj.on{border-color:var(--accent);color:var(--fg)}
+#tpick .tphint{margin-left:auto}
 #tbody{flex:1;min-height:0;position:relative;padding:4px 0 0 8px}
 .tview{position:absolute;inset:4px 0 0 8px}.tview[hidden]{display:none}
 .tview .xterm{height:100%}.tview .xterm-viewport{background:var(--card)!important}
+/* a command's block under the mouse, its buttons, and the pill of a failed last command */
+.tblock{position:absolute;pointer-events:none;border-left:2px solid var(--accent);background:color-mix(in srgb,var(--accent) 6%,transparent);border-radius:var(--r-xs);z-index:2}
+.tblock.bad{border-left-color:var(--bad);background:color-mix(in srgb,var(--bad) 6%,transparent)}
+.thov{position:absolute;z-index:3;display:flex;align-items:center;gap:4px}
+.thov button{padding:1px 8px;font-size:var(--fs-s);background:var(--card);border:1px solid var(--line);border-radius:var(--r-m);color:var(--fg);cursor:pointer}
+.thov button:hover{border-color:var(--accent)}
+.tfail{right:14px;bottom:8px;gap:8px;padding:3px 4px 3px 10px;background:var(--bg);border:1px solid color-mix(in srgb,var(--bad) 45%,var(--line));border-radius:var(--r-l);font-size:var(--fs-s);box-shadow:var(--shadow-pop)}
+.tfail code{font-size:var(--fs-s);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tfail .tx{border:0;background:none;color:var(--muted);padding:0 4px}
 #task{display:flex;align-items:center;gap:8px;padding:4px 10px;border-top:1px solid var(--line);background:var(--bg)}
 #task[hidden],#tsugg[hidden]{display:none}
 #task .tk{color:var(--accent)}
@@ -488,6 +509,7 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 .confirm .cyes{background:var(--bad);border-color:var(--bad);color:var(--on-accent);font-weight:600}.confirm .cyes:hover{background:color-mix(in oklab,var(--bad) 88%,var(--shade))}
 
 .editor{flex:1;min-height:0;overflow:hidden}.editor .cm-editor{height:100%}
+.cm-yval{color:var(--n)}.cm-yvar{color:var(--f)}
 .econflict{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 12px;background:color-mix(in oklab,var(--warn) 14%,var(--card));border-bottom:1px solid var(--line);font-size:var(--fs-m)}
 .econflict.bad{background:color-mix(in oklab,var(--bad) 14%,var(--card))}
 #tabbar .unsaved{color:var(--accent);font-size:var(--fs-xs);margin-left:4px}
@@ -653,6 +675,7 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 .check pre{margin:0;padding:8px 12px;border-top:1px solid var(--line);font-size:var(--fs-s);max-height:320px;overflow:auto;white-space:pre-wrap;background:var(--bg)}
 .check .hint{margin:4px 12px 8px}
 header .gpill.bad{border-color:var(--bad);color:var(--bad)}
+header .gpill.warn{border-color:var(--warn);color:var(--warn)}
 .check summary b{white-space:nowrap}.check summary > span.muted{white-space:nowrap}
 
 /* shared pieces (components/ui/): build new UI from these */

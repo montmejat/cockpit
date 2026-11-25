@@ -12,6 +12,12 @@ export type Item = { id: string; kind: string; at: string; [k: string]: unknown 
 // A pasted image: what Claude gets (media type, base64), and a small preview for the chat.
 export type Image = { media: "image/png" | "image/jpeg" | "image/gif" | "image/webp"; data: string; thumb: string };
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+// Context attached to a message (a terminal's command and its output): Claude gets it as its own
+// text block, <attached label="…">…</attached>, before the message; the chat shows only the label.
+export type Attached = { label: string; text: string };
+const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+export const attachedBlock = (a: Attached) => `<attached label="${esc(a.label)}">\n${a.text}\n</attached>`;
+export const attachedLabel = (block: string) => /^<attached label="([^"]*)">/.exec(block)?.[1]?.replace(/&lt;/g, "<").replace(/&quot;/g, '"').replace(/&amp;/g, "&") ?? null;
 
 export const now = () => new Date().toISOString();
 export const textOf = (c: any): string => (typeof c === "string" ? c : Array.isArray(c) ? c.map((x: any) => (x.type === "text" ? x.text ?? "" : "")).join("\n") : "");
@@ -24,7 +30,10 @@ export function describe(root: string, name: string, input: any): { title: strin
     case "Edit": case "MultiEdit": case "NotebookEdit": return { title: "edit " + rel(file), file: rel(file) };
     case "Write": return { title: "write " + rel(file), file: rel(file) };
     case "Read": return { title: "read " + rel(file), file: rel(file) };
-    case "Bash": return { title: "$ " + String(input?.command ?? "").split("\n")[0], detail: input?.description };
+    // What it does in plain words (the agent's description), the command itself folded away.
+    case "Bash": return input?.description
+      ? { title: String(input.description), detail: "$ " + String(input?.command ?? "") }
+      : { title: "$ " + String(input?.command ?? "").split("\n")[0] };
     case "Grep": return { title: "search " + JSON.stringify(input?.pattern ?? "") + (input?.path ? " in " + rel(input.path) : "") };
     case "Glob": return { title: "find " + (input?.pattern ?? "") };
     case "Task": case "Agent": return { title: "agent: " + (input?.description ?? ""), detail: input?.prompt };
@@ -81,7 +90,9 @@ export function streamItems(root: string, out: ItemSink) {
     if (mm.type === "user") {
       for (const b of Array.isArray(mm.message?.content) ? mm.message.content : []) {
         if (b.type !== "tool_result" || !out.get(b.tool_use_id)) continue;
-        out.put({ ...out.get(b.tool_use_id)!, status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
+        const it = out.get(b.tool_use_id)!;
+        // How long it ran, for the chat to show on long ones.
+        out.put({ ...it, status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000), ms: Date.now() - Date.parse(it.at) });
       }
       return true;
     }
@@ -101,7 +112,9 @@ export function itemsFromTranscript(root: string, msgs: Awaited<ReturnType<typeo
         continue;
       }
       for (const b of msg?.content ?? []) {
-        if (b.type === "text" && !String(b.text).startsWith("<")) items.push({ id: m.uuid + ":t", kind: "user", at, text: b.text });
+        const chip = b.type === "text" ? attachedLabel(String(b.text)) : null;
+        if (chip != null) items.push({ id: m.uuid + ":a" + items.length, kind: "user", at, text: "", chips: [chip] });
+        else if (b.type === "text" && !String(b.text).startsWith("<")) items.push({ id: m.uuid + ":t", kind: "user", at, text: b.text });
         else if (b.type === "image") items.push({ id: m.uuid + ":i" + items.length, kind: "user", at, text: "", images: 1 });
         else if (b.type === "tool_result" && byTool.has(b.tool_use_id)) Object.assign(byTool.get(b.tool_use_id)!, { status: b.is_error ? "error" : "ok", output: textOf(b.content).slice(0, 4000) });
       }

@@ -29,7 +29,7 @@ import { COCKPIT, outDir } from "./turns.ts";
 import type { Terminals } from "./term.ts";
 import { workspaceBrief, type Workspace } from "./workspace.ts";
 import { brief } from "./chat-brief.ts";
-import { describe, itemsFromTranscript, now, streamItems, type Image, type Item } from "./chat-items.ts";
+import { attachedBlock, describe, itemsFromTranscript, now, streamItems, type Attached, type Image, type Item } from "./chat-items.ts";
 import { turnChecks } from "./chat-turn.ts";
 import { createUsage } from "./chat-usage.ts";
 
@@ -39,11 +39,13 @@ type Context = { used: number; max: number } | null;
 // `pane`: the pane showing it, if one does.
 export type AgentInfo = { session: string | null; busy: boolean; asking: boolean; preview: string; pane: number | null };
 // What a pane shows: its conversation, whole.
-type PaneSnap = { pane: number; items: Item[]; busy: boolean; model: string; models: string[]; context: Context; session: string | null };
+// A job the agent left running in the background (a shell command, a subagent), and since when.
+export type Background = { id: string; description: string; type: string; since: string };
+type PaneSnap = { pane: number; items: Item[]; busy: boolean; background: Background[]; model: string; models: string[]; context: Context; session: string | null };
 type Event =
   | { type: "item"; pane: number; item: Item }
   | { type: "delta"; pane: number; id: string; text: string } // more text for a streamed reply
-  | { type: "state"; pane: number; busy: boolean; model: string; context: Context; session: string | null }
+  | { type: "state"; pane: number; busy: boolean; background: Background[]; model: string; context: Context; session: string | null }
   | { type: "pane" } & PaneSnap // a pane now shows another conversation
   | { type: "panes"; ids: number[] } // panes split or closed, top to bottom
   | { type: "agents"; agents: AgentInfo[] }
@@ -154,6 +156,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       try { if (existsSync(fileOf(session))) ({ items, context } = { context: null, ...JSON.parse(readFileSync(fileOf(session), "utf8")) }); } catch {}
     }
     let busy = false;
+    let background: Background[] = []; // its live background jobs, as the session last listed them
     let q: Query | null = null;
     let box: ReturnType<typeof inbox> | null = null;
     let abort: AbortController | null = null;
@@ -164,7 +167,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
 
     const shown = () => isShown(self);
     // To each pane showing this conversation (usually one, none when it works out of sight).
-    const toPanes = (e: { type: "item"; item: Item } | { type: "delta"; id: string; text: string } | { type: "state"; busy: boolean; model: string; context: Context; session: string | null }) => {
+    const toPanes = (e: { type: "item"; item: Item } | { type: "delta"; id: string; text: string } | { type: "state"; busy: boolean; background: Background[]; model: string; context: Context; session: string | null }) => {
       for (const p of panes) if (p.agent === self) emit({ ...e, pane: p.id } as Event);
     };
     let saveTimer: NodeJS.Timeout | null = null;
@@ -174,7 +177,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       if (shown()) saveMeta();
     };
     const save = () => { if (!saveTimer) saveTimer = setTimeout(flush, 300); };
-    const state = () => { toPanes({ type: "state", busy, model, context, session }); agentsChanged(); };
+    const state = () => { toPanes({ type: "state", busy, background, model, context, session }); agentsChanged(); };
     const put = (item: Item) => {
       const i = items.findIndex((x) => x.id === item.id);
       if (i >= 0) items[i] = item; else items.push(item);
@@ -261,7 +264,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       });
       const mine = q;
       pump(mine).catch((e) => { if (q === mine) note("The agent stopped: " + String(e?.message ?? e), { error: true }); })
-        .finally(() => { if (q === mine) { q = null; box = null; busy = false; state(); } });
+        .finally(() => { if (q === mine) { q = null; box = null; busy = false; background = []; state(); } });
     }
 
     async function pump(cur: Query) {
@@ -274,6 +277,14 @@ export function createChat(root: string, project: string, terms: Terminals, inde
           continue;
         }
         if (mm.type === "rate_limit_event") { plan.forget(); continue; } // read it fresh next time
+        // The whole list of live background jobs, each time it changes (housekeeping ones left out).
+        if (mm.type === "system" && mm.subtype === "background_tasks_changed") {
+          const since = new Map(background.map((b) => [b.id, b.since]));
+          background = (mm.tasks ?? []).filter((t: any) => !t.ambient)
+            .map((t: any) => ({ id: t.task_id, description: t.description, type: t.task_type, since: since.get(t.task_id) ?? now() }));
+          state();
+          continue;
+        }
         if (mm.parent_tool_use_id && mm.type !== "user" && mm.type !== "assistant") continue;
         if (stream(mm)) continue;
         if (mm.type === "result") {
@@ -291,7 +302,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     function stop() {
       for (const r of waiting.values()) r(false);
       abort?.abort();
-      q = null; box = null; busy = false;
+      q = null; box = null; busy = false; background = [];
     }
 
     const self = {
@@ -301,12 +312,16 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       asking: () => items.some((x) => x.kind === "ask" && x.status === "waiting"),
       // Its first message, for the list of running agents (a new one isn't in Claude Code's list yet).
       preview: () => String(items.find((x) => x.kind === "user")?.text ?? "").slice(0, 200),
-      snapshot: () => ({ items, busy, model, models: MODELS, context, session }),
-      send(text: string, images: Image[]) {
-        put({ id: uid("u"), kind: "user", at: now(), text, ...(images.length ? { thumbs: images.map((i) => i.thumb) } : {}) });
+      snapshot: () => ({ items, busy, background, model, models: MODELS, context, session }),
+      send(text: string, images: Image[], attached: Attached[] = []) {
+        put({ id: uid("u"), kind: "user", at: now(), text, ...(images.length ? { thumbs: images.map((i) => i.thumb) } : {}), ...(attached.length ? { chips: attached.map((a) => a.label) } : {}) });
         if (!q) start();
-        const content = images.length
-          ? [...images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.media, data: i.data } })), ...(text.trim() ? [{ type: "text" as const, text }] : [])]
+        const content = images.length || attached.length
+          ? [
+              ...attached.map((a) => ({ type: "text" as const, text: attachedBlock(a) })),
+              ...images.map((i) => ({ type: "image" as const, source: { type: "base64" as const, media_type: i.media, data: i.data } })),
+              ...(text.trim() ? [{ type: "text" as const, text }] : []),
+            ]
           : text;
         box!.push({ type: "user", message: { role: "user", content }, parent_tool_use_id: null } as SDKUserMessage);
         busy = true;
@@ -355,9 +370,9 @@ export function createChat(root: string, project: string, terms: Terminals, inde
     subscribe(l: (e: Event) => void) { listeners.add(l); return () => { listeners.delete(l); }; },
     // A message to the open conversation, with images pasted into it (sent to Claude as image
     // blocks before the text; the chat keeps only small previews of them).
-    send(pane: unknown, text: string, images: Image[] = []) {
-      if (!text.trim() && !images.length) return;
-      paneOf(pane).agent.send(text, images);
+    send(pane: unknown, text: string, images: Image[] = [], attached: Attached[] = []) {
+      if (!text.trim() && !images.length && !attached.length) return;
+      paneOf(pane).agent.send(text, images, attached);
     },
     // An Allow/Deny card: whichever agent asked.
     answer(id: string, allow: boolean) { for (const a of agents) if (a.answer(id, allow)) return; },
@@ -368,7 +383,7 @@ export function createChat(root: string, project: string, terms: Terminals, inde
       model = m;
       await Promise.all(panes.map((p) => p.agent.setModel(m)));
       saveMeta();
-      for (const p of panes) { const { busy, context, session } = p.agent.snapshot(); emit({ type: "state", pane: p.id, busy, model, context, session }); }
+      for (const p of panes) { const { busy, background, context, session } = p.agent.snapshot(); emit({ type: "state", pane: p.id, busy, background, model, context, session }); }
     },
     usage: plan.usage,
     // The project's Claude Code sessions, newest first: cockpit's and ones run elsewhere. Each is

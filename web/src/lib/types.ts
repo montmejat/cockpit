@@ -27,6 +27,7 @@ export interface Live {
   changedFiles: string[];
   changedItems: string[];
   fileRevs: Record<string, number>;
+  cockpit?: { restart: string[]; page: number }; // cockpit's own code newer than what runs (project-server.ts, freshness)
   git: { branch: string | null; head: string; upstream: string | null; ahead: number; behind: number };
   lines: number;
   features: Feature[];
