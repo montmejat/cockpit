@@ -75,7 +75,7 @@ main{flex:1;min-height:0;display:flex;position:relative}
 .sgrip:hover::after,.sgrip.dragging::after{background:var(--accent)}
 body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 /* never sideways: long names end in "…" instead */
-#sidebody{flex:1;overflow-x:hidden;overflow-y:auto}
+#sidebody{flex:1;overflow-x:hidden;overflow-y:scroll;scrollbar-gutter:stable;scrollbar-color:color-mix(in oklab,var(--fg) 18%,transparent) transparent;scrollbar-width:thin} /* the bar's 8px always taken (its track is transparent): no sideways jump when a tall pane (git) brings it in; scroll, not just the gutter, since the desktop app's WebKit ignores scrollbar-gutter */
 
 /* diagrams list */
 .dl{padding:10px}
@@ -411,10 +411,14 @@ header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--a
 .tree .tlead svg{width:16px;height:16px}
 .tree .chev{color:var(--muted);transition:transform .1s}.tree .chev.open{transform:rotate(90deg)}
 .tree .tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.gproj+.gproj{border-top:1px solid var(--line)}
-button.gprojhead{display:flex;align-items:center;gap:6px;width:100%;padding:8px 10px 8px 8px;border:0;border-radius:0;background:none;font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left}
-button.gprojhead:hover{color:var(--fg);background:none}.gprojhead svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gprojhead svg.open{transform:rotate(90deg)}
-.gprojhead .gcount{margin-left:auto;font-weight:500;letter-spacing:0;color:var(--accent)}
+/* git in a workspace: one project shown, picked from a list (Sidebar.svelte) */
+button.gprojpick{display:flex;align-items:center;gap:6px;width:calc(100% - 16px);margin:8px 8px 0;padding:4px 10px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);font-weight:600;text-align:left;min-width:0}
+button.gprojpick:hover,button.gprojpick.on{border-color:color-mix(in oklab,var(--accent) 45%,var(--line));background:var(--card)}
+.gprojpick .gpname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.gprojpick .gpother{flex:none;font-size:var(--fs-xs);font-weight:500;color:var(--muted)}
+.gprojpick svg{flex:none;fill:none;stroke:var(--muted);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gprojpick.on svg{transform:rotate(180deg)}
+.gprojpick .gcount,.gprojmenu .gcount,.gviews .gcount{margin-left:2px;color:var(--accent)}
+.cmenu.gprojmenu{min-width:0;max-width:none;max-height:60vh;overflow-y:auto}.gprojmenu button.cur{font-weight:600;background:var(--sel)}
 /* a project's root folder, in a workspace: its name in small caps, like VS Code */
 .tree .troot{padding-left:8px;font-weight:600;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
 .tree .folder.changed .tname{color:color-mix(in oklab,var(--warn) 70%,var(--fg))}
@@ -574,19 +578,21 @@ header .projmenu{top:calc(100% + 2px);left:50%;transform:translateX(-50%);width:
 .ctab .tstaged{font-size:var(--fs-xs)}
 
 /* git tab: cards at the top (branch + its PR, review), folding sections below */
-.gitpane{padding:8px 0 40px;font-size:var(--fs-m)}
+/* the pane fills the side (.gitwrap): the history box takes the height left and scrolls inside;
+   past its minimum (a long list of changes) the pane itself scrolls */
+.gitwrap{height:100%;display:flex;flex-direction:column}.gitwrap > *{flex:none}
+.gitpane{flex:1 1 0 !important;min-height:0;display:flex;flex-direction:column;overflow-y:auto;padding:8px 0;font-size:var(--fs-m)}
+.gitpane > *{flex:none}.gitpane > .graph{flex:1 1 0;min-height:180px;overflow-y:auto;margin-bottom:2px}
 .gcard{margin:0 8px 8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--card)}
 .gbline{display:flex;align-items:center;gap:6px;min-width:0}
-.gbname{font-weight:600;font-size:var(--fs-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0}
-.gbranch .sha{color:var(--muted);font-size:var(--fs-s);flex:none}
-.gsub{margin-top:3px}
+.gbname{font-weight:600;font-size:var(--fs-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
 .gup{color:var(--muted);font-size:var(--fs-s);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
-.gsub .chip-s,.gsub button{flex:none}
+.gbline .chip-s,.gbline button{flex:none}
 .chip-s{font-size:var(--fs-xs);padding:0 6px;border-radius:var(--r-pill);background:var(--btn);color:var(--muted);white-space:nowrap}
 .chip-s.ahead{color:var(--accent);background:color-mix(in oklab,var(--accent) 14%,transparent)}
 .chip-s.behind{color:var(--warn);background:color-mix(in oklab,var(--warn) 14%,transparent)}
 button.gghost{margin-left:auto;background:none;color:var(--muted);font-size:var(--fs-s);padding:1px 7px;border:1px solid var(--line);border-radius:var(--r-m);white-space:nowrap}
-.gsplit{margin-left:auto;display:flex;flex:none}.gsplit button.gghost{margin-left:0}.gsplit button.gghost:first-child{border-radius:var(--r-m) 0 0 var(--r-m)}.gsplit button.gcaret{border-radius:0 var(--r-m) var(--r-m) 0;border-left:0;padding:1px 4px;font-size:var(--fs-xs)}
+.gsplit{margin-left:auto;display:flex;flex:none}.gsplit button.gghost{margin-left:0}.gsplit button.gghost:first-child{border-radius:var(--r-m) 0 0 var(--r-m)}.gsplit button.gcaret{display:grid;place-items:center;border-radius:0 var(--r-m) var(--r-m) 0;border-left:0;padding:0 5px}.gcaret svg{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gcaret.on svg{transform:rotate(180deg)}
 button.gghost:hover{color:var(--rev);border-color:color-mix(in oklab,var(--rev) 50%,var(--line));background:none}
 button.gicon{background:none;border:0;padding:0 4px;color:var(--muted);font-size:var(--fs-m);line-height:16px}button.gicon:hover{color:var(--fg);background:none}
 .gmuted{color:var(--muted);font-size:var(--fs-s);margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -601,6 +607,13 @@ button.gicon{background:none;border:0;padding:0 4px;color:var(--muted);font-size
 .gpr .gprtitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .gpr .gsig{flex:none;font-size:var(--fs-s);font-weight:600}.gsig.ok{color:var(--ok)}.gsig.bad{color:var(--bad)}.gsig.warn{color:var(--warn)}
 .gpr button.gicon{display:none;flex:none}.gpr:hover button.gicon,.gpr button.gicon.busy{display:block}
+/* private .cockpit/, all well: a muted line at the foot of the branch card */
+/* .cockpit/ private, on the branch line: a lock, a small sync arrow on it; a click syncs */
+button.gpicon{position:relative;display:grid;place-items:center;flex:none;width:22px;height:22px;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--ok)}
+button.gpicon svg{fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+button.gpicon .gpsync{position:absolute;right:0;bottom:1px;background:var(--bg);border-radius:50%;color:var(--muted);stroke-width:1.6}
+button.gpicon:hover:not(:disabled){background:var(--btn)}button.gpicon:hover:not(:disabled) .gpsync{color:var(--fg)}
+button.gpicon:disabled{opacity:1;cursor:default}button.gpicon.busy .gpsync{color:var(--accent);animation:spin .9s linear infinite}
 /* review */
 .gpriv{padding:7px 10px}
 .gprow{display:flex;align-items:center;gap:9px;min-width:0}
@@ -612,7 +625,7 @@ button.gpbtn{flex:none;font-size:var(--fs-s);padding:2px 10px;border-radius:var(
 button.gpbtn:hover{background:color-mix(in oklab,var(--accent) 10%,transparent)}
 .gpnote{margin-top:6px;font-size:var(--fs-s);color:var(--muted)}.gperr{margin-top:6px;font-size:var(--fs-s);color:var(--bad);white-space:pre-wrap}
 .gcard.review{border-color:color-mix(in oklab,var(--rev) 40%,var(--line))}
-.review .rhead{display:flex;align-items:center;gap:6px}.review .rhead b{color:var(--rev)}
+.review .rhead{display:flex;align-items:center;gap:6px}button.gx{display:grid;place-items:center;flex:none;width:20px;height:20px;padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted)}button.gx:hover{color:var(--fg);background:var(--btn)}button.gx svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}.review .rhead b{color:var(--rev)}
 .review .rtitle{margin-top:2px}
 .review .rbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .gcard.review h4{margin:10px 0 4px}
@@ -633,10 +646,14 @@ button.gpbtn:hover{background:color-mix(in oklab,var(--accent) 10%,transparent)}
 .commitbtn:hover{background:color-mix(in oklab,var(--accent) 88%,var(--shade))}
 .commitbtn:disabled{background:none;color:var(--muted);border-color:var(--line);font-weight:500;opacity:1}
 .commitbox .err{margin:0;white-space:pre-wrap;font-size:var(--fs-s);color:var(--bad)}
-/* folding sections */
-.ghead{display:flex;align-items:center;gap:6px;padding:0 10px 0 6px;margin-top:12px;height:24px}
-button.gtoggle{flex:1;display:flex;align-items:center;gap:4px;background:none;border:0;padding:0 4px;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600;height:100%}
-button.gtoggle:hover{color:var(--fg);background:none}.gtoggle svg.chev{width:12px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gtoggle svg.chev.open{transform:rotate(90deg)}
+/* the views (changes, history, review) as tabs; plain section labels inside a view */
+.segs.gviews{margin:0 8px 6px;padding:2px}
+/* under the tabs, the commit box and the review list start at the same height */
+.gviews ~ .commitbox{margin-top:0}
+.ghead{display:flex;align-items:center;gap:6px;padding:0 10px;margin-top:12px;height:24px}
+.glabel{flex:1;display:flex;align-items:center;gap:4px;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.gsync{flex:none;color:var(--ok);font-size:var(--fs-s)}
+
 .chev{display:inline-block;width:10px;transition:transform .12s;font-size:var(--fs-xs)}.chev.shut{transform:rotate(-90deg)}
 .gcount{font-size:var(--fs-xs);letter-spacing:0;font-weight:600;background:var(--btn);border-radius:var(--r-l);padding:0 6px;margin-left:4px}
 button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:none}button.gall:hover{color:var(--fg);background:var(--btn)}
@@ -650,7 +667,12 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 /* the counts sit at the far right; on hover the buttons come in and push them left */
 .gitrow .gitfile{padding-right:10px}.gitrow:hover .gitfile{padding-right:4px}
 .gitrow:hover .gact{display:grid;place-items:center}
-.gact.grev{margin-right:2px;color:var(--muted)}.gact.grev:hover{color:var(--bad)}.gact.grev svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+/* revert and stage/unstage: quiet drawn icons, a soft tint on hover (red for revert) */
+.gact.grev,.gact.gstage{border:0;background:none;color:var(--muted)}
+.gact.grev{margin-right:0}.gact.gstage{margin-right:6px}
+.gact.grev svg,.gact.gstage svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.gact.gstage:hover:not(:disabled){color:var(--fg);background:var(--btn-hover)}
+.gact.grev:hover:not(:disabled){color:var(--bad);background:color-mix(in oklab,var(--bad) 14%,transparent)}
 /* history: graph, refs, subject (hash, date and all refs in the tooltip) */
 .grow-row{gap:2px}
 .grow-row .ref{display:inline-block;max-width:11ch;overflow:hidden;text-overflow:ellipsis;vertical-align:-3px;white-space:nowrap}
@@ -743,3 +765,19 @@ button.lrow:hover{background:var(--btn)}
 #crumbs button.cinfo{border:0;background:none;padding:0 2px;margin-left:6px;color:var(--muted)}#crumbs button.cinfo:hover,#crumbs button.cinfo.on{color:var(--accent)}
 /* git: where you are reads as text, not a box: only the commit message is a field */
 .gcard.gbranch{border:0;background:none;padding:8px 12px 6px;margin:0}
+/* git history: a row with a branch to switch to shows a "checkout" button on hover, over its right end */
+.grow-wrap{position:relative}
+button.gco{position:absolute;right:4px;top:50%;transform:translateY(-50%);z-index:1;display:none;align-items:center;gap:4px;height:20px;padding:0 7px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);color:var(--muted);font-size:var(--fs-xs);box-shadow:var(--shadow-raise)}
+button.gco svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.grow-wrap:hover button.gco{display:flex}button.gco:hover{color:var(--accent);border-color:color-mix(in oklab,var(--accent) 45%,var(--line));background:var(--card)}
+/* the review card: one line under the branch's PR line (what it reviews, and the way out) */
+.review .rhead .rwhat{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:var(--fs-s)}
+.review .rhead button.rend{flex:none;margin-left:auto;padding:1px 8px;font-size:var(--fs-s)}
+/* a deleted file: struck through in the git lists; opened in a review, its old lines as removed */
+.gname.gdel{text-decoration:line-through;text-decoration-color:color-mix(in oklab,var(--bad) 70%,transparent);color:var(--muted)}
+.ddel .dnote{padding:10px 14px 6px}
+.ddellines{margin:0;padding:0 0 24px;font-family:var(--mono);font-size:var(--fs-s);line-height:1.55;white-space:pre}
+.ddellines .dl{display:block;padding-right:14px;background:color-mix(in oklab,var(--bad) 10%,transparent);color:color-mix(in oklab,var(--fg) 75%,var(--bad))}
+.ddellines .dl i{display:inline-block;width:4.5ch;margin-right:12px;padding-right:6px;text-align:right;font-style:normal;color:var(--muted);user-select:none}
+/* the review card's line keeps its height whether it shows the end button or a spinner */
+.review .rhead{min-height:22px}.review .rhead .spin{margin-left:auto}

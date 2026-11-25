@@ -101,8 +101,12 @@ async function isProjectFile(path: unknown): Promise<boolean> {
 async function readSource(path: string, inReview = false) {
   const base = inReview ? await reviewBase() : null;
   const known = await isProjectFile(path);
-  if (base && !known && (await git.read("cat-file", "-t", `${base}:${path}`)) === "blob")
-    return { path, text: null, note: "deleted in this review", hunks: [] };
+  // Deleted by the review: what it was at the base, shown read-only as removed lines.
+  if (base && !known && (await git.read("cat-file", "-t", `${base}:${path}`)) === "blob") {
+    const old = await git.read("show", `${base}:${path}`);
+    const deleted = old.length > 1 << 20 || old.includes("\u0000") ? undefined : old;
+    return { path, text: null, note: `deleted in this review${deleted == null ? " (binary or larger than 1 MB)" : ""}`, deleted, hunks: [] };
+  }
   if (!known) throw new Error("not a project file");
   const full = resolve(root, path);
   if (statSync(full).size > 1 << 20) return { path, text: null, note: "file larger than 1 MB", hunks: [] };

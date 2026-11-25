@@ -27,12 +27,11 @@
     { id: "git", word: "Git", label: "Git: changes and history", icon: "M5 3v10M5 9c0-2 6-1 6-4.5M5 3.2a1.2 1.2 0 1 0 0 .1M11 4.3a1.2 1.2 0 1 0 0 .1M5 12.8a1.2 1.2 0 1 0 0 .1" },
     { id: "project", word: "Project", label: "Project: features, tests, guardrails", icon: "M8 2.5l5.5 3-5.5 3-5.5-3zM2.5 8.5l5.5 3 5.5-3M2.5 11.5l5.5 3 5.5-3" },
   ];
-  // In a workspace, each project's git section folds from its name (remembered).
-  let gitShut = $state<string[]>((() => { try { return JSON.parse(store.get("cockpit-git-projects-shut", "[]")); } catch { return []; } })());
-  const foldGit = (name: string) => {
-    gitShut = gitShut.includes(name) ? gitShut.filter((x) => x !== name) : [...gitShut, name];
-    store.set("cockpit-git-projects-shut", JSON.stringify(gitShut));
-  };
+  // In a workspace, one project's git at a time, picked from a tab per project (remembered).
+  let gitProj = $state(store.get("cockpit-git-project", ""));
+  const gitP = $derived(projects.find((x) => x.name === gitProj) ?? projects.find((x) => x.here) ?? projects[0]);
+  const pickGit = (name: string) => { gitProj = name; store.set("cockpit-git-project", name); gpMenu = null; };
+  let gpMenu = $state<{ x: number; y: number; w: number } | null>(null);
   const badge = (id: Side) => (id === "git" ? projects.reduce((n, x) => n + x.L.status.length, 0) : id === "project" ? wrong : 0);
 </script>
 
@@ -53,18 +52,32 @@
   </div>
   <div id="sidebody">
     {#if ui.side === "files"}<FileTree />{:else if ui.side === "git"}
+      <!-- the git pane fills the side's height: its history takes what's left and scrolls in itself -->
+      <div class="gitwrap">
       {#if many}
-        <!-- one repository per project, like VS Code's source control in a multi-root workspace -->
-        {#each projects as p (p.name)}
-          {@const shut = gitShut.includes(p.name)}
-          <div class="gproj">
-            <button class="gprojhead" onclick={() => foldGit(p.name)} title={p.path} aria-expanded={!shut}>
-              <svg class="chev" class:open={!shut} viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M6 4l4 4-4 4" /></svg>
-              <span>{p.name}</span>{#if p.L.status.length}<span class="gcount">{p.L.status.length}</span>{/if}
-            </button>
-            {#if !shut}<GitPane {p} />{/if}
-          </div>
-        {/each}
-      {:else}<GitPane />{/if}{:else}<ProjectPane />{/if}
+        <!-- one repository shown, picked from a list of the projects (any number fits); the
+             others' uncommitted files are counted on the picker so they aren't missed -->
+        {@const others = projects.filter((x) => x !== gitP).reduce((n, x) => n + x.L.status.length, 0)}
+        <button class="gprojpick" class:on={!!gpMenu} title="{gitP.path}: pick another project" onclick={(e) => {
+          const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); gpMenu = gpMenu ? null : { x: r.left, y: r.bottom + 4, w: r.width };
+        }}>
+          <span class="gpname">{gitP.name}</span>{#if gitP.L.status.length}<span class="gcount">{gitP.L.status.length}</span>{/if}
+          <span class="grow"></span>{#if others}<span class="gpother" title="{others} uncommitted file{others > 1 ? 's' : ''} in the other projects">+{others} elsewhere</span>{/if}
+          <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+        </button>
+        {#key gitP.name}<GitPane p={gitP} />{/key}
+      {:else}<GitPane />{/if}
+      </div>{:else}<ProjectPane />{/if}
   </div>
 </nav>
+{#if gpMenu}
+  <div class="cmenu-back" role="presentation" onpointerdown={() => (gpMenu = null)}></div>
+  <div class="cmenu gprojmenu" role="menu" style="left:{gpMenu.x}px;top:{gpMenu.y}px;width:{gpMenu.w}px">
+    {#each projects as p (p.name)}
+      <button role="menuitem" class:cur={p === gitP} onclick={() => pickGit(p.name)} title={p.path}>
+        <span class="cl">{p.name}</span>{#if p.L.status.length}<span class="gcount">{p.L.status.length}</span>{/if}
+      </button>
+    {/each}
+  </div>
+{/if}
+<svelte:window onkeydown={(e) => { if (gpMenu && e.key === "Escape") gpMenu = null; }} />

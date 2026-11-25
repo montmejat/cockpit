@@ -15,7 +15,8 @@
   import { lspKey, lspStatus, serverOf } from "../lib/lsp.svelte";
   import type { Hunk } from "../lib/types";
 
-  type FileData = { path: string; text: string | null; hash?: string; note?: string; error?: string; hunks: Hunk[] };
+  // `deleted`: a file the review deletes, as it was at the review's base (shown read-only, as removed).
+  type FileData = { path: string; text: string | null; hash?: string; note?: string; deleted?: string; error?: string; hunks: Hunk[] };
   type CommitData = { sha: string; subject: string; author: string; date: string; body: string; patch: string; error?: string };
 
   const tab = $derived(cur());
@@ -112,6 +113,9 @@
       {/if}
     </div>
     {#if !file}<div class="dbody"><p class="dnote">loading…</p></div>
+    {:else if file.path === path && file.text == null && file.deleted != null}
+      <div class="dbody ddel"><p class="dnote">Deleted in this review: what it was on {L.review?.target ?? "the target"}.</p>
+        <pre class="ddellines">{#each file.deleted.split("\n") as ln, i}<span class="dl"><i>{i + 1}</i>{ln}{"\n"}</span>{/each}</pre></div>
     {:else if file.path === path && (file.error || file.text == null)}<div class="dbody"><p class="dnote">{file.error ?? file.note}</p></div>
     {/if}
     <div class="ewrap" hidden={!file || (file.path === path && file.text == null)}>
