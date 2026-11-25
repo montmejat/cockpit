@@ -146,6 +146,8 @@
   const view = $derived(viewing());
   let sentView = $state(""), skipView = $state("");
   const shownView = $derived(view && view.key !== sentView && view.key !== skipView ? view : null);
+  // What's open, removed or already sent: offered again, faintly, for one click to add it back.
+  const offeredView = $derived(view && !shownView ? view : null);
   const post = (what: string, body: object = {}) => api.post("api/chat/" + what, { pane, ...body });
   function send() {
     const t = text.trim();
@@ -335,12 +337,10 @@
         {/each}
       </div>
     {/if}
-    {#if attached.length || shownView}
-      <div class="cchips pending">
-        {#if shownView}<span class="cchip cview" title={"Sent with your message, so the agent knows what \"this\" is:\n\n" + shownView.text.split("\n").slice(1).join("\n")}>{shownView.label}<button type="button" title="Don't send it" aria-label="Don't send what's open" onclick={() => (skipView = shownView!.key)}>×</button></span>{/if}
-        {#each attached as a, i (a.label)}<span class="cchip" class:bad={a.bad} title={a.text.length > 1500 ? a.text.slice(0, 1500) + "\n…" : a.text}>{a.label}<button type="button" title="Remove" aria-label="Remove" onclick={() => (attached = attached.filter((_, j) => j !== i))}>×</button></span>{/each}
-      </div>
-    {/if}
+    <!-- the message box: what goes with the message (chips, pasted images) inside it, above the text;
+         a click on its empty part puts the cursor in the text -->
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="cinput" onclick={(e) => { if (e.target === e.currentTarget) ta?.focus(); }}>
     {#if images.length || pasteErr}
       <div class="cthumbs pending">
         {#each images as img, i}<span class="cthumb"><img src={img.thumb} alt="pasted" /><button type="button" title="Remove" aria-label="Remove image" onclick={() => (images = images.filter((_, j) => j !== i))}>×</button></span>{/each}
@@ -350,6 +350,13 @@
     <textarea onpaste={onPaste} ondrop={onDrop} rows="3" bind:this={ta} bind:value={text} placeholder="Ask the agent…"
       onkeydown={(e) => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } else if (e.key === "Backspace" && !text && attached.length) { e.preventDefault(); attached = attached.slice(0, -1); } }}></textarea>
     <div class="crow">
+      {#if attached.length || shownView || offeredView}
+      <div class="cchips pending">
+        {#if shownView}<span class="cchip cview" title={"Sent with your message, so the agent knows what \"this\" is:\n\n" + shownView.text.split("\n").slice(1).join("\n")}>{shownView.label}<button type="button" title="Don't send it" aria-label="Don't send what's open" onclick={() => (skipView = shownView!.key)}><svg viewBox="0 0 10 10" width="8" height="8" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></button></span>
+        {:else if offeredView}<button type="button" class="cchip cadd" title="Send what's open with your message" onclick={() => { skipView = ""; sentView = ""; }}>+ {offeredView.label}</button>{/if}
+        {#each attached as a, i (a.label)}<span class="cchip" class:bad={a.bad} title={a.text.length > 1500 ? a.text.slice(0, 1500) + "\n…" : a.text}>{a.label}<button type="button" title="Remove" aria-label="Remove" onclick={() => (attached = attached.filter((_, j) => j !== i))}><svg viewBox="0 0 10 10" width="8" height="8" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" /></svg></button></span>{/each}
+      </div>
+      {/if}
       {#if busy}<span class="muted cwork"><span class="spin"></span>working…</span>{/if}
       <span class="grow"></span>
       {#if models.length > 1}<Menu up label="Model the agent answers with" value={model} options={models} onpick={(m) => { model = m; post("model", { model }); }} />{/if}
@@ -394,6 +401,7 @@
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M8 13V3.5M3.75 7.5 8 3.25l4.25 4.25" /></svg>
         </button>
       {/if}
+    </div>
     </div>
   </form>
 </section>

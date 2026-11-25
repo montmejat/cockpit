@@ -17,6 +17,7 @@ export interface Desktop {
   minimize(): Promise<boolean>;
   toggleMaximize(): Promise<boolean>;
   close(): Promise<boolean>;
+  restart?(): Promise<boolean | { error: string }>; // a new server for the project shown (not in apps built before it)
 }
 declare global { interface Window { INIT: Live & { terminals: TermMeta[] }; cockpitDesktop?: Desktop } }
 

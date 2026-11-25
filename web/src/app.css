@@ -55,7 +55,7 @@ header{position:relative}
 .trow{display:flex;justify-content:space-between;gap:8px;padding:2px 0;font-size:var(--fs-m);border-top:1px solid var(--line)}
 #project details summary,#ncard details summary{cursor:pointer;padding:2px 0}#project a.tname{display:block;padding:1px 0 1px 14px;font-size:var(--fs-s)}
 .livepill{display:inline-flex;align-items:center;gap:6px;border:0;font:inherit;font-size:var(--fs-s);background:color-mix(in oklab,var(--fg) 7%,transparent);color:var(--muted);border-radius:var(--r-pill);padding:1px 9px;cursor:default}button.livepill{cursor:pointer}button.livepill:hover{color:var(--fg)}
-.livedot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:breathe 1.6s ease-in-out infinite}
+.livedot{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:breathe 1.6s ease-in-out infinite}.livedot.stale{background:var(--warn);animation:none}
 @keyframes breathe{50%{opacity:.55}}
 
 main{flex:1;min-height:0;display:flex;position:relative}
@@ -295,7 +295,14 @@ body.desktop header.wleft{padding-left:6px}
 /* pasted images: thumbnails in the message, and above the box before sending (× removes one) */
 .cthumbs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}.cthumbs img{display:block;max-width:160px;max-height:110px;border-radius:var(--r-m);border:1px solid var(--line)}
 .cthumbs.pending{align-items:center}.cthumbs.pending img{max-width:72px;max-height:56px}
-.cchips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}.cchips.pending{padding:0 2px}
+.cchips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:6px}
+.cinput .cchips.pending{flex-wrap:nowrap;gap:4px;min-width:0;margin:0;padding:0;overflow:hidden}
+.cinput .cchip{flex:0 1 auto;min-width:0;gap:2px;padding:0 2px 0 7px;border:0;border-radius:var(--r-s);background:color-mix(in oklab,var(--fg) 7%,transparent);font-family:inherit;font-size:var(--fs-xs);line-height:var(--ctl-s);color:var(--muted);cursor:default}
+.cinput .cchip.cview{background:none;box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--fg) 12%,transparent)}
+.cinput .cchip.bad{color:var(--bad)}
+.cinput button.cchip.cadd{padding:0 7px;font-weight:inherit;background:none;opacity:.7;cursor:pointer}.cinput button.cchip.cadd:hover{opacity:1;background:color-mix(in oklab,var(--fg) 7%,transparent)}
+.cinput .cchip button svg{display:block;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+.cinput .cchip button{flex:none;width:var(--ctl-xs);height:var(--ctl-xs);padding:0;border-radius:var(--r-s);display:grid;place-items:center;opacity:.6}.cinput .cchip button:hover{opacity:1;background:color-mix(in oklab,var(--fg) 12%,transparent)}
 .cchip{position:relative;display:inline-flex;align-items:center;gap:6px;max-width:100%;padding:2px 8px;border:1px solid var(--line);border-radius:var(--r-m);background:var(--card);font:var(--fs-s)/1.5 "JetBrains Mono",ui-monospace,monospace;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cchip.bad{border-color:color-mix(in srgb,var(--bad) 45%,var(--line))}
 .cchip.cview{border-style:dashed}
@@ -329,8 +336,10 @@ body.desktop header.wleft{padding-left:6px}
 .cnote{color:var(--muted);font-style:italic;font-size:var(--fs-s)}.cnote.bad{color:var(--bad)}
 .cempty{color:var(--fg);padding:8px 0}.cempty button{margin-top:6px}
 .composer{border-top:1px solid var(--line);padding:8px}
-.composer textarea{display:block;width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:var(--fs-m);line-height:18px;max-height:calc(14 * 18px + 14px);overflow-y:auto;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:var(--r-m);padding:6px 8px;outline:none}
-.composer textarea:focus{border-color:var(--accent)}
+.cinput{background:var(--bg);border:1px solid var(--line);border-radius:var(--r-m);cursor:text}.cinput:focus-within{border-color:var(--accent)}
+.cinput .cthumbs.pending{margin:0;padding:6px 6px 0}
+.cinput .crow{margin:0;padding:0 6px 6px 6px}
+.composer textarea{display:block;width:100%;box-sizing:border-box;resize:none;font:inherit;font-size:var(--fs-m);line-height:18px;max-height:calc(14 * 18px + 14px);overflow-y:auto;color:var(--fg);background:none;border:0;padding:6px 8px;outline:none}
 .crow{display:flex;align-items:center;gap:6px;margin-top:6px;font-size:var(--fs-s)}
 button.csend{display:grid;place-items:center;flex:none;width:var(--ctl);height:var(--ctl);padding:0;border:0;border-radius:50%;background:var(--accent);color:var(--on-accent)}
 button.csend:hover{background:color-mix(in oklab,var(--accent) 88%,var(--shade))}
@@ -663,8 +672,8 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 .rule .rtext{flex:1;min-width:0}
 .rdot{width:8px;height:8px;border-radius:50%;flex:none;border:1.5px solid var(--muted)}
 .r-ok .rdot{background:var(--ok);border-color:var(--ok)}.r-bad .rdot{background:var(--bad);border-color:var(--bad)}.r-prose .rdot{border-style:dashed;border-color:var(--warn)}
-.cchip{font-size:var(--fs-xs);border:1px solid var(--line);border-radius:var(--r-pill);padding:0 7px;color:var(--muted);flex:none}
-.cchip.ok{border-color:color-mix(in oklab,var(--ok) 50%,var(--line));color:var(--ok)}.cchip.bad{border-color:var(--bad);color:var(--bad)}
+#guardrails .cchip{font-size:var(--fs-xs);border:1px solid var(--line);border-radius:var(--r-pill);padding:0 7px;color:var(--muted);flex:none}
+#guardrails .cchip.ok{border-color:color-mix(in oklab,var(--ok) 50%,var(--line));color:var(--ok)}#guardrails .cchip.bad{border-color:var(--bad);color:var(--bad)}
 .rule .why{margin:2px 0 2px 20px;font-size:var(--fs-m)}.rule .rmeta{margin:0 0 6px 20px;font-size:var(--fs-s);display:flex;gap:10px}
 .band .files{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;font-size:var(--fs-s)}
 #guardrails .checks{display:flex;flex-direction:column;gap:4px}

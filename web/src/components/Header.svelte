@@ -70,6 +70,11 @@
     if (r?.error) { projNote = r.error; return; }
     location.reload(); // the page learns its projects when it loads (the host's: src/workspace-host.ts)
   }
+  // Cockpit's server code changed: the desktop app starts a new server for this project.
+  async function restart() {
+    if (dirtyFiles.size && !await confirmLoss(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Restart cockpit anyway?`, "Restart without saving")) return;
+    await win?.restart?.();
+  }
   async function openFolder(path?: string) {
     if (dirtyFiles.size && !await confirmLoss(`${dirtyFiles.size} file${dirtyFiles.size > 1 ? "s have" : " has"} unsaved changes. Open another folder anyway?`, "Open without saving")) return;
     projNote = "";
@@ -122,9 +127,11 @@
   {/if}
   <!-- cockpit itself changed: its server code needs a restart, or the page a reload -->
   {#if S.cockpit?.restart.length}
-    <span class="pill gpill bad" title={"Cockpit's server code changed since it started (" + S.cockpit.restart.join(", ") + "); restart cockpit to run it. A page reload is not enough."}>⟳ restart cockpit</span>
+    {@const tip = "Cockpit's server code changed since it started (" + S.cockpit.restart.join(", ") + ")."}
+    {#if win?.restart}<button class="livepill" title={tip + " Click to restart it: this project's terminals and agents restart too."} onclick={restart}><i class="livedot stale"></i>restart cockpit</button>
+    {:else}<span class="livepill" title={tip + " Restart its server to run the new code; a page reload is not enough."}><i class="livedot stale"></i>restart cockpit</span>{/if}
   {:else if S.cockpit && bootPage && S.cockpit.page !== bootPage}
-    <button class="pill gpill warn" title="Cockpit's page was rebuilt since this one loaded" onclick={() => location.reload()}>⟳ reload page</button>
+    <button class="livepill" title="Cockpit's page was rebuilt since this one loaded. Click to reload it." onclick={() => location.reload()}><i class="livedot stale"></i>reload page</button>
   {/if}
   <!-- Guardrails speak up only when a check fails; otherwise they live in the sidebar's project tab -->
   {#if S.guardrails.on}

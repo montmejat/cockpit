@@ -57,6 +57,7 @@ const BRIDGE: &str = r#"(() => {
     minimize: () => call("minimize"),
     toggleMaximize: () => call("toggle_maximize"),
     close: () => call("close"),
+    restart: () => call("restart"),
   };
 })();"#;
 
@@ -238,6 +239,17 @@ fn open(project: PathBuf) {
     });
 }
 
+/// Stop `project`'s server and show it again, on a new one. Taken off the list first, so its thread
+/// doesn't report it as stopped.
+fn restart(project: PathBuf) {
+    let old = {
+        let mut all = SERVERS.lock().unwrap();
+        all.iter().position(|s| s.project == project).map(|i| all.remove(i))
+    };
+    if let Some(s) = old { unsafe { libc::kill(s.pid, libc::SIGTERM) }; }
+    open(project);
+}
+
 /// Ask for a folder; `done` gets it, or None when cancelled.
 fn pick_folder(done: impl FnOnce(Option<PathBuf>) + 'static) {
     let Some(ui) = ui() else { return done(None) };
@@ -355,6 +367,12 @@ fn on_message(ui: &Ui, msg: &str, reply: webkit6::ScriptMessageReply, ctx: javas
             answer(true.into())
         }
         "close" => { win.close(); answer(true.into()) }
+        // Cockpit's own code changed: the project shown gets a new server running it (its terminals
+        // and agents stop with the old one). The others keep theirs until they're restarted too.
+        "restart" => match CURRENT.lock().unwrap().clone() {
+            Some(project) => { answer(true.into()); restart(project) }
+            None => answer(serde_json::json!({ "error": "no project open" })),
+        },
         // Another cockpit window, which asks for its project: this app again, as its own process
         // (it allows several), with the same environment (the patched WebKit's path included).
         "new_window" => match std::env::current_exe().and_then(|exe| Command::new(exe).arg("--pick").stdin(Stdio::null()).spawn()) {
