@@ -71,6 +71,24 @@ by piece, and the UI later once it stops changing.
 Working on the page: `npm run dev:web` rebuilds it on every change; reload to see it (Ctrl+R or
 F5 in the desktop app).
 
+### Releases
+
+`desktop/install.sh` makes the app run this checkout: what you (or an agent) edit is what runs.
+To run a tested version instead, install a release:
+
+```sh
+desktop/release.sh              # fetch, build the newest release and switch the app to it
+desktop/release.sh list         # the releases: * in use, + installed
+desktop/release.sh v2026.11.25.1   # switch to that one (back to an older one, say)
+```
+
+CI (`.github/workflows/ci.yml`) runs the guardrails' checks on every push, on Fedora so the
+desktop app builds too: `npm run guardrails` runs the same ones locally. Each push to master
+that passes is tagged `vYYYY.MM.DD.N` (with a GitHub release listing its commits). A release is
+built where it runs, in `~/.local/share/cockpit/releases/<tag>`, the newest 5 kept; the project
+tab ends with which cockpit runs (`cockpit v2026.11.25.1`, or `cockpit dev …` from a checkout).
+Running windows keep their version until they're reopened.
+
 ## Where cockpit keeps things
 
 Nothing about the projects you open is kept in this checkout:

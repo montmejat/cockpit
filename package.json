@@ -10,6 +10,7 @@
     "dev:web": "vite build --watch --config web/vite.config.ts",
     "check": "node node_modules/@typescript/native/bin/tsc --noEmit",
     "check-arch": "tsx src/check-arch.ts",
+    "guardrails": "tsx src/guardrails-cli.ts",
     "modules": "tsx src/modules.ts",
     "shot": "tsx src/shot.ts",
     "test": "node --import tsx --test test/*.test.ts"

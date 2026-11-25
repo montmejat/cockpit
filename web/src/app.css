@@ -522,6 +522,7 @@ button.gitfile{padding:2px 12px}button.tpick{padding:3px 12px}
 #palette .pin{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
 #palette input[type=text]{flex:1;font:inherit;font-size:var(--fs-m);color:var(--fg);background:none;border:0;outline:0;min-width:0}
 #palette .pin label{font-size:var(--fs-s);color:var(--muted);display:flex;gap:3px;align-items:center;cursor:pointer}
+.pver{margin:8px 12px 0;font-size:var(--fs-xs);color:var(--muted)}
 #palette .plist{overflow:auto;padding:4px;border:0;border-radius:0;background:none} /* not the project tab's .plist card: the box is the card */
 #palette button.prow{display:flex;gap:10px;width:100%;font:inherit;font-size:var(--fs-m);color:var(--fg);background:none;border:0;border-radius:var(--r-m);padding:4px 8px;text-align:left;cursor:pointer;white-space:nowrap}
 #palette button.prow.on{background:var(--sel)}

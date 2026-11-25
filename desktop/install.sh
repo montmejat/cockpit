@@ -1,14 +1,19 @@
 #!/bin/sh
 # Builds the desktop app and adds it to the app menu for this user (~/.local).
 # The binary runs the cockpit sources from this checkout (or $COCKPIT_HOME), so keep the checkout where it is.
+# desktop/release.sh runs this inside a release instead, so the binary runs that release.
 set -e
 cd "$(dirname "$0")"
-(cd .. && npm install --no-audit --no-fund && npm run build)   # the page the window shows
+(cd .. && npm "${NPM_INSTALL:-install}" --no-audit --no-fund && npm run build)   # the page the window shows
 cargo build --release
 mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/512x512/apps
-install -m 755 target/release/cockpit ~/.local/bin/cockpit
+install -m 755 "${CARGO_TARGET_DIR:-target}/release/cockpit" ~/.local/bin/cockpit
 install -m 644 icons/icon.png ~/.local/share/icons/hicolor/512x512/apps/cockpit.png
-# A patched WebKitGTK for 120Hz on NVIDIA (README), for the launcher only.
+# A patched WebKitGTK for 120Hz on NVIDIA (README), for the launcher only. Kept from the last install
+# when not given, so reinstalling (or a release) doesn't drop it.
+if [ -z "$COCKPIT_WEBKIT_LIB" ] && [ -f ~/.local/share/applications/cockpit.desktop ]; then
+  COCKPIT_WEBKIT_LIB=$(sed -n 's/^Exec=env LD_LIBRARY_PATH=\([^ ]*\) .*/\1/p' ~/.local/share/applications/cockpit.desktop | head -1)
+fi
 EXEC="$HOME/.local/bin/cockpit"
 [ -n "$COCKPIT_WEBKIT_LIB" ] && EXEC="env LD_LIBRARY_PATH=$COCKPIT_WEBKIT_LIB $EXEC"
 cat > ~/.local/share/applications/cockpit.desktop <<DESKTOP

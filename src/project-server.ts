@@ -17,6 +17,7 @@ import { createChat, IMAGE_TYPES } from "./chat.ts";
 import { createIndex } from "./codeindex.ts";
 import { itemKey } from "./skeleton.ts";
 import { COCKPIT, outDir, turnsDir } from "./turns.ts";
+import { VERSION } from "./version.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview, threadsText } from "./review.ts";
@@ -150,7 +151,7 @@ function freshness() {
   const mtime = (f: string) => { try { return statSync(f).mtimeMs; } catch { return 0; } };
   let restart: string[] = [];
   try { restart = readdirSync(join(COCKPIT, "src")).filter((f) => f.endsWith(".ts") && mtime(join(COCKPIT, "src", f)) > startedAt); } catch {}
-  return { restart, page: Math.round(mtime(join(WEB, "index.html"))) };
+  return { restart, page: Math.round(mtime(join(WEB, "index.html"))), ...VERSION };
 }
 
 function workspaceState() {

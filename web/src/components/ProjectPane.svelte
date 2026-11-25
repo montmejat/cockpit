@@ -117,5 +117,7 @@
         <span class="pval" class:bad={fail > 0} class:warn={gr.on && !gr.trusted && !fail}>{!gr.on ? "off" : !gr.trusted ? "not trusted" : gr.running.length ? "checking…" : fail ? `${fail} failing` : "✓"}</span><span class="pchev">›</span></button>
       <div class="lrow static"><span>Size</span><span class="pval">{(S.lines / 1000).toFixed(1)}k lines</span></div>
     </div>
+    <!-- which cockpit runs: a release (desktop/release.sh) or a checkout -->
+    {#if S.cockpit}<div class="pver" title={S.cockpit.release ? "an installed release (desktop/release.sh)" : "run from a checkout: what you edit is what runs"}>cockpit {S.cockpit.version}</div>{/if}
   {/if}
 </div>

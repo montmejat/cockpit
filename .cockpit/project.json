@@ -64,7 +64,7 @@
       "name": "Guardrails",
       "status": "working",
       "description": "Checks (commands) and rules (with why and enforcement layer) in .cockpit/guardrails.json, run at the end of a turn that edited files; the agent is sent back for checks it broke. They are the project's own shell commands, so none run until you trust them as they are (again after a pull or branch changes them; the chat agent's own edits are trusted).",
-      "modules": ["cockpit/guardrails", "cockpit/web/src/components/Guardrails", "cockpit/shot"]
+      "modules": ["cockpit/guardrails", "cockpit/guardrails-cli", "cockpit/web/src/components/Guardrails", "cockpit/shot"]
     },
     {
       "id": "private-and-workspaces",
@@ -81,6 +81,13 @@
       "description": "Builds the modules and items that .cockpit/ links name: rust-analyzer or scip-clang SCIP indexes, or cockpit's own scanners for Zig and TypeScript/JavaScript (with a Rust crate beside a TypeScript project added in). The modules and check-arch commands print and check against it.",
       "modules": ["cockpit/codeindex", "cockpit/indexer", "cockpit/skeleton", "cockpit/skeleton-cpp", "cockpit/skeleton-zig", "cockpit/skeleton-ts", "cockpit/modules", "cockpit/check-arch"],
       "note": "The TypeScript scanner doesn't follow tsconfig path aliases, and a quote in JSX text can confuse it for the rest of that file."
+    },
+    {
+      "id": "releases",
+      "name": "CI and releases",
+      "status": "working",
+      "description": "GitHub CI (.github/workflows/ci.yml, on Fedora) runs the guardrails' checks on every push and pull request through npm run guardrails, the same ones a turn ends with; when master passes it is tagged vYYYY.MM.DD.N with a GitHub release. desktop/release.sh installs a tag on its own (~/.local/share/cockpit/releases, newest 5 kept) and points the app at it, or goes back to an older one; the project tab says which cockpit runs, a release or a checkout.",
+      "modules": ["cockpit/version", "cockpit/guardrails-cli"]
     },
     {
       "id": "desktop-app",

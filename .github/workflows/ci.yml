@@ -1,0 +1,62 @@
+# Every push and pull request runs the guardrails' checks (.cockpit/guardrails.json, through
+# npm run guardrails): the same ones an agent is held to at the end of a turn in cockpit. On Fedora,
+# as on the machine cockpit runs on (its Node 22, its Rust), so the GTK desktop app builds too.
+# When master passes, it is tagged vYYYY.MM.DD.N: a release, which desktop/release.sh installs.
+name: CI
+on:
+  push:
+    branches: [master]
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    container: fedora:45
+    steps:
+      - name: Tools and the desktop app's libraries
+        run: >
+          dnf install -y --setopt=install_weak_deps=False
+          git tar xz zstd gcc gcc-c++ make python3 nodejs npm cargo rust
+          gtk4-devel libadwaita-devel webkitgtk6.0-devel
+      - uses: actions/checkout@v4
+      - name: Git, for the tests that make repositories
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global user.name ci
+          git config --global user.email ci@localhost
+          git config --global init.defaultBranch master
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.cargo/registry
+            desktop/target
+          key: deps-${{ hashFiles('package-lock.json', 'desktop/Cargo.lock') }}
+          restore-keys: deps-
+      - run: npm ci --no-audit --no-fund
+      - run: npm run guardrails
+
+  release:
+    needs: checks
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag it vYYYY.MM.DD.N, with a GitHub release listing what changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if t=$(git describe --exact-match --tags --match 'v*' HEAD 2>/dev/null); then echo "already $t"; exit 0; fi
+          d=$(date -u +%Y.%m.%d); n=1
+          while git rev-parse -q --verify "refs/tags/v$d.$n" >/dev/null; do n=$((n+1)); done
+          git tag "v$d.$n" && git push origin "v$d.$n"
+          gh release create "v$d.$n" --generate-notes --title "v$d.$n"

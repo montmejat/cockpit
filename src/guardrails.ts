@@ -119,7 +119,7 @@ export function lastResults(project: string): Record<string, CheckResult> {
 // The last lines are where a failure is explained (compilers and test runners end with the summary).
 const tail = (s: string, lines = 60) => s.split("\n").slice(-lines).join("\n").trim();
 
-function runOne(root: string, c: Check): Promise<CheckResult> {
+export function runOne(root: string, c: Check): Promise<CheckResult> {
   const t0 = Date.now();
   return new Promise((done) => {
     let out = "";
