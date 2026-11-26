@@ -44,6 +44,8 @@ if [ ! -f "$dest/.built" ]; then
 else
   sh "$dest/desktop/install.sh" >/dev/null   # its binary and app menu entry again
 fi
+# Where it came from: the release looks there for newer tags and installs them (src/update.ts).
+echo "$REPO" > "$dest/CHECKOUT"
 ln -sfn "$tag" "$DIR/current"
 
 # The newest 5 stay (and the one in use, if older); a window still open on a removed one keeps

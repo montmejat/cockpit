@@ -63,9 +63,20 @@ const BRIDGE: &str = r#"(() => {
 
 /// Where the cockpit sources live (src/serve.ts, node_modules). Defaults to the checkout this was built from.
 fn cockpit_home() -> PathBuf {
-    std::env::var_os("COCKPIT_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf())
+    if let Some(h) = std::env::var_os("COCKPIT_HOME") {
+        return PathBuf::from(h);
+    }
+    let built = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+    // Built inside a release (releases/<tag>): run the one installed last (releases/current), so an
+    // update installed from the page (src/update.ts) runs on the next restart, no reopening.
+    if let Some(dir) = built.parent().filter(|d| d.file_name().is_some_and(|n| n == "releases")) {
+        if let Ok(cur) = std::fs::canonicalize(dir.join("current")) {
+            if cur.join(".built").is_file() {
+                return cur;
+            }
+        }
+    }
+    built
 }
 
 /// The node to run the server with: $COCKPIT_NODE, else node on PATH, else the newest one nvm

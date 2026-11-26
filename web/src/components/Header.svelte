@@ -15,6 +15,8 @@
 
   // Desktop app (desktop/, GTK 4): no system title bar, so the header drags the window.
   const win = window.cockpitDesktop;
+  // A newer release of cockpit, being installed, or installed (src/update.ts).
+  const up = $derived(S.cockpit?.update);
   let maximized = $state(false);
   const wb = windowButtons(); // GNOME's layout: which buttons, which side
   if (win) {
@@ -124,6 +126,13 @@
       <span class="muted">{r.files.length} files</span>
       <button title="End the review" onclick={() => api.post("api/review/stop", { back: false })}>✕</button>
     </span>
+  {/if}
+  <!-- a newer release of cockpit (src/update.ts): install it, then restart into it -->
+  {#if up?.busy}<span class="livepill" title="Installing cockpit {up.latest ?? ''}"><span class="spin"></span>updating</span>
+  {:else if up?.installed}
+    {#if win?.restart}<button class="livepill" title="Cockpit {up.installed} is installed: restart into it" onclick={restart}><i class="livedot"></i>restart</button>
+    {:else}<span class="livepill" title="Cockpit {up.installed} is installed: reopen cockpit to run it"><i class="livedot"></i>reopen</span>{/if}
+  {:else if up?.latest}<button class="livepill" title={up.error ?? `Cockpit ${up.latest} is out: install it`} onclick={() => api.post("api/cockpit/update", {})}><i class="livedot" class:stale={!!up.error}></i>{up.error ? "update failed" : "update"}</button>
   {/if}
   <!-- cockpit itself changed: its server code needs a restart, or the page a reload -->
   {#if S.cockpit?.restart.length}

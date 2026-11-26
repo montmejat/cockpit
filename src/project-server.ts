@@ -18,6 +18,7 @@ import { createIndex } from "./codeindex.ts";
 import { itemKey } from "./skeleton.ts";
 import { COCKPIT, outDir, turnsDir } from "./turns.ts";
 import { VERSION } from "./version.ts";
+import { installUpdate, update, watchUpdates } from "./update.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview, threadsText } from "./review.ts";
@@ -155,7 +156,7 @@ function freshness() {
   const mtime = (f: string) => { try { return statSync(f).mtimeMs; } catch { return 0; } };
   let restart: string[] = [];
   try { restart = readdirSync(join(COCKPIT, "src")).filter((f) => f.endsWith(".ts") && mtime(join(COCKPIT, "src", f)) > startedAt); } catch {}
-  return { restart, page: Math.round(mtime(join(WEB, "index.html"))), ...VERSION };
+  return { restart, page: Math.round(mtime(join(WEB, "index.html"))), ...VERSION, update: update() };
 }
 
 function workspaceState() {
@@ -272,6 +273,7 @@ syncWatchers();
 index.onChange(() => changed());
 void index.refresh();
 setInterval(() => changed(), 20_000); // in case a watcher missed something
+watchUpdates(() => changed()); // a newer release of cockpit (update.ts)
 
 // ---- page ----------------------------------------------------------------
 
@@ -367,6 +369,7 @@ const routes: Record<string, Handler> = {
   "POST /api/private/enable": post(async () => { await priv.enable(); await recompute(); }),
   "POST /api/private/disable": post(async () => { priv.disable(); await recompute(); }),
   "POST /api/private/sync": post(async () => { await priv.sync(); await recompute(); }),
+  "POST /api/cockpit/update": post(() => installUpdate(() => changed())),
   "POST /api/review/stop": post(async ({ back }) => { await review.stop(!!back); await recompute(); }),
   "POST /api/review/threads": post(async () => { await review.refreshThreads(); await recompute(); return review.threads().error ? { error: review.threads().error } : {}; }),
 
