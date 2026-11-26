@@ -75,11 +75,20 @@ export function createWorkspace(name: string, paths: string[]) {
 export function addToWorkspace(dir: string, path: string) {
   const paths = pathsIn(dir);
   if (!paths) throw new Error("not a workspace");
-  const p = real(path);
+  const p = expand(path.trim());
   if (!existsSync(p)) throw new Error(`${path} doesn't exist`);
   if (paths.includes(p)) throw new Error(`${basename(p)} is in this workspace already`);
   if (paths.some((x) => basename(x) === basename(p))) throw new Error(`there is a project named ${basename(p)} in this workspace already`);
   writeFileSync(join(dir, FILE), JSON.stringify({ projects: [...paths, p].map(tilde) }, null, 1) + "\n");
+}
+// A project out of a workspace (its folder stays as it is); the last one stays.
+export function removeFromWorkspace(dir: string, name: string) {
+  const paths = pathsIn(dir);
+  if (!paths) throw new Error("not a workspace");
+  const rest = paths.filter((x) => basename(x) !== name);
+  if (rest.length === paths.length) throw new Error(`${name} isn't in this workspace`);
+  if (!rest.length) throw new Error("a workspace keeps one project at least");
+  writeFileSync(join(dir, FILE), JSON.stringify({ projects: rest.map(tilde) }, null, 1) + "\n");
 }
 const tilde = (p: string) => (p.startsWith(homedir() + "/") ? "~" + p.slice(homedir().length) : p);
 

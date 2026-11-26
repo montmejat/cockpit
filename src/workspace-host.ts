@@ -11,7 +11,7 @@ import { join, resolve } from "node:path";
 import { createAuth } from "./auth.ts";
 import { asset, gatedServer, post, type Handler } from "./http.ts";
 import { outDir } from "./turns.ts";
-import { addToWorkspace, loadWorkspace } from "./workspace.ts";
+import { addToWorkspace, loadWorkspace, removeFromWorkspace } from "./workspace.ts";
 import { createWorkspaceServers } from "./workspace-servers.ts";
 
 const args = process.argv.slice(2);
@@ -53,6 +53,13 @@ const routes: Record<string, Handler> = {
     addToWorkspace(dir, path);
     const p = workspace().projects.at(-1)!;
     servers.add(p.name, p.path);
+  }),
+  // A project out of the workspace: its server stops (its folder is untouched). The page goes to
+  // "/" again, another project's when it was this one's.
+  "POST /api/workspace/remove": post(({ name }) => {
+    if (typeof name !== "string") throw new Error("expected a project's name");
+    removeFromWorkspace(dir, name);
+    servers.remove(name);
   }),
 };
 

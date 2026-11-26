@@ -369,10 +369,15 @@ fn on_message(ui: &Ui, msg: &str, reply: webkit6::ScriptMessageReply, ctx: javas
         "close" => { win.close(); answer(true.into()) }
         // Cockpit's own code changed: the project shown gets a new server running it (its terminals
         // and agents stop with the old one). The others keep theirs until they're restarted too.
-        "restart" => match CURRENT.lock().unwrap().clone() {
-            Some(project) => { answer(true.into()); restart(project) }
-            None => answer(serde_json::json!({ "error": "no project open" })),
-        },
+        // The lock is let go before restart: open() takes it again (held through a match, it
+        // deadlocked GTK's thread).
+        "restart" => {
+            let current = CURRENT.lock().unwrap().clone();
+            match current {
+                Some(project) => { answer(true.into()); restart(project) }
+                None => answer(serde_json::json!({ "error": "no project open" })),
+            }
+        }
         // Another cockpit window, which asks for its project: this app again, as its own process
         // (it allows several), with the same environment (the patched WebKit's path included).
         "new_window" => match std::env::current_exe().and_then(|exe| Command::new(exe).arg("--pick").stdin(Stdio::null()).spawn()) {

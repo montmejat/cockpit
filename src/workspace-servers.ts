@@ -98,6 +98,8 @@ export function createWorkspaceServers(ws: Workspace) {
     },
     // A project added to the workspace while the window is open.
     add(name: string, path: string) { if (!children.has(name)) void start(name, path); },
+    // A project taken out of the workspace.
+    remove(name: string) { const c = children.get(name); if (c) { children.delete(name); c.proc.kill("SIGTERM"); } },
     has: (name: string) => children.has(name),
     stopAll() { for (const c of children.values()) c.proc.kill("SIGTERM"); },
   };
