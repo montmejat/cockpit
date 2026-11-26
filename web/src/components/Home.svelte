@@ -43,7 +43,7 @@
   <div class="hwrap">
     <!-- the workspace's name; a lone project is named on its card already -->
     {#if S.workspace}<h1>{S.workspace.name}</h1>{/if}
-    <div class="hgrid">
+    <div class="hgrid raised">
       {#each projects as p (p.name)}
         <div class="hrow">
           <button class="hcard" onclick={() => open(p.name, p.L)} title={p.path}>

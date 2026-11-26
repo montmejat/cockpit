@@ -430,7 +430,7 @@
         {@const rf = refsOf(r.c.refs)}
         {@const sw = switchable(r.c)}
         <div class="grow-wrap">
-        {#if sw.length}<button class="gco" title={sw.length === 1 ? `Switch to ${sw[0]}` : `Switch to one of ${sw.join(", ")}`} aria-label="Switch branch" onclick={(e) => checkoutRow(e, r.c)}>
+        {#if sw.length}<button class="gco raised" title={sw.length === 1 ? `Switch to ${sw[0]}` : `Switch to one of ${sw.join(", ")}`} aria-label="Switch branch" onclick={(e) => checkoutRow(e, r.c)}>
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M5 3v10M5 9c0-2 6-1 6-4.5M5 3.2a1.2 1.2 0 1 0 0 .1M11 4.3a1.2 1.2 0 1 0 0 .1M5 12.8a1.2 1.2 0 1 0 0 .1" /></svg>checkout</button>{/if}
         <button class="grow-row" class:sel={selSha === r.c.sha} onclick={() => commitOf(r.c.sha)} oncontextmenu={(e) => openMenu(e, r.c)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
           {@html graphSvg(r, width)}
