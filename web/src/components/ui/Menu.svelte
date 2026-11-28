@@ -1,8 +1,8 @@
 <script lang="ts" generics="T extends string">
   // A small menu: a quiet trigger showing the current choice, a popover of options. For settings
   // you rarely change, so they don't take a toolbar's room. Closes on a pick, a click outside, Escape.
-  // From the keyboard: ↓ or Enter on the trigger opens it on the current choice, ↑ ↓ Home End move,
-  // Enter picks, Escape or Tab closes (Escape back to the trigger).
+  // From the keyboard: j / ↓ or Enter on the trigger opens it on the current choice, j k (or ↓ ↑),
+  // Home End move, Enter picks, Escape or Tab closes (Escape back to the trigger).
   import { tick } from "svelte";
   let { value, options, label, onpick, up = false }: { value: T; options: readonly T[]; label: string; onpick: (v: T) => void; up?: boolean } = $props();
   let open = $state(false), root: HTMLElement, trig: HTMLButtonElement, list: HTMLElement | undefined = $state();
@@ -15,11 +15,12 @@
   }
   function close(back = true) { open = false; if (back) trig?.focus(); }
   function trigKeys(e: KeyboardEvent) {
-    if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp")) { e.preventDefault(); show(); }
+    if (!open && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "j" || e.key === "k")) { e.preventDefault(); show(); }
   }
   function listKeys(e: KeyboardEvent) {
     const all = items(), i = all.indexOf(document.activeElement as HTMLButtonElement);
-    const to = e.key === "ArrowDown" ? (i + 1) % all.length : e.key === "ArrowUp" ? (i - 1 + all.length) % all.length
+    const down = e.key === "ArrowDown" || e.key === "j", up = e.key === "ArrowUp" || e.key === "k";
+    const to = down ? (i + 1) % all.length : up ? (i - 1 + all.length) % all.length
       : e.key === "Home" ? 0 : e.key === "End" ? all.length - 1 : -1;
     if (to >= 0) { e.preventDefault(); all[to]?.focus(); }
     else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(); }

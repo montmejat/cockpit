@@ -3,7 +3,7 @@
   // (an MR on another merges after it), in your order, each with where it stands. Full in the
   // Merge requests tab; compact in the git panel's review picker (`compact`, one line each).
   //   Your order: drag a row (a stack moves as one; MRs on the same MR among themselves), or
-  //   Alt+↑ / Alt+↓ on the focused row. ↑ ↓ move between rows, Enter reviews.
+  //   Alt+k / Alt+j on the focused row. j k move between rows, Enter reviews (arrows work too).
   //   Filters: all, the ones waiting on your review, yours. A filtered-out MR under a shown one stays, dimmed.
   import { loadMrs, mrsOf, setOrder } from "../lib/mrs.svelte";
   import { ago, bare, moved, need, rows as rowsOf, short, standing, stepped, type Row } from "../lib/mrstack";
@@ -53,13 +53,15 @@
   }
   let listEl: HTMLElement | undefined = $state();
   function keys(e: KeyboardEvent, r: Row, i: number) {
-    if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+    if (e.ctrlKey || e.metaKey) return;
+    const up = e.key === "k" || e.key === "K" || e.key === "ArrowUp", down = e.key === "j" || e.key === "J" || e.key === "ArrowDown";
+    if (e.altKey && (up || down)) {
       e.preventDefault();
-      setOrder(p.base, p.name, stepped(X.order.length ? X.order : shown.map((x) => x.mr.ref), rowsOf(list, X.order), r.mr.ref, e.key === "ArrowUp" ? -1 : 1));
+      setOrder(p.base, p.name, stepped(X.order.length ? X.order : shown.map((x) => x.mr.ref), rowsOf(list, X.order), r.mr.ref, up ? -1 : 1));
       requestAnimationFrame(() => listEl?.querySelector<HTMLElement>(`[data-ref="${CSS.escape(r.mr.ref)}"]`)?.focus());
-    } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+    } else if (up || down) {
       e.preventDefault();
-      listEl?.querySelectorAll<HTMLElement>(".mrrow2")[i + (e.key === "ArrowUp" ? -1 : 1)]?.focus();
+      listEl?.querySelectorAll<HTMLElement>(".mrrow2")[i + (up ? -1 : 1)]?.focus();
     } else if (e.key === "Enter" && e.target === e.currentTarget) { e.preventDefault(); onpick(r.mr); }
   }
 </script>
@@ -126,5 +128,5 @@
       </div>
     {/each}
   </div>
-  {#if !compact && list.length}<p class="mrhint muted">Drag to set your order: a stack moves as one. Alt+↑ / Alt+↓ moves the selected one. Double-click or ◆ reviews.</p>{/if}
+  {#if !compact && list.length}<p class="mrhint muted">j / k to move between them, Alt+j / Alt+k (or drag) to set your order: a stack moves as one. Enter, double-click or ◆ reviews.</p>{/if}
 </div>
