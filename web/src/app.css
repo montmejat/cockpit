@@ -844,3 +844,13 @@ button.ftfold svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:
 button.ftfold.folding svg{animation:foldup .22s cubic-bezier(.2,.8,.3,1)}
 @keyframes foldup{40%{transform:scaleY(.55)}}
 @media (prefers-reduced-motion:reduce){button.ftfold.folding svg{animation:none}}
+
+/* The review under the branch line: one quiet line (the top bar's pill already says what it reviews
+   and how big), not a card. Its files and discussions: a soft block like the work's, review-tinted. */
+.gcard.review.rnow{border:0;background:none;margin:-4px 0 6px;padding:0 10px}
+.rnow .rhead b{font-weight:500;font-size:var(--fs-s);color:var(--rev)}
+.rnow .rwhat{font-size:var(--fs-s)}
+.rnow button.rend{font-size:var(--fs-xs);padding:0 6px;height:auto}
+.grev{margin:2px 8px 6px;padding:4px 6px 6px;border-radius:var(--r-l);background:color-mix(in oklab,var(--rev) 6%,color-mix(in oklab,var(--well) 55%,transparent))}
+#side .grev .gsec{background:none;border:0;margin:0;padding:0}
+.grev .ghead{padding:0 6px;margin-top:4px}

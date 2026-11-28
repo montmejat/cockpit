@@ -336,7 +336,7 @@
   {/if}
 
   {#if R || busy || err || note}
-    <div class="gcard review">
+    <div class="gcard review rnow">
       <!-- one line, the same height busy or not (the busy text and a spinner take the place of what
            it reviews and of the end button): what the branch and PR lines above don't already say -->
       <div class="rhead">
@@ -382,6 +382,8 @@
   {/if}
 
   {#if shown === "review" && R}
+    <!-- the review's files and discussions, one block like the work's (tinted with the review's colour) -->
+    <div class="grev">
     <!-- the Review tab already names and counts these: no header of their own -->
     <div class="gsec">
       {#each R.files as f (f.path)}
@@ -414,6 +416,7 @@
       {/each}
     {/if}
 
+  </div>
   {:else}
   <!-- the work: message, commit, staged and changes, one block (history is another) -->
   <div class="gwork">
