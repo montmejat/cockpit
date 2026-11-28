@@ -7,7 +7,7 @@
   import Grip, { savedWidth } from "./Grip.svelte";
   import IconButton from "./ui/IconButton.svelte";
   import Tab from "./ui/Tab.svelte";
-  import { collapseAll, M, store, ui, type Side } from "../lib/state.svelte";
+  import { collapseAll, folders, M, store, ui, type Side } from "../lib/state.svelte";
   import { many, projects } from "../lib/projects.svelte";
 
   $effect(() => store.set("cockpit-tab", ui.side));
@@ -20,6 +20,10 @@
     for (const x of projects) for (const f of x.L.files) { const parts = (x.prefix + f).split("/"); for (let i = 1; i < parts.length; i++) out.add(parts.slice(0, i).join("/") + "/"); }
     return [...out];
   });
+  // The fold button says when there's nothing left to fold, and its chevrons close up when it folds.
+  const anyOpen = $derived(dirs.some((d) => folders[d]));
+  let folding = $state(false);
+  const foldAll = () => { if (anyOpen) folding = true; collapseAll(dirs); };
   const gr = $derived(M.guardrails);
   const wrong = $derived(M.problems.length + (gr.on ? gr.checks.filter((c) => gr.results[c.id] && !gr.results[c.id].ok).length : 0));
   const tabs: { id: Side; word: string; label: string; icon: string }[] = [
@@ -41,11 +45,11 @@
     {#each tabs as x (x.id)}
       <!-- clicking the files tab while on it folds every folder -->
       <Tab fill class={x.id === "project" ? "stab bad" : "stab"} on={ui.side === x.id} title={x.label}
-        onselect={() => { if (x.id === "files" && ui.side === "files") collapseAll(dirs); else ui.side = x.id; }}>
+        onselect={() => { if (x.id === "files" && ui.side === "files") foldAll(); else ui.side = x.id; }}>
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d={x.icon} /></svg>{x.word}
         {#if badge(x.id)}<span class="sbadge">{badge(x.id)}</span>{/if}
         <!-- the open Files tab offers folding every folder (as a second click on it does) -->
-        {#if x.id === "files" && ui.side === "files"}<button type="button" class="segx sfold" title="Fold every folder" aria-label="Fold every folder" onclick={(e) => { e.stopPropagation(); collapseAll(dirs); }}>
+        {#if x.id === "files" && ui.side === "files"}<button type="button" class="segx sfold" class:done={!anyOpen} class:folding title={anyOpen ? "Fold every folder" : "Every folder is folded"} aria-label="Fold every folder" onclick={(e) => { e.stopPropagation(); foldAll(); }} onanimationend={() => (folding = false)}>
           <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 6.5 8 3l3.5 3.5M4.5 13 8 9.5l3.5 3.5" /></svg></button>{/if}
       </Tab>
     {/each}

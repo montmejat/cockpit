@@ -11,6 +11,7 @@
   import Terminal from "./components/Terminal.svelte";
   import Palette from "./components/Palette.svelte";
   import Confirm from "./components/ui/Confirm.svelte";
+  import Tooltips from "./components/ui/Tooltips.svelte";
   import Chats from "./components/Chats.svelte";
   import Guardrails from "./components/Guardrails.svelte";
   import Home from "./components/Home.svelte";
@@ -94,6 +95,7 @@
 
 <Palette bind:this={palette} />
 <Confirm />
+<Tooltips />
 <Header ontoggleterm={() => term?.toggle(true)} />
 <main>
   <Sidebar />

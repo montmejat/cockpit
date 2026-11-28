@@ -39,9 +39,10 @@ body.desktop::after{display:none}
 button.link,button.file,button.folder,button.gitfile,button.grow-row,button.mlink,button.chip,button.tname,button.csess,button.ctitle,button.tpick,button.g{font:inherit;color:inherit;background:none;border:0;border-radius:0;padding:0;text-align:left;cursor:pointer}
 button.link{color:var(--accent)}button.link:hover{text-decoration:underline}
 a{color:var(--accent);text-decoration:none;cursor:pointer}
-button{font:inherit;font-size:var(--fs-m);font-weight:500;color:var(--fg);background:var(--btn);border:1px solid transparent;border-radius:var(--r-m);padding:2px 10px;cursor:pointer;transition:background .12s}
+button{font:inherit;font-size:var(--fs-m);font-weight:500;color:var(--fg);background:var(--btn);border:1px solid transparent;border-radius:var(--r-m);padding:2px 10px;cursor:pointer;transition:background-color .15s,color .15s}
 /* :where keeps the default hover/press weaker than any button.<class> rule, so link- and row-style buttons never get a box */
-:where(button):hover{background:var(--btn-hover)}:where(button):active{background:color-mix(in oklab,var(--fg) 20%,transparent)}
+/* a hover shows at once and fades as you leave, as the system's do */
+:where(button):hover{background:var(--btn-hover);transition-duration:0s}:where(button):active{background:color-mix(in oklab,var(--fg) 20%,transparent)}
 button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .muted{color:var(--muted)}.grow{flex:1}
 h4{margin:16px 0 6px;font-size:var(--fs-xs);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:500}
@@ -657,7 +658,7 @@ button.gpbtn:hover{background:color-mix(in oklab,var(--accent) 10%,transparent)}
 .gcount{font-size:var(--fs-xs);letter-spacing:0;font-weight:600;background:var(--btn);border-radius:var(--r-l);padding:0 6px;margin-left:4px}
 button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:none}button.gall:hover{color:var(--fg);background:var(--btn)}
 .gempty{color:var(--muted);font-size:var(--fs-s);padding:4px 8px}
-.gitrow{display:flex;align-items:center;border-radius:var(--r-m)}.gitrow:hover{background:var(--btn)}.gitrow.sel{background:var(--sel)}
+.gitrow{display:flex;align-items:center;border-radius:var(--r-m);transition:background-color .15s}.gitrow:hover{background:var(--btn);transition-duration:0s}.gitrow.sel{background:var(--sel)}
 .gitrow .gitfile{flex:1;min-width:0;align-items:baseline;padding-left:8px}.gitrow .gitfile:hover{background:none}
 .gitrow .gname{flex:none}.gitrow .gdir{color:var(--muted);font-size:var(--fs-s);overflow:hidden;text-overflow:ellipsis;min-width:0}
 .gitrow .gnum{margin-left:auto;flex:none;font-size:var(--fs-xs);display:flex;gap:4px;padding-left:6px}.gnum i{font-style:normal}.gnum .a{color:var(--add)}.gnum .d{color:var(--del)}
@@ -799,3 +800,22 @@ button.gco svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:rou
 /* the side panel's boxes (git: project picker, commit box, changes, history): --well, soft in dark mode */
 #side .gsec{background:var(--well)}
 #side .gsec{border-color:var(--well-line)}
+/* the shared tooltip (components/ui/Tooltips.svelte): every title in the page */
+.tip{position:fixed;z-index:1000;max-width:320px;padding:4px 8px;border-radius:var(--r-m);background:var(--fg);color:var(--bg);font-size:var(--fs-s);line-height:1.4;white-space:pre-line;overflow-wrap:anywhere;pointer-events:none;box-shadow:var(--shadow-pop);animation:tipin .09s ease-out}
+.tip:not(.below){animation-name:tipup}
+.tipkeys{margin-left:8px;opacity:.6;font-variant-numeric:tabular-nums}
+@keyframes tipin{from{opacity:0;transform:translateY(-2px)}}@keyframes tipup{from{opacity:0;transform:translateY(2px)}}
+@media (prefers-reduced-motion:reduce){.tip{animation:none}}
+/* Menus grow out of what opened them: down and to the left under a trigger on the right, up when
+   they open upward, from the pointer for a right-click menu, from the middle under the project name. */
+@keyframes popin{from{opacity:0;transform:scale(.96)}}@keyframes popin-mid{from{opacity:0;transform:translateX(-50%) scale(.96)}}
+.mlist,.cmenu{animation:popin .12s cubic-bezier(.2,.8,.3,1)}
+.mlist{transform-origin:top right}.mlist.up{transform-origin:bottom right}.cmenu{transform-origin:top left}.cmenu.gprojmenu{transform-origin:top center}
+header .projmenu{transform-origin:top center;animation:popin-mid .12s cubic-bezier(.2,.8,.3,1)}
+.mlist button:focus-visible{outline:0;background:var(--btn-hover)}
+@media (prefers-reduced-motion:reduce){.mlist,.cmenu,header .projmenu{animation:none}}
+/* the files tab's fold button: faint when every folder is folded, its chevrons closing up as it folds */
+.seg button.sfold.done{opacity:.4}
+button.sfold.folding svg{animation:foldup .22s cubic-bezier(.2,.8,.3,1)}
+@keyframes foldup{40%{transform:scaleY(.55)}}
+@media (prefers-reduced-motion:reduce){button.sfold.folding svg{animation:none}}
