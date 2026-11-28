@@ -45,12 +45,15 @@
     {#if S.workspace}<h1>{S.workspace.name}</h1>{/if}
     <div class="hgrid raised">
       {#each projects as p (p.name)}
+        <!-- a row each: the name and where it is, the arrow at the right edge; remove shows on hover, before it -->
         <div class="hrow">
-          <button class="hcard" onclick={() => open(p.name, p.L)} title={p.path}>
-            <span class="hname">{p.name}</span>
+          <button class="hcard" onclick={() => open(p.name, p.L)}>
+            <span class="htext"><span class="hname">{p.name}</span><span class="hpath">{tilde(p.path)}</span></span>
+            <svg class="hgo" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M6 3.5 10.5 8 6 12.5" /></svg>
           </button>
           {#if S.workspace && projects.length > 1}
-            <button class="hdel" title="Remove {p.name} from the workspace (its folder stays)" aria-label="Remove {p.name}" disabled={busy} onclick={() => remove(p.name, p.here)}>✕</button>
+            <button class="hdel" title="Remove {p.name} from the workspace (its folder stays)" aria-label="Remove {p.name}" disabled={busy} onclick={() => remove(p.name, p.here)}>
+              <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button>
           {/if}
         </div>
       {/each}

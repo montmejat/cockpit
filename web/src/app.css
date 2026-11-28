@@ -781,16 +781,25 @@ button.gco svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:rou
 #home .hwrap{width:100%;max-width:420px;margin:auto;padding:48px 24px}
 #home h1{margin:0 0 14px 4px;font-size:var(--fs-xl);font-weight:700;letter-spacing:-.01em}
 #home .hgrid{display:flex;flex-direction:column;border-radius:var(--r-l);overflow:hidden}
-#home button.hcard{display:flex;align-items:center;width:100%;height:44px;padding:0 16px;border:0;border-radius:0;background:none;font-weight:500;text-align:left}
-#home .hrow{display:flex;align-items:center}#home .hrow+.hrow{border-top:1px solid var(--line)}
-#home button.hdel{flex:none;width:var(--ctl);height:var(--ctl);margin-right:6px;padding:0;border:0;background:none;color:var(--muted);opacity:0;transition:opacity .12s}
-#home .hrow:hover button.hdel,#home button.hdel:focus-visible{opacity:1}#home button.hdel:hover{color:var(--fg);background:var(--btn-hover)}
+/* a row per project: name over its path, the arrow at the right edge; remove (✕) shows on hover just
+   before the arrow, inside the row, which highlights as one */
+#home .hrow{position:relative}#home .hrow+.hrow{border-top:1px solid var(--line)}
+#home button.hcard{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 14px 8px 16px;border:0;border-radius:0;background:none;font-weight:500;text-align:left}
+#home .hrow:hover button.hcard{background:color-mix(in oklab,var(--fg) 4%,transparent);transition-duration:0s}
+#home .htext{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+#home .hname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#home .hpath{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-s);font-weight:400;color:var(--muted)}
+#home .hgo{flex:none;fill:none;stroke:var(--muted);stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+#home .hrow:hover .hgo{stroke:var(--fg)}
+#home button.hdel{position:absolute;top:50%;right:38px;transform:translateY(-50%);display:grid;place-items:center;width:var(--ctl-s);height:var(--ctl-s);padding:0;border:0;border-radius:var(--r-s);background:none;color:var(--muted);opacity:0;transition:opacity .12s}
+#home button.hdel svg{fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round}
+#home .hrow:hover button.hdel,#home button.hdel:focus-visible{opacity:1}
+#home button.hdel:hover{color:var(--bad);background:color-mix(in oklab,var(--bad) 12%,transparent)}
+#home .hrow:has(button.hdel) .htext{padding-right:28px}
 #home .hws{margin:12px 4px 0}#home .hacts,#home .hadd{display:flex;align-items:center;gap:10px}
 #home .hadd input{flex:1;min-width:0;font-family:var(--mono,monospace)}
 #home .hstale{font-weight:600}#home .hnote{margin:8px 0 0;color:var(--bad);font-size:var(--fs-s)}
 #home .hfile{margin:14px 4px 0;font-size:var(--fs-s);line-height:1.6;word-break:break-all}
-#home button.hcard:hover{background:color-mix(in oklab,var(--fg) 4%,transparent)}
-#home button.hcard::after{content:"";margin-left:auto;width:7px;height:7px;border-right:1.5px solid var(--muted);border-top:1.5px solid var(--muted);transform:rotate(45deg)}
 /* the side panel's boxes (git: project picker, commit box, changes, history): --well, soft in dark mode */
 #side .gsec{background:var(--well)}
 #side .gsec{border-color:var(--well-line)}
