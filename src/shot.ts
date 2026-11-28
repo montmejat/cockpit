@@ -3,6 +3,7 @@
 //                      [--key Control+Backquote] [--click "css selector"] [--hover "css selector"]
 //                      [--type "text"] [--wait 500] [--clip "css selector"] [--zoom 2]
 //                      [--press "css selector"] [--move 60] [--release]
+//                      [--local "key=value"]  (set in the page's localStorage before it loads)
 // The steps (--key, --click, --hover, --type, --wait, --press, --move, --release) run in the order given, after the page has
 // settled. --clip crops the picture to one element (--zoom scales it, to see borders and shadows).
 // It starts its own server (a free port, its own state and config folders, so the owner's server,
@@ -44,6 +45,9 @@ const browser = await puppeteer.launch({ browser: "firefox", executablePath: fir
 try {
   const page = await browser.newPage();
   await page.setViewport({ width: w, height: h, deviceScaleFactor: zoom });
+  // --local "key=value": the page's localStorage before it loads (a saved setting, a design trial's switch)
+  const locals = args.flatMap((a, i) => (a === "--local" ? [args[i + 1]] : []));
+  if (locals.length) await page.evaluateOnNewDocument((kv: string[]) => { for (const x of kv) { const i = x.indexOf("="); localStorage.setItem(x.slice(0, i), x.slice(i + 1)); } }, locals);
   await page.goto(link + (args.includes("--query") ? "&" + flag("--query", "") : ""), { waitUntil: "networkidle0", timeout: 60_000 }).catch(() => {});
   await new Promise((r) => setTimeout(r, 800));
   let mouse = { x: 0, y: 0 };

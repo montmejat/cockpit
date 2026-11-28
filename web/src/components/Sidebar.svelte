@@ -58,21 +58,24 @@
       <button type="button" class="ftfold" class:done={!anyOpen} class:folding title={anyOpen ? "Fold every folder" : "Every folder is folded"} aria-label="Fold every folder" onclick={foldAll} onanimationend={() => (folding = false)}>
         <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4.5 6.5 8 3l3.5 3.5M4.5 13 8 9.5l3.5 3.5" /></svg></button></div>
   {/if}
+  {#if ui.side === "git" && many}
+    <!-- in a workspace, the project the git panel shows: a header over it, outside it (like the
+         Files tab's), the name and a chevron that opens the list of projects, its change count -->
+    {@const n = gitP.L.status.length}
+    <div class="gtop">
+      <button class="gtpick" class:on={!!gpMenu} title={gitP.path} onclick={(e) => {
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); gpMenu = gpMenu ? null : { x: r.left, y: r.bottom + 4, w: Math.max(200, r.width) };
+      }}><span class="gpname">{gitP.name}</span><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></button>
+      <span class="grow"></span>
+      {#if n}<span class="gtcount" title="{n} uncommitted file{n > 1 ? 's' : ''} in {gitP.name}">{n} change{n > 1 ? "s" : ""}</span>{/if}
+    </div>
+  {/if}
   <div id="sidebody">
     {#if ui.side === "files"}
       <FileTree />{:else if ui.side === "git"}
       <!-- the git pane fills the side's height: its history takes what's left and scrolls in itself -->
       <div class="gitwrap">
-      {#if many}
-        <!-- one repository shown, picked from a list of the projects (any number fits; their
-             uncommitted counts are in the list): a flat title button, the name and a chevron -->
-        <button class="gprojpick" class:on={!!gpMenu} title={gitP.path} onclick={(e) => {
-          const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); gpMenu = gpMenu ? null : { x: r.left, y: r.bottom + 4, w: Math.max(200, r.width) };
-        }}>
-          <span class="gpname">{gitP.name}</span>
-          <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
-        </button>
-        {#key gitP.name}<GitPane p={gitP} />{/key}
+      {#if many}{#key gitP.name}<GitPane p={gitP} />{/key}
       {:else}<GitPane />{/if}
       </div>{:else}<ProjectPane />{/if}
   </div>

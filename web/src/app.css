@@ -408,10 +408,6 @@ header .mlink:hover,header .mlink.on{color:var(--fg);border-bottom-color:var(--a
 .tree .chev{color:var(--muted);transition:transform .1s}.tree .chev.open{transform:rotate(90deg)}
 .tree .tname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 /* git in a workspace: one project shown, picked from a list (Sidebar.svelte) */
-button.gprojpick{display:flex;align-items:center;justify-content:space-between;gap:8px;width:calc(100% - 16px);margin:8px 8px 0;padding:6px 12px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--card);font-size:var(--fs-m);font-weight:500;text-align:left;min-width:0;transition:border-color .12s}
-button.gprojpick:hover,button.gprojpick.on{background:var(--card);border-color:color-mix(in oklab,var(--accent) 45%,var(--line))}
-.gprojpick .gpname{flex:0 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
-.gprojpick svg{flex:none;fill:none;stroke:var(--muted);stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gprojpick.on svg{transform:rotate(180deg)}
 .gprojmenu .gcount,.gviews .gcount{margin-left:2px;color:var(--accent)}
 .cmenu.gprojmenu{min-width:0;max-width:none;max-height:60vh;overflow-y:auto}.gprojmenu button.cur{font-weight:600;background:var(--sel)}
 /* a project's root folder, in a workspace: its name in small caps, like VS Code */
@@ -909,16 +905,26 @@ button.ftfold.folding svg{animation:foldup .22s cubic-bezier(.2,.8,.3,1)}
 .mrs.compact .mrrow2{display:flex;gap:6px;min-height:var(--ctl-s);cursor:pointer}
 .mrs.compact .mrmain{flex:1;padding-left:calc(var(--depth) * 12px)}
 .mrdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--line)}.mrdot.ok{background:var(--ok)}.mrdot.bad{background:var(--bad)}.mrdot.warn{background:var(--warn)}
-button.mrall{display:inline-flex;align-items:center;gap:4px;padding:1px 6px;border:0;border-radius:var(--r-s);background:none;font-size:var(--fs-xs);color:var(--muted)}
-button.mrall:hover{color:var(--fg);background:var(--btn-hover)}button.mrall svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+button.mrall{display:flex;align-items:center;justify-content:center;gap:5px;width:calc(100% + 12px);margin:4px -6px 0;padding:5px 6px 3px;border:0;border-top:1px solid color-mix(in oklab,var(--rev) 14%,var(--line));border-radius:0;background:none;font-size:var(--fs-s);color:var(--muted)}
+button.mrall:hover{color:var(--rev);background:none}button.mrall svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 /* the top bar's "dev": this cockpit runs from its checkout, not a release */
 .devtag{flex:none;margin-left:6px;padding:0 6px;border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;line-height:1.6;letter-spacing:.04em;color:var(--warn);background:color-mix(in oklab,var(--warn) 14%,transparent)}
 /* The review picker: a block under the branch line that the review button opens into. While it's
    open the button wears the block's background, which runs down into the block (a tab on its page),
    with a rounded inner corner where they meet. */
 .gitpane{--pickbg:color-mix(in oklab,var(--rev) 6%,color-mix(in oklab,var(--well) 60%,transparent))}
-.gpick{margin:0 -2px 2px;padding:6px 8px 4px 10px;border-radius:var(--r-l) 0 var(--r-l) var(--r-l);background:var(--pickbg)}
-.gsplit.open{position:relative;align-self:stretch;align-items:center;margin-right:-2px;padding:0 2px;border-radius:var(--r-m) var(--r-m) 0 0;background:var(--pickbg)}
-.gsplit.open::before{content:"";position:absolute;left:calc(-1 * var(--r-m));bottom:0;width:var(--r-m);height:var(--r-m);background:radial-gradient(circle at 0 0,transparent calc(var(--r-m) - .5px),var(--pickbg) var(--r-m))}
+.gpick{margin:6px -2px 2px;padding:6px 8px 4px 10px;border-radius:var(--r-l) 0 var(--r-l) var(--r-l);background:var(--pickbg)}
+.gsplit.open{position:relative;align-self:stretch;align-items:center;margin-right:-2px;padding:0 2px 0 0;border-radius:var(--r-m) var(--r-m) 0 0;background:var(--pickbg)}
+.gsplit.open::after{content:"";position:absolute;left:0;right:0;top:100%;height:6px;background:var(--pickbg)}
+.gsplit.open::before{content:"";position:absolute;left:calc(-1 * var(--r-m));bottom:-6px;width:var(--r-m);height:var(--r-m);background:radial-gradient(circle at 0 0,transparent calc(var(--r-m) - .5px),var(--pickbg) var(--r-m))}
 .gsplit.open button.gghost{color:var(--rev)}.gsplit.open button.gghost:hover{background:none}
+
+/* In a workspace, the git panel's project: a header over the panel, outside its scroller, like the
+   Files tab's (a quiet uppercase name, a chevron opening the list of projects, its change count). */
+.gtop{flex:none;display:flex;align-items:center;gap:6px;height:28px;padding:0 10px 0 12px;border-bottom:1px solid var(--line)}
+button.gtpick{display:flex;align-items:center;gap:6px;min-width:0;padding:2px 6px;margin-left:-6px;border:0;border-radius:var(--r-m);background:none;text-align:left;font-size:var(--fs-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+button.gtpick:hover,button.gtpick.on{background:var(--btn-hover);color:var(--fg)}
+.gtpick .gpname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.gtpick svg{flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;transition:transform .12s}.gtpick.on svg{transform:rotate(180deg)}
+.gtcount{flex:none;font-size:var(--fs-xs);color:var(--muted);font-variant-numeric:tabular-nums}
 
