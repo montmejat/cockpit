@@ -166,5 +166,4 @@
   <!-- compact: all of them in a tab, as the list's quiet last line -->
   {#if compact && onall && list.length}<button class="mrall" onclick={onall} title="All of them in a tab, with your order and where each stands">
     <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" /></svg>Open all in a tab</button>{/if}
-  {#if !compact && list.length}<p class="mrhint muted">j / k to move between them, Alt+j / Alt+k or drag to set your order: a stack moves as one. Enter, double-click or ◆ reviews.</p>{/if}
 </div>
