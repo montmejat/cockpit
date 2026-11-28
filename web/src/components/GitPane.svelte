@@ -285,12 +285,18 @@
       {/if}
       {#if !R}
         <!-- review: a small link, as quiet as the line's other marks -->
-        <span class="gsplit">
+        <span class="gsplit" class:open={picking}>
           <button class="gghost" onclick={reviewHere} disabled={!!busy} title={mr?.state === "open" ? `Review ${mr.ref}: what it changes against ${mr.target}, on the map and in the files` : g.branch ? `Review ${g.branch}: its merge request if it has one, else against the default branch` : "Review a merge request"}>◆ review{mr?.state === "open" ? " " + mr.ref : ""}</button><button class="gghost gcaret" class:on={picking} onclick={openPicker} disabled={!!busy} title="Review another merge request" aria-label="Review another merge request">
             <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></button>
         </span>
       {/if}
     </div>
+    <!-- the open MRs to review, in a block the review button opens into (its background runs down into it) -->
+    {#if picking && !R}
+      <div class="gpick">
+        <MrList {p} compact onpick={(m) => { if (!busy) startMr(m); }} onall={() => { picking = false; openMrs(p.here ? undefined : p.name); }} />
+      </div>
+    {/if}
     {#if prMr}{@const pm = prMr}
       {@const kind = pm.ref.startsWith("!") ? "MR" : "PR"}
       {@const checks = pm.checks.fail ? `${pm.checks.fail} check${pm.checks.fail > 1 ? "s" : ""} failing` : pm.checks.pending ? `${pm.checks.pending} check${pm.checks.pending > 1 ? "s" : ""} running` : pm.checks.pass ? "checks passed" : ""}
@@ -352,13 +358,6 @@
     </div>
   {/if}
 
-  {#if picking && !R}
-    <div class="gcard review gpick">
-      <div class="rhead"><b>◆ review a merge request</b><span class="grow"></span><button class="gx" onclick={() => (picking = false)} title="Close" aria-label="Close">
-        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button></div>
-      <MrList {p} compact onpick={(m) => { if (!busy) startMr(m); }} onall={() => { picking = false; openMrs(p.here ? undefined : p.name); }} />
-    </div>
-  {/if}
 
   {#if R}
     <div class="gviews segs" role="tablist">

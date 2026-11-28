@@ -125,7 +125,8 @@
     <div class="mrhead">
       {#if counts.review}<span class="mrneed review" title="Waiting on your review">{counts.review} to review</span>{/if}
       <span class="grow"></span>
-      {#if onall}<button class="link mrall" onclick={onall} title="All of them in a tab, with your order and where each stands">open all ↗</button>{/if}
+      {#if onall}<button class="mrall" onclick={onall} title="All of them in a tab, with your order and where each stands">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 8 8M11.5 9.5v3a1 1 0 0 1-1 1h-7a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1h3" /></svg>open all</button>{/if}
     </div>
   {/if}
 
