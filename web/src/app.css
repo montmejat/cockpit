@@ -657,7 +657,8 @@ button.gall{font-size:var(--fs-s);padding:0 6px;color:var(--muted);background:no
 .gact{display:none;flex:none;width:var(--ctl-s);height:var(--ctl-s);padding:0;margin-right:8px;font-size:var(--fs-m);line-height:16px;border-radius:var(--r-s)}
 /* the counts sit at the far right; on hover the buttons come in and push them left */
 .gitrow .gitfile{padding-right:10px}.gitrow:hover .gitfile{padding-right:4px}
-.gitrow:hover .gact{display:grid;place-items:center}
+/* taller than the row: they hang over its edges rather than stretching it (nothing moves on hover) */
+.gitrow:hover .gact{display:grid;place-items:center;margin-block:-4px}
 /* revert and stage/unstage: quiet drawn icons, a soft tint on hover (red for revert) */
 .gact.grev,.gact.gstage{border:0;background:none;color:var(--muted)}
 .gact.grev{margin-right:0}.gact.gstage{margin-right:6px}
@@ -795,7 +796,7 @@ button.gco svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:rou
 #home .hws{margin:12px 4px 0}#home .hacts,#home .hadd{display:flex;align-items:center;gap:10px}
 #home .hadd input{flex:1;min-width:0;font-family:var(--mono,monospace)}
 #home .hstale{font-weight:600}#home .hnote{margin:8px 0 0;color:var(--bad);font-size:var(--fs-s)}
-#home .hfile{margin:14px 4px 0;font-size:var(--fs-s);line-height:1.6;word-break:break-all}
+#home .hfile{margin:14px 4px 0;font-size:var(--fs-s);line-height:1.6;overflow-wrap:anywhere}
 /* the side panel's boxes (git: project picker, commit box, changes, history): --well, soft in dark mode */
 #side .gsec{background:var(--well)}
 #side .gsec{border-color:var(--well-line)}
@@ -831,7 +832,7 @@ header .projmenu{transform-origin:top center;animation:popin-mid .12s cubic-bezi
 .gproff{display:grid;place-items:center;flex:none;color:var(--muted);opacity:.6}.gproff svg{fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round}
 /* a release tag in history: a small mark, its name on hover, so the subject gets the room */
 .ref.tag{border:0;padding:0 2px;color:var(--muted)}.ref.tag svg{fill:none;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round;vertical-align:-1px}
-.grow-row .ref.tag{max-width:none}
+.grow-row .ref.tag{max-width:none;flex:none;margin:0 0 0 6px}
 
 /* Over the file tree, outside its scroller: what it is of, and the fold button at its end (shown over
    the sidebar), faint when every folder is folded, its chevrons closing up as it folds. */

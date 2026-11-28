@@ -32,7 +32,8 @@
   // Reload the history when HEAD or the branches move.
   $effect(() => { void L.git.head; void L.git.ahead; void L.git.behind; api.get<Commit[]>(B + "api/git/graph").then((c) => (commits = S.commits = c)).catch(() => {}); });
   const rows = $derived(commits ? graphRows(commits) : []);
-  const width = $derived(18 + 12 * Math.max(1, ...rows.map((r) => Math.max(r.before.length, r.after.length))));
+  // each row's graph as wide as its own lanes, so its message starts right after them (like `git log --graph`)
+  const widthOf = (r: (typeof rows)[number]) => 18 + 12 * Math.max(1, r.before.length, r.after.length);
   const selSha = $derived.by(() => { const t = cur(); return t.kind === "commit" && (t.project ?? null) === (p.here ? null : p.name) ? t.sha : null; });
   const commitOf = (sha: string) => openCommit(sha, p.here ? undefined : p.name);
   // Reaching a row asks for what a click on it shows, so it opens at once (lib/ahead.ts).
@@ -446,8 +447,10 @@
         {#if sw.length}<button class="gco raised" title={sw.length === 1 ? `Switch to ${sw[0]}` : `Switch to one of ${sw.join(", ")}`} aria-label="Switch branch" onclick={(e) => checkoutRow(e, r.c)}>
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M5 3v10M5 9c0-2 6-1 6-4.5M5 3.2a1.2 1.2 0 1 0 0 .1M11 4.3a1.2 1.2 0 1 0 0 .1M5 12.8a1.2 1.2 0 1 0 0 .1" /></svg>checkout</button>{/if}
         <button class="grow-row" class:sel={selSha === r.c.sha} onpointerenter={() => soonCommit(r.c.sha)} onclick={() => commitOf(r.c.sha)} oncontextmenu={(e) => openMenu(e, r.c)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
-          {@html graphSvg(r, width)}
-          <span class="msg">{#each rf.shown as x}<span class="ref" class:head={x.head} class:remote={x.remote} class:synced={x.synced} class:tag={x.tag} title={x.synced ? `${x.name} (same as origin/${x.name})` : x.tag ? "tag " + x.name : x.name}>{#if x.tag}<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M2.5 2.5h5.2l5.8 5.8-5.2 5.2-5.8-5.8zM5.5 5.5h.01" /></svg>{:else}{x.name}{/if}</span>{/each}{#if rf.more}<span class="ref more" title={r.c.refs.join(", ")}>+{rf.more}</span>{/if}{r.c.subject}</span>
+          {@html graphSvg(r, widthOf(r))}
+          <span class="msg">{#each rf.shown.filter((x) => !x.tag) as x}<span class="ref" class:head={x.head} class:remote={x.remote} class:synced={x.synced} title={x.synced ? `${x.name} (same as origin/${x.name})` : x.name}>{x.name}</span>{/each}{#if rf.more}<span class="ref more" title={r.c.refs.join(", ")}>+{rf.more}</span>{/if}{r.c.subject}</span>
+          <!-- tags at the row's right end, so tagged and untagged subjects start at the same place -->
+          {#if rf.shown.some((x) => x.tag)}{@const tg = rf.shown.filter((x) => x.tag).map((x) => x.name)}<span class="ref tag" title={(tg.length > 1 ? "tags " : "tag ") + tg.join(", ")}><svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M2.5 2.5h5.2l5.8 5.8-5.2 5.2-5.8-5.8zM5.5 5.5h.01" /></svg></span>{/if}
         </button>
         </div>
       {/each}
