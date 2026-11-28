@@ -7,7 +7,7 @@
   import Grip, { savedWidth } from "./Grip.svelte";
   import IconButton from "./ui/IconButton.svelte";
   import Tab from "./ui/Tab.svelte";
-  import { collapseAll, folders, M, store, ui, type Side } from "../lib/state.svelte";
+  import { collapseAll, folders, M, S, store, ui, type Side } from "../lib/state.svelte";
   import { many, projects } from "../lib/projects.svelte";
 
   $effect(() => store.set("cockpit-tab", ui.side));
@@ -44,18 +44,20 @@
   <div class="stabs segs" role="tablist">
     {#each tabs as x (x.id)}
       <!-- clicking the files tab while on it folds every folder -->
-      <Tab fill class={x.id === "project" ? "stab bad" : "stab"} on={ui.side === x.id} title={x.label}
+      <Tab fill class={x.id === "project" ? "stab bad" : "stab"} on={ui.side === x.id} title={x.label === x.word ? undefined : x.label}
         onselect={() => { if (x.id === "files" && ui.side === "files") foldAll(); else ui.side = x.id; }}>
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d={x.icon} /></svg>{x.word}
         {#if badge(x.id)}<span class="sbadge">{badge(x.id)}</span>{/if}
-        <!-- the open Files tab offers folding every folder (as a second click on it does) -->
-        {#if x.id === "files" && ui.side === "files"}<button type="button" class="segx sfold" class:done={!anyOpen} class:folding title={anyOpen ? "Fold every folder" : "Every folder is folded"} aria-label="Fold every folder" onclick={(e) => { e.stopPropagation(); foldAll(); }} onanimationend={() => (folding = false)}>
-          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 6.5 8 3l3.5 3.5M4.5 13 8 9.5l3.5 3.5" /></svg></button>{/if}
       </Tab>
     {/each}
   </div>
   <div id="sidebody">
-    {#if ui.side === "files"}<FileTree />{:else if ui.side === "git"}
+    {#if ui.side === "files"}
+      <!-- over the tree: what it is of, and the fold button (shown while the pointer is over the sidebar) -->
+      <div class="ftop"><span class="ftname" title={S.workspace ? "Workspace " + S.workspace.name : S.project}>{S.workspace?.name ?? S.project}</span>
+        <button type="button" class="ftfold" class:done={!anyOpen} class:folding title={anyOpen ? "Fold every folder" : "Every folder is folded"} aria-label="Fold every folder" onclick={foldAll} onanimationend={() => (folding = false)}>
+          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4.5 6.5 8 3l3.5 3.5M4.5 13 8 9.5l3.5 3.5" /></svg></button></div>
+      <FileTree />{:else if ui.side === "git"}
       <!-- the git pane fills the side's height: its history takes what's left and scrolls in itself -->
       <div class="gitwrap">
       {#if many}

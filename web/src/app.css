@@ -585,7 +585,7 @@ header .projmenu{top:calc(100% + 2px);left:50%;transform:translateX(-50%);width:
 .gitpane > *{flex:none}.gitpane > .graph{flex:1 1 0;min-height:180px;overflow-y:auto;margin-bottom:2px}
 .gcard{margin:0 8px 8px;padding:8px 10px;border:1px solid var(--line);border-radius:var(--r-l);background:var(--card)}
 .gbline{display:flex;align-items:center;gap:6px;min-width:0}
-.gbname{font-weight:600;font-size:var(--fs-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
+.gbname{font-weight:500;font-size:var(--fs-m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto;min-width:0}
 .gup{color:var(--muted);font-size:var(--fs-s);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto}
 .gbline .chip-s,.gbline button{flex:none}
 .chip-s{font-size:var(--fs-xs);padding:0 6px;border-radius:var(--r-pill);background:var(--btn);color:var(--muted);white-space:nowrap}
@@ -644,7 +644,7 @@ button.gpbtn:hover{background:color-mix(in oklab,var(--accent) 10%,transparent)}
 .commitbox textarea:focus{outline:none;border-color:var(--accent)}
 .commitbtn{height:var(--ctl);background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600;padding:0 8px}
 .commitbtn:hover{background:color-mix(in oklab,var(--accent) 88%,var(--shade))}
-.commitbtn:disabled{background:none;color:var(--muted);border-color:var(--line);font-weight:500;opacity:1}
+.commitbtn:disabled{background:var(--btn);color:var(--muted);border-color:transparent;font-weight:500;opacity:1}
 .commitbox .err{margin:0;white-space:pre-wrap;font-size:var(--fs-s);color:var(--bad)}
 /* the views (changes, history, review) as tabs; plain section labels inside a view */
 .segs.gviews{margin:0 8px 6px;padding:2px}
@@ -765,7 +765,7 @@ button.lrow:hover{background:var(--btn)}
 .nchead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:-2px -6px 0 0}
 #crumbs button.cinfo{border:0;background:none;padding:0 2px;margin-left:6px;color:var(--muted)}#crumbs button.cinfo:hover,#crumbs button.cinfo.on{color:var(--accent)}
 /* git: where you are reads as text, not a box: only the commit message is a field */
-.gcard.gbranch{border:0;background:none;padding:8px 12px 6px;margin:0}
+.gcard.gbranch{border:0;background:none;padding:6px 10px 8px;margin:0}
 /* git history: a row with a branch to switch to shows a "checkout" button on hover, over its right end */
 .grow-wrap{position:relative}
 button.gco{position:absolute;right:4px;top:50%;transform:translateY(-50%);z-index:1;display:none;align-items:center;gap:4px;height:var(--ctl-xs);padding:0 7px;border:0;border-radius:var(--r-m);color:var(--muted);font-size:var(--fs-xs)}
@@ -814,8 +814,33 @@ button.gco svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:rou
 header .projmenu{transform-origin:top center;animation:popin-mid .12s cubic-bezier(.2,.8,.3,1)}
 .mlist button:focus-visible{outline:0;background:var(--btn-hover)}
 @media (prefers-reduced-motion:reduce){.mlist,.cmenu,header .projmenu{animation:none}}
-/* the files tab's fold button: faint when every folder is folded, its chevrons closing up as it folds */
-.seg button.sfold.done{opacity:.4}
-button.sfold.folding svg{animation:foldup .22s cubic-bezier(.2,.8,.3,1)}
+
+/* The git panel in three zones: where you are (the branch line, bare), the work (message, commit,
+   staged, changes) one soft block, history another. Inside a block the rows have no cards of their own. */
+.gwork{margin:2px 8px 4px;padding:8px 6px 6px;border-radius:var(--r-l);background:color-mix(in oklab,var(--well) 55%,transparent)}
+.gwork .commitbox{margin:0 2px 2px}
+.gwork .commitbox textarea{background:var(--card);border-color:var(--well-line)}
+.gwork .ghead{padding:0 6px;margin-top:10px}
+#side .gwork .gsec{background:none;border:0;margin:0;padding:0}
+.gwork .gempty{padding:2px 6px}
+#side .graph.gsec{background:color-mix(in oklab,var(--well) 55%,transparent);border-color:transparent}
+.gwork ~ .ghead{margin-top:12px}
+/* review: a small link in the branch line; no PR info: a faint mark there, the reason on hover */
+.gsplit button.gghost{border:0;padding:1px 4px;font-size:var(--fs-xs);color:var(--muted)}
+.gsplit button.gghost:hover{color:var(--rev);background:color-mix(in oklab,var(--rev) 10%,transparent)}
+.gsplit button.gcaret{padding:0 3px}
+.gproff{display:grid;place-items:center;flex:none;color:var(--muted);opacity:.6}.gproff svg{fill:none;stroke:currentColor;stroke-width:1.4;stroke-linecap:round}
+/* a release tag in history: a small mark, its name on hover, so the subject gets the room */
+.ref.tag{border:0;padding:0 2px;color:var(--muted)}.ref.tag svg{fill:none;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round;vertical-align:-1px}
+.grow-row .ref.tag{max-width:none}
+
+/* Over the file tree: what it is of, and the fold button at its end (shown over the sidebar), faint
+   when every folder is folded, its chevrons closing up as it folds. Stays at the top as you scroll. */
+.ftop{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:6px;height:28px;padding:0 6px 0 12px;background:var(--side)}
+.ftname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+button.ftfold{display:grid;place-items:center;width:var(--ctl-s);height:var(--ctl-s);padding:0;border:0;background:none;color:var(--muted);opacity:0;transition:opacity .12s}
+#side:hover button.ftfold,button.ftfold:focus-visible{opacity:1}#side:hover button.ftfold.done{opacity:.35}button.ftfold:hover{color:var(--fg);background:var(--btn-hover)}
+button.ftfold svg{fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+button.ftfold.folding svg{animation:foldup .22s cubic-bezier(.2,.8,.3,1)}
 @keyframes foldup{40%{transform:scaleY(.55)}}
-@media (prefers-reduced-motion:reduce){button.sfold.folding svg{animation:none}}
+@media (prefers-reduced-motion:reduce){button.ftfold.folding svg{animation:none}}

@@ -277,6 +277,8 @@
         {#if !g.ahead && !g.behind}<span class="gsync" title="in sync with {g.upstream}">✓</span>{/if}
       {:else}<span class="gup" title="this branch has no upstream">local</span>{/if}
       <span class="grow"></span>
+      <!-- no PR info: a faint mark, the reason on hover -->
+      {#if !prMr && mrErr}<span class="gproff" title={mrNote + "\n" + mrErr}><svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 3v10M11.5 7v6M4.5 3.2a1.3 1.3 0 1 0 0 .1M11.5 12.8a1.3 1.3 0 1 0 0 .1M11.5 7c0-2-1-3-3-3H7" /></svg></span>{/if}
       {#if quietPriv}
         <!-- .cockpit/ kept private: a lock that syncs on a click (spins while syncing); the rest on hover -->
         {@const tip = `.cockpit/ is private: kept out of the project's git (.git/info/exclude), it follows your branches${P!.remote ? ` and syncs to ${P!.remote}\n${P!.synced ? "synced " + ago(P!.synced) : "not synced yet"} · click to sync now` : "\non this machine only"}`}
@@ -286,6 +288,7 @@
         </button>
       {/if}
       {#if !R}
+        <!-- review: a small link, as quiet as the line's other marks -->
         <span class="gsplit">
           <button class="gghost" onclick={reviewHere} disabled={!!busy} title={mr?.state === "open" ? `Review ${mr.ref}: what it changes against ${mr.target}, on the map and in the files` : g.branch ? `Review ${g.branch}: its merge request if it has one, else against the default branch` : "Review a merge request"}>◆ review{mr?.state === "open" ? " " + mr.ref : ""}</button><button class="gghost gcaret" class:on={picking} onclick={openPicker} disabled={!!busy} title="Review another merge request" aria-label="Review another merge request">
             <svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg></button>
@@ -306,7 +309,7 @@
         {#if !R && pm.state === "open"}<button class="gicon" disabled={!!busy} onclick={() => startMr(pm!)} title="Review this {kind}: what it changes against {pm.target}, on the map and in the files">◆</button>{/if}
         <button class="gicon" class:busy={mrLoading} onclick={() => loadMr(true, true)} disabled={mrLoading} title="Refresh">{#if mrLoading}<span class="spin"></span>{:else}↻{/if}</button>
       </div>
-    {:else if mrErr}<div class="gmuted" title={mrErr}>{mrNote}</div>{/if}
+    {/if}
   </div>
 
   {#if P && !quietPriv && (P.mode === "on" || P.busy || (P.mode === "off" && hasDesc))}
@@ -412,6 +415,8 @@
     {/if}
 
   {:else}
+  <!-- the work: message, commit, staged and changes, one block (history is another) -->
+  <div class="gwork">
   <!-- commit -->
   <div class="commitbox">
     <textarea rows="2" bind:value={message} disabled={gitBusy} placeholder={staged.length ? `Message (Ctrl+Enter commits ${staged.length} file${staged.length > 1 ? "s" : ""})` : "Message (stage files first)"}
@@ -440,6 +445,7 @@
     {#each lists.unstaged as x (x.path)}{@render changeRow(x.path, x.moved)}{:else}<div class="gempty">{L.status.length ? "everything is staged" : "working tree clean"}</div>{/each}
   </div>
   </div>
+  </div>
   {/if}
 
   {@render head("history", 0)}
@@ -453,7 +459,7 @@
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M5 3v10M5 9c0-2 6-1 6-4.5M5 3.2a1.2 1.2 0 1 0 0 .1M11 4.3a1.2 1.2 0 1 0 0 .1M5 12.8a1.2 1.2 0 1 0 0 .1" /></svg>checkout</button>{/if}
         <button class="grow-row" class:sel={selSha === r.c.sha} onpointerenter={() => soonCommit(r.c.sha)} onclick={() => commitOf(r.c.sha)} oncontextmenu={(e) => openMenu(e, r.c)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
           {@html graphSvg(r, width)}
-          <span class="msg">{#each rf.shown as x}<span class="ref" class:head={x.head} class:remote={x.remote} class:synced={x.synced} title={x.synced ? `${x.name} (same as origin/${x.name})` : x.name}>{x.name}</span>{/each}{#if rf.more}<span class="ref more" title={r.c.refs.join(", ")}>+{rf.more}</span>{/if}{r.c.subject}</span>
+          <span class="msg">{#each rf.shown as x}<span class="ref" class:head={x.head} class:remote={x.remote} class:synced={x.synced} class:tag={x.tag} title={x.synced ? `${x.name} (same as origin/${x.name})` : x.tag ? "tag " + x.name : x.name}>{#if x.tag}<svg viewBox="0 0 16 16" width="10" height="10" aria-hidden="true"><path d="M2.5 2.5h5.2l5.8 5.8-5.2 5.2-5.8-5.8zM5.5 5.5h.01" /></svg>{:else}{x.name}{/if}</span>{/each}{#if rf.more}<span class="ref more" title={r.c.refs.join(", ")}>+{rf.more}</span>{/if}{r.c.subject}</span>
         </button>
         </div>
       {/each}
