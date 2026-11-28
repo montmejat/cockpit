@@ -51,12 +51,15 @@
       </Tab>
     {/each}
   </div>
+  {#if ui.side === "files"}
+    <!-- over the tree, outside its scroller (as VS Code does): what it is of, and the fold button,
+         shown while the pointer is over the sidebar; the scrollbar starts below it -->
+    <div class="ftop"><span class="ftname" title={S.workspace ? "Workspace " + S.workspace.name : S.project}>{S.workspace?.name ?? S.project}</span>
+      <button type="button" class="ftfold" class:done={!anyOpen} class:folding title={anyOpen ? "Fold every folder" : "Every folder is folded"} aria-label="Fold every folder" onclick={foldAll} onanimationend={() => (folding = false)}>
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4.5 6.5 8 3l3.5 3.5M4.5 13 8 9.5l3.5 3.5" /></svg></button></div>
+  {/if}
   <div id="sidebody">
     {#if ui.side === "files"}
-      <!-- over the tree: what it is of, and the fold button (shown while the pointer is over the sidebar) -->
-      <div class="ftop"><span class="ftname" title={S.workspace ? "Workspace " + S.workspace.name : S.project}>{S.workspace?.name ?? S.project}</span>
-        <button type="button" class="ftfold" class:done={!anyOpen} class:folding title={anyOpen ? "Fold every folder" : "Every folder is folded"} aria-label="Fold every folder" onclick={foldAll} onanimationend={() => (folding = false)}>
-          <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4.5 6.5 8 3l3.5 3.5M4.5 13 8 9.5l3.5 3.5" /></svg></button></div>
       <FileTree />{:else if ui.side === "git"}
       <!-- the git pane fills the side's height: its history takes what's left and scrolls in itself -->
       <div class="gitwrap">

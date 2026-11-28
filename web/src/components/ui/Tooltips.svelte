@@ -19,6 +19,7 @@
   }
   function over(e: PointerEvent) {
     if (e.pointerType === "touch") return;
+    if (e.buttons) { release(); return; } // dragging or selecting: no tooltips on the way
     const t = (e.target as Element | null)?.closest?.("[title]") as HTMLElement | null;
     if (t === el || (el && el.contains(e.target as Node) && !t)) return;
     release();

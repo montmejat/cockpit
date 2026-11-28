@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { fromGithub, fromGitlab, remotePath } from "../src/mrs.ts";
-import { moved, need, rows, standing, stepped } from "../web/src/lib/mrstack.ts";
+import { aside, blocks, landing, moved, slot, need, rows, standing, stepped } from "../web/src/lib/mrstack.ts";
 import type { TrackedMr } from "../web/src/lib/types.ts";
 
 const mr = (id: number, source: string, target: string, x: Partial<TrackedMr> = {}): TrackedMr => ({
@@ -83,4 +83,25 @@ test("standing: ready, stuck, waiting", () => {
   assert.deepEqual(standing(mr(1, "a", "m", { blocker: "conflict", ci: "fail" })), { word: "conflict", tone: "bad" });
   assert.deepEqual(standing(mr(1, "a", "m", { blocker: "open discussions", ci: "fail" })), { word: "CI failing", tone: "bad" });
   assert.deepEqual(standing(mr(1, "a", "m", { blocker: "needs approval" })), { word: "needs approval", tone: "warn" });
+});
+
+test("blocks: siblings with what's stacked on them; landing and aside while dragging", () => {
+  const list = [mr(1, "a", "main"), mr(2, "b", "a"), mr(3, "c", "b"), mr(5, "x", "main"), mr(6, "y", "main")];
+  const all = rows(list, ["!1", "!5", "!6"]); // !1 (!2 (!3)), !5, !6
+  const b = blocks(all, "!5")!;
+  assert.deepEqual(b.refs, ["!1", "!5", "!6"]);
+  assert.deepEqual(b.spans, [[0, 2], [3, 3], [4, 4]]);
+  assert.equal(b.at, 1);
+  assert.deepEqual(blocks(all, "!2")!.refs, ["!2"]); // alone on its parent: nothing to reorder
+  // middles 10, 40, 60: dragging !5 (middle 40) down past 60 lands last, up past 10 first
+  assert.equal(landing([10, 40, 60], 1, 65), 2);
+  assert.equal(landing([10, 40, 60], 1, 5), 0);
+  assert.equal(landing([10, 40, 60], 1, 41), 1);
+  // !5 (height 20) dragged to the end: !6 moves up by 20, !1 stays
+  assert.deepEqual([0, 1, 2].map((k) => aside(k, 1, 2, 20)), [0, 0, -20]);
+  assert.deepEqual([0, 1, 2].map((k) => aside(k, 1, 0, 20)), [20, 0, 0]);
+  // and the dragged block itself jumps the heights of the blocks it passes
+  assert.equal(slot([60, 20, 30], 1, 0), -60);
+  assert.equal(slot([60, 20, 30], 1, 2), 30);
+  assert.equal(slot([60, 20, 30], 1, 1), 0);
 });

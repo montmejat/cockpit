@@ -2,7 +2,8 @@
 //   npm run -s shot -- [project dir] [--query "file=src/ask.ts"] [--out /tmp/cockpit-shot.png] [--size 1400x900] [--dark]
 //                      [--key Control+Backquote] [--click "css selector"] [--hover "css selector"]
 //                      [--type "text"] [--wait 500] [--clip "css selector"] [--zoom 2]
-// The steps (--key, --click, --hover, --type, --wait) run in the order given, after the page has
+//                      [--press "css selector"] [--move 60] [--release]
+// The steps (--key, --click, --hover, --type, --wait, --press, --move, --release) run in the order given, after the page has
 // settled. --clip crops the picture to one element (--zoom scales it, to see borders and shadows).
 // It starts its own server (a free port, its own state and config folders, so the owner's server,
 // history and settings are untouched) and drives a headless Firefox through puppeteer-core.
@@ -45,6 +46,7 @@ try {
   await page.setViewport({ width: w, height: h, deviceScaleFactor: zoom });
   await page.goto(link + (args.includes("--query") ? "&" + flag("--query", "") : ""), { waitUntil: "networkidle0", timeout: 60_000 }).catch(() => {});
   await new Promise((r) => setTimeout(r, 800));
+  let mouse = { x: 0, y: 0 };
   for (let i = 0; i < args.length; i++) {
     const v = args[i + 1];
     if (args[i] === "--key") {
@@ -56,6 +58,15 @@ try {
     else if (args[i] === "--hover") await page.hover(v);
     else if (args[i] === "--type") await page.keyboard.type(v);
     else if (args[i] === "--wait") await new Promise((r) => setTimeout(r, +v));
+    // a drag: --press holds the mouse down on an element's middle, --move drags it by that many
+    // pixels down (up if negative) in small steps, --release lets go (leave it out to see mid-drag)
+    else if (args[i] === "--press") {
+      const b = await (await page.$(v))?.boundingBox();
+      if (!b) throw new Error("no element " + v);
+      mouse = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+      await page.mouse.move(mouse.x, mouse.y); await page.mouse.down();
+    } else if (args[i] === "--move") { mouse.y += +v; await page.mouse.move(mouse.x, mouse.y, { steps: 12 }); }
+    else if (args[i] === "--release") await page.mouse.up();
     else continue;
     await new Promise((r) => setTimeout(r, 300));
   }

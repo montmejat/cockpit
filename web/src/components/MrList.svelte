@@ -6,7 +6,7 @@
   //   Alt+k / Alt+j on the focused row. j k move between rows, Enter reviews (arrows work too).
   //   Filters: all, the ones waiting on your review, yours. A filtered-out MR under a shown one stays, dimmed.
   import { loadMrs, mrsOf, setOrder } from "../lib/mrs.svelte";
-  import { ago, bare, moved, need, rows as rowsOf, short, standing, stepped, type Row } from "../lib/mrstack";
+  import { ago, aside, bare, blocks, landing, moved, slot, need, rows as rowsOf, short, standing, stepped, type Row } from "../lib/mrstack";
   import type { Project } from "../lib/projects.svelte";
   import type { TrackedMr } from "../lib/types";
   import Tab from "./ui/Tab.svelte";
@@ -37,20 +37,62 @@
     m.labels.length ? "labels: " + m.labels.join(", ") : "",
   ].filter(Boolean).join("\n");
 
-  // ---- your order: drag, or Alt+↑↓ --------------------------------------------------------
-  let dragging = $state<string | null>(null), over = $state<{ ref: string; after: boolean } | null>(null);
-  const sibling = (a: string, b: string) => shown.find((r) => r.mr.ref === a)?.parent === shown.find((r) => r.mr.ref === b)?.parent;
-  function dragOver(e: DragEvent, r: Row) {
-    if (!dragging || dragging === r.mr.ref || !sibling(dragging, r.mr.ref)) { over = null; return; }
-    e.preventDefault();
-    const box = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    over = { ref: r.mr.ref, after: e.clientY > box.top + box.height / 2 };
+  // ---- your order: drag (pointer), or Alt+j / Alt+k ------------------------------------------
+  // The dragged MR, with the ones stacked on it, lifts and slides into the slot under the pointer;
+  // its siblings slide aside to make room (nothing overlaps); on release it stays there. Starts
+  // after a few pixels, so a click stays a click.
+  type Drag = { ref: string; y0: number; scroll0: number; spans: [number, number][]; refs: string[]; at: number; to: number; h: number; hs: number[]; mids: number[] };
+  let drag = $state<Drag | null>(null), settling = $state(false);
+  let press: { ref: string; y: number; id: number; el: HTMLElement } | null = null;
+  const scroller = () => listEl?.closest<HTMLElement>(".mrtab") ?? null;
+  function down(e: PointerEvent, r: Row) {
+    if (compact || e.button !== 0 || (e.target as Element).closest("button, a")) return;
+    press = { ref: r.mr.ref, y: e.clientY, id: e.pointerId, el: e.currentTarget as HTMLElement };
   }
-  function drop(e: DragEvent) {
-    e.preventDefault();
-    if (dragging && over) setOrder(p.base, p.name, moved(X.order.length ? X.order : shown.map((r) => r.mr.ref), rowsOf(list, X.order), dragging, over.ref, over.after));
-    dragging = null; over = null;
+  function begin(e: PointerEvent) {
+    const b = blocks(shown, press!.ref), els = [...(listEl?.querySelectorAll<HTMLElement>(".mrrow2") ?? [])];
+    if (!b || b.refs.length < 2 || !els.length) { press = null; return; }
+    const box = (k: number) => els[k].getBoundingClientRect();
+    const top = (sp: [number, number]) => box(sp[0]).top, bottom = (sp: [number, number]) => box(sp[1]).bottom;
+    const sp = b.spans[b.at];
+    const hs = b.spans.map((s) => bottom(s) - top(s));
+    drag = {
+      ref: press!.ref, y0: press!.y, scroll0: scroller()?.scrollTop ?? 0, spans: b.spans, refs: b.refs, at: b.at, to: b.at,
+      h: hs[b.at], hs, mids: b.spans.map((s) => (top(s) + bottom(s)) / 2),
+    };
+    press!.el.setPointerCapture(e.pointerId);
   }
+  function move(e: PointerEvent) {
+    if (press && !drag && !(e.buttons & 1)) { press = null; return; } // released elsewhere before it started
+    if (press && !drag && Math.abs(e.clientY - press.y) > 4) begin(e);
+    if (!drag) return;
+    const sc = scroller();
+    // near the scroller's edge: scroll along
+    if (sc) { const r = sc.getBoundingClientRect(); if (e.clientY < r.top + 40) sc.scrollTop -= 12; else if (e.clientY > r.bottom - 40) sc.scrollTop += 12; }
+    // where the pointer is, in the list as it was when the drag began
+    const y = drag.mids[drag.at] + e.clientY - drag.y0 + (sc?.scrollTop ?? 0) - drag.scroll0;
+    drag.to = landing(drag.mids, drag.at, y);
+  }
+  function up() {
+    const d = drag;
+    press = null;
+    if (!d) return;
+    if (d.to !== d.at) {
+      // the new place shows at once, with no slide back from where the rows were pushed aside
+      settling = true;
+      setOrder(p.base, p.name, moved(X.order.length ? X.order : shown.map((r) => r.mr.ref), rowsOf(list, X.order), d.ref, d.refs[d.to], d.to > d.at));
+      requestAnimationFrame(() => requestAnimationFrame(() => (settling = false)));
+    }
+    drag = null;
+  }
+  // How far row i moves while dragging: with the dragged block, or aside for it.
+  function offset(i: number): number {
+    if (!drag) return 0;
+    const k = drag.spans.findIndex(([a, b]) => i >= a && i <= b);
+    if (k < 0) return 0;
+    return k === drag.at ? slot(drag.hs, drag.at, drag.to) : aside(k, drag.at, drag.to, drag.h);
+  }
+  const lifted = (i: number) => !!drag && drag.spans[drag.at][0] <= i && i <= drag.spans[drag.at][1];
   let listEl: HTMLElement | undefined = $state();
   function keys(e: KeyboardEvent, r: Row, i: number) {
     if (e.ctrlKey || e.metaKey) return;
@@ -91,16 +133,15 @@
   {:else if X.t.error && !list.length}<div class="gempty err" title={X.t.error}>{X.t.error}</div>
   {:else if !shown.length}<div class="gempty">{filter === "review" ? "nothing waiting on your review" : filter === "yours" ? "none of yours open" : "no open merge requests"}</div>{/if}
 
-  <div class="mrlist2" bind:this={listEl} role="listbox" aria-label="Open merge requests" tabindex="-1" ondragover={(e) => dragging && e.preventDefault()} ondrop={drop}>
+  <div class="mrlist2" class:dragging={!!drag} bind:this={listEl} role="listbox" aria-label="Open merge requests" tabindex="-1">
     {#each shown as r, i (r.mr.ref)}
       {@const m = r.mr}
       {@const s = standing(m)}
       {@const n = need(m, me)}
       <div class="mrrow2" role="option" aria-selected={reviewing === m.id} tabindex="0" data-ref={m.ref}
-        class:dim={r.dim} class:on={reviewing === m.id} class:drag={dragging === m.ref}
-        class:dropbefore={over?.ref === m.ref && !over.after} class:dropafter={over?.ref === m.ref && over.after}
-        draggable={!compact} ondragstart={(e) => { dragging = m.ref; e.dataTransfer?.setData("text/plain", m.ref); }} ondragend={() => { dragging = null; over = null; }}
-        ondragover={(e) => dragOver(e, r)} ondrop={drop} onkeydown={(e) => keys(e, r, i)}
+        class:dim={r.dim} class:on={reviewing === m.id} class:lifted={lifted(i)} class:still={settling}
+        style:transform={drag && offset(i) ? `translateY(${offset(i)}px)` : null}
+        onpointerdown={(e) => down(e, r)} onpointermove={move} onpointerup={up} onpointercancel={up} onkeydown={(e) => keys(e, r, i)}
         ondblclick={() => onpick(m)} onclick={() => compact && onpick(m)} title={tip(m, r)} style:--depth={Math.min(r.depth, 4)}>
         {#if !compact}<span class="mrgrip" aria-hidden="true"><svg viewBox="0 0 16 16" width="12" height="12"><path d="M6 4h.01M10 4h.01M6 8h.01M10 8h.01M6 12h.01M10 12h.01" /></svg></span>{/if}
         <span class="mrmain">
@@ -128,5 +169,5 @@
       </div>
     {/each}
   </div>
-  {#if !compact && list.length}<p class="mrhint muted">j / k to move between them, Alt+j / Alt+k (or drag) to set your order: a stack moves as one. Enter, double-click or ◆ reviews.</p>{/if}
+  {#if !compact && list.length}<p class="mrhint muted">j / k to move between them, Alt+j / Alt+k or drag to set your order: a stack moves as one. Enter, double-click or ◆ reviews.</p>{/if}
 </div>

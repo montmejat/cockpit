@@ -60,6 +60,36 @@ export function stepped(order: string[], all: Row[], ref: string, by: -1 | 1): s
   return j < 0 || j >= sibs.length ? order : moved(order, all, ref, sibs[j].mr.ref, by > 0);
 }
 
+// Dragging: the MR's siblings as blocks of rows (each MR with everything stacked on it, which
+// moves with it), as [first, last] indexes into the rows; `at` is the dragged one's block.
+export function blocks(all: Row[], ref: string): { refs: string[]; spans: [number, number][]; at: number } | null {
+  const i = all.findIndex((r) => r.mr.ref === ref);
+  if (i < 0) return null;
+  const parent = all[i].parent, refs: string[] = [], spans: [number, number][] = [];
+  all.forEach((r, k) => {
+    if (r.parent !== parent) return;
+    let end = k;
+    while (end + 1 < all.length && all[end + 1].depth > r.depth) end++;
+    refs.push(r.mr.ref); spans.push([k, end]);
+  });
+  return { refs, spans, at: refs.indexOf(ref) };
+}
+// Where a dragged block lands: the slot the pointer is at, among the other blocks' middles.
+export function landing(middles: number[], at: number, y: number): number {
+  let to = 0;
+  middles.forEach((m, k) => { if (k !== at && m < y) to++; });
+  return to;
+}
+// How far block k moves aside while block `at` is dragged to `to`, `h` being the dragged block's height.
+export const aside = (k: number, at: number, to: number, h: number) =>
+  at < to && k > at && k <= to ? -h : to < at && k >= to && k < at ? h : 0;
+// How far the dragged block moves to sit in slot `to`: past the heights of the blocks it jumps.
+export function slot(heights: number[], at: number, to: number): number {
+  let d = 0;
+  for (let k = Math.min(at, to); k <= Math.max(at, to); k++) if (k !== at) d += heights[k];
+  return to > at ? d : to < at ? -d : 0;
+}
+
 // What it asks of you: "review" (you're a reviewer and haven't approved or asked for changes),
 // "yours" (you opened it), or null.
 export type Need = "review" | "yours" | null;

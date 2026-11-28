@@ -828,9 +828,9 @@ header .projmenu{transform-origin:top center;animation:popin-mid .12s cubic-bezi
 .ref.tag{border:0;padding:0 2px;color:var(--muted)}.ref.tag svg{fill:none;stroke:currentColor;stroke-width:1.4;stroke-linejoin:round;stroke-linecap:round;vertical-align:-1px}
 .grow-row .ref.tag{max-width:none}
 
-/* Over the file tree: what it is of, and the fold button at its end (shown over the sidebar), faint
-   when every folder is folded, its chevrons closing up as it folds. Stays at the top as you scroll. */
-.ftop{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:6px;height:28px;padding:0 6px 0 12px;background:var(--side)}
+/* Over the file tree, outside its scroller: what it is of, and the fold button at its end (shown over
+   the sidebar), faint when every folder is folded, its chevrons closing up as it folds. */
+.ftop{flex:none;display:flex;align-items:center;gap:6px;height:28px;padding:0 6px 0 12px}
 .ftname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
 button.ftfold{display:grid;place-items:center;width:var(--ctl-s);height:var(--ctl-s);padding:0;border:0;background:none;color:var(--muted);opacity:0;transition:opacity .12s}
 #side:hover button.ftfold,button.ftfold:focus-visible{opacity:1}#side:hover button.ftfold.done{opacity:.35}button.ftfold:hover{color:var(--fg);background:var(--btn-hover)}
@@ -860,12 +860,14 @@ button.ftfold.folding svg{animation:foldup .22s cubic-bezier(.2,.8,.3,1)}
 .mrat{font-size:var(--fs-s)}
 .mrlist2{display:flex;flex-direction:column;gap:1px;border-radius:var(--r-l);background:color-mix(in oklab,var(--well) 55%,transparent);padding:4px;outline:0}
 .mrs{container-type:inline-size}
-.mrrow2{display:grid;grid-template-columns:12px minmax(0,1fr) 112px 8px 116px 34px 84px 58px 48px;align-items:center;gap:8px;min-height:32px;padding:0 6px;border-radius:var(--r-m);cursor:default;outline:0;transition:background-color .15s}
+.mrrow2{position:relative;display:grid;grid-template-columns:12px minmax(0,1fr) 112px 8px 116px 34px 84px 58px 48px;align-items:center;gap:8px;min-height:32px;padding:0 6px;border-radius:var(--r-m);cursor:default;outline:0;transition:background-color .15s,transform .16s cubic-bezier(.2,.8,.3,1)}
 .mrrow2:hover{background:var(--btn);transition-duration:0s}.mrrow2:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
 .mrrow2.on{background:color-mix(in oklab,var(--rev) 10%,transparent)}
-.mrrow2.dim{opacity:.5}.mrrow2.drag{opacity:.4}
-.mrrow2.dropbefore{box-shadow:inset 0 2px 0 var(--accent)}.mrrow2.dropafter{box-shadow:inset 0 -2px 0 var(--accent)}
-.mrgrip{display:grid;place-items:center;color:var(--muted);opacity:0;cursor:grab}.mrrow2:hover .mrgrip{opacity:.7}
+.mrrow2.dim{opacity:.5}
+/* dragging: the MR (and its stack) lifted over the others, which slide aside; nothing selects or hovers meanwhile */
+.mrlist2.dragging{user-select:none;cursor:grabbing}.mrlist2.dragging .mrrow2{cursor:grabbing}.mrlist2.dragging .mrrow2:hover:not(.lifted){background:none}.mrlist2.dragging .mracts{opacity:0}
+.mrrow2.lifted{z-index:2;background:var(--card);box-shadow:var(--shadow-pop)}.mrrow2.still{transition:none}
+.mrgrip{display:grid;place-items:center;color:var(--muted);opacity:0}.mrs:not(.compact) .mrrow2{cursor:grab}.mrrow2:hover .mrgrip{opacity:.7}
 .mrgrip svg{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
 .mrmain{display:flex;align-items:center;gap:6px;min-width:0;padding-left:calc(var(--depth) * 14px)}
 .mrel{flex:none;width:9px;height:9px;margin:-6px 1px 0 -2px;border-left:1.5px solid var(--edge);border-bottom:1.5px solid var(--edge);border-bottom-left-radius:var(--r-xs)}
