@@ -82,6 +82,16 @@ desktop/release.sh list         # the releases: * in use, + installed
 desktop/release.sh v2026.11.25.1   # switch to that one (back to an older one, say)
 ```
 
+To try changes before they're pushed, keep the release and run the checkout beside it:
+
+```sh
+desktop/dev.sh                  # build the page, add "cockpit dev" to the app menu, open it
+```
+
+"cockpit dev" is the installed app started on this checkout (`COCKPIT_HOME`); its top bar says
+**dev**. After a page change, `npm run build` and it offers "reload page"; after a server change,
+"restart cockpit". Push once you like it: CI then tags the release that "update" installs.
+
 CI (`.github/workflows/ci.yml`) runs the guardrails' checks on every push, on Fedora so the
 desktop app builds too: `npm run guardrails` runs the same ones locally. Each push to master
 that passes is tagged `vYYYY.MM.DD.N` (with a GitHub release listing its commits). A release is

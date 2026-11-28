@@ -155,6 +155,8 @@
   {#snippet title()}
     {#if S.workspace}<svg class="tico" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><rect x="2" y="2" width="5" height="5" rx="1" /><rect x="9" y="2" width="5" height="5" rx="1" /><rect x="2" y="9" width="5" height="5" rx="1" /><rect x="9" y="9" width="5" height="5" rx="1" /></svg>{/if}
     <h1>{S.workspace?.name ?? S.project}</h1>
+    <!-- run from the checkout (desktop/dev.sh), not a release: say so, so the two windows never get mixed up -->
+    {#if S.cockpit && !S.cockpit.release}<span class="devtag" title="cockpit {S.cockpit.version}: run from its checkout, so what's edited there is what runs (desktop/dev.sh)">dev</span>{/if}
   {/snippet}
   {#if win}
     <button class="projbtn" class:on={projOpen} title={S.workspace ? `Workspace ${S.workspace.name}: ${S.workspace.projects.map((p) => p.name).join(", ")}` : "Open another folder  (Ctrl+O)"} aria-expanded={projOpen} aria-haspopup="menu" onclick={toggleProj}>

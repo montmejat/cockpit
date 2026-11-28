@@ -913,4 +913,6 @@ button.mrall{font-size:var(--fs-s);color:var(--accent)}
 /* the git panel's review picker: a soft block like the work's, not a ringed card */
 .gcard.review.gpick{margin:0 8px 8px;padding:6px 8px 4px 10px;border-color:transparent;background:color-mix(in oklab,var(--rev) 5%,color-mix(in oklab,var(--well) 55%,transparent))}
 .gpick .rhead b{font-weight:500;font-size:var(--fs-s);color:var(--rev)}
+/* the top bar's "dev": this cockpit runs from its checkout, not a release */
+.devtag{flex:none;margin-left:6px;padding:0 6px;border-radius:var(--r-pill);font-size:var(--fs-xs);font-weight:600;line-height:1.6;letter-spacing:.04em;color:var(--warn);background:color-mix(in oklab,var(--warn) 14%,transparent)}
 
