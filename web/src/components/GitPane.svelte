@@ -11,6 +11,7 @@
   // CI); what isn't committed, split like VS
   // Code into staged and not (+ / − on a file stages or unstages it), with a commit box over the
   // staged files (Ctrl+Enter commits); and the history of all branches as a graph.
+  import { heldView, type Held } from "../lib/heldlists";
   import { api } from "../lib/code";
   import { graphRows, graphSvg } from "../lib/graph";
   import { askAboutThread, cur, openCommit, openDiff, openFile, store } from "../lib/state.svelte";
@@ -109,6 +110,15 @@
   }
   const stage = (paths: string[]) => git("api/git/stage", { paths });
   const unstage = (paths: string[]) => git("api/git/unstage", { paths });
+  // A row's + or − holds both lists still until the pointer or focus leaves them (lib/heldlists.ts);
+  // "+ all" and "− all" move everything, so they don't.
+  let held = $state<Held | null>(null);
+  const lists = $derived(heldView(staged.map((f) => f.path), unstaged.map((f) => f.path), held));
+  const byPath = $derived(new Map(L.status.map((f) => [f.path, f])));
+  const hold = () => (held ??= { staged: staged.map((f) => f.path), unstaged: unstaged.map((f) => f.path) });
+  const release = () => (held = null);
+  // Focus moved elsewhere; not lost to nowhere, as when the clicked button turns disabled while git runs.
+  const leaving = (e: FocusEvent) => { const to = e.relatedTarget as Node | null; if (to && !(e.currentTarget as HTMLElement).contains(to)) release(); };
   // Revert a file's unstaged changes (an untracked file is deleted), in one click.
   const discard = (path: string) => git("api/git/discard", { paths: [path] });
   async function commit() {
@@ -230,13 +240,13 @@
   </div>
 {/snippet}
 
-{#snippet row(f: { path: string }, mark: string, n: [number, number] | undefined, act: "+" | "−")}
+{#snippet row(f: { path: string }, mark: string, n: [number, number] | undefined, act: "+" | "−", moved = false)}
   {@const staged = act === "−"}
   {@const conflict = mark === "C"}
-  <div class="gitrow" class:sel={cur().kind === "diff" && (cur() as { path: string; staged: boolean }).path === f.path && (cur() as { staged: boolean }).staged === staged}>
+  <div class="gitrow" class:gmoved={moved} class:sel={cur().kind === "diff" && (cur() as { path: string; staged: boolean }).path === f.path && (cur() as { staged: boolean }).staged === staged}>
     <!-- a click shows what changed (a conflict opens the file, to resolve it) -->
     <button class="gitfile" onclick={() => (conflict ? openFile(pre + f.path) : openDiff(pre + f.path, staged))} title={(conflict ? "Open " : staged ? "Staged changes in " : "Changes in ") + f.path}>
-      <span class="mark {mark === 'U' ? 'A' : mark}">{mark}</span><span class="gname" class:gdel={mark === "D"}>{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>
+      <span class="mark {mark === 'U' ? 'A' : mark}">{mark}</span><span class="gname" class:gdel={mark === "D"}>{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>{#if moved}<span class="gwent">{staged ? "staged" : "unstaged"}</span>{/if}
       {#if n}<span class="gnum">{#if n[0] < 0}bin{:else}{#if n[0]}<i class="a">+{n[0]}</i>{/if}{#if n[1]}<i class="d">−{n[1]}</i>{/if}{/if}</span>{/if}
     </button>
     {#if act === "+" && !conflict}
@@ -244,7 +254,7 @@
       <button class="gact grev" disabled={gitBusy} title={untracked ? "Delete this new file (no undo)" : "Revert the changes (no undo)"} aria-label="Revert" onclick={() => discard(f.path)}>
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M5.5 4 3 6.5 5.5 9M3.5 6.5h6a3 3 0 0 1 0 6H7" /></svg></button>
     {/if}
-    <button class="gact gstage" disabled={gitBusy} title={act === "+" ? "Stage" : "Unstage"} aria-label={act === "+" ? "Stage" : "Unstage"} onclick={() => (act === "+" ? stage([f.path]) : unstage([f.path]))}>
+    <button class="gact gstage" disabled={gitBusy} title={(act === "+" ? "Stage" : "Unstage") + (moved ? " again" : "")} aria-label={act === "+" ? "Stage" : "Unstage"} onclick={() => { if (!conflict) hold(); act === "+" ? stage([f.path]) : unstage([f.path]); }}>
       <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d={act === "+" ? "M8 3.5v9M3.5 8h9" : "M3.5 8h9"} /></svg></button>
   </div>
 {/snippet}
@@ -411,15 +421,20 @@
     {@render head("conflicts", conflicts.length)}
     <div class="gsec">{#each conflicts as f (f.path)}{@render row(f, "C", undefined, "+")}{/each}</div>
   {/if}
-  {#if staged.length}
-    {#snippet unstageAll()}<button class="gall" disabled={gitBusy} onclick={() => unstage(staged.map((f) => f.path))} title="Unstage all">− all</button>{/snippet}
+  <!-- a moved row shows where its file went: in the staged list, a file unstaged; in changes, one staged -->
+  {#snippet stagedRow(p: string, moved: boolean)}{@const f = byPath.get(p)!}{#if moved}{@render row(f, letter(f.x === "?" ? "?" : f.y), counts.unstaged[p], "+", true)}{:else}{@render row(f, letter(f.x), counts.staged[p], "−")}{/if}{/snippet}
+  {#snippet changeRow(p: string, moved: boolean)}{@const f = byPath.get(p)!}{#if moved}{@render row(f, letter(f.x), counts.staged[p], "−", true)}{:else}{@render row(f, letter(f.x === "?" ? "?" : f.y), counts.unstaged[p], "+")}{/if}{/snippet}
+  <div class="glists" role="group" onpointerleave={release} onfocusout={leaving}>
+  {#if lists.staged.length}
+    {#snippet unstageAll()}<button class="gall" disabled={gitBusy} onclick={() => { release(); unstage(staged.map((f) => f.path)); }} title="Unstage all">− all</button>{/snippet}
     {@render head("staged", staged.length, unstageAll)}
-    <div class="gsec">{#each staged as f (f.path)}{@render row(f, letter(f.x), counts.staged[f.path], "−")}{/each}</div>
+    <div class="gsec">{#each lists.staged as x (x.path)}{@render stagedRow(x.path, x.moved)}{/each}</div>
   {/if}
-  {#snippet stageAll()}{#if unstaged.length}<button class="gall" disabled={gitBusy} onclick={() => stage(unstaged.map((f) => f.path))} title="Stage all">+ all</button>{/if}{/snippet}
+  {#snippet stageAll()}{#if unstaged.length}<button class="gall" disabled={gitBusy} onclick={() => { release(); stage(unstaged.map((f) => f.path)); }} title="Stage all">+ all</button>{/if}{/snippet}
   {@render head("changes", unstaged.length, stageAll)}
   <div class="gsec">
-    {#each unstaged as f (f.path)}{@render row(f, letter(f.x === "?" ? "?" : f.y), counts.unstaged[f.path], "+")}{:else}<div class="gempty">{L.status.length ? "everything is staged" : "working tree clean"}</div>{/each}
+    {#each lists.unstaged as x (x.path)}{@render changeRow(x.path, x.moved)}{:else}<div class="gempty">{L.status.length ? "everything is staged" : "working tree clean"}</div>{/each}
+  </div>
   </div>
   {/if}
 
