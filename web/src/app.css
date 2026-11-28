@@ -312,7 +312,7 @@ body.desktop header.wleft{padding-left:6px}
 .cchip.cview{border-style:dashed}
 .cchip button{padding:0 2px;border:0;background:none;color:var(--muted);font-size:var(--fs-m);line-height:1;cursor:pointer}.cchip button:hover{color:var(--fg)}
 .cthumb{position:relative}.cthumb button{position:absolute;top:-6px;right:-6px;display:grid;place-items:center;width:var(--ctl-xs);height:var(--ctl-xs);padding:0;border-radius:50%;border:0;background:var(--fg);color:var(--bg);font-size:var(--fs-s);line-height:1}
-.ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:28px}.ctext li ul,.ctext li ol{margin:2px 0;padding-left:20px}.ctext ul>li::marker{font-size:.8em}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
+.ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:28px}.ctext li ul,.ctext li ol{margin:2px 0;padding-left:20px}.ctext ul>li::marker{font-size:var(--fs-xs)}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
 .ctext code{background:var(--bg);border-radius:var(--r-xs);padding:0 3px;font-size:var(--fs-s)}
 .ctext .cblock{position:relative}.msgs .cblock pre{padding-right:30px}
 .ctext .copy{position:absolute;top:4px;right:4px;padding:3px;line-height:0;border-radius:var(--r-s);color:var(--muted);background:var(--card);border:1px solid var(--line);opacity:.55;cursor:pointer}
