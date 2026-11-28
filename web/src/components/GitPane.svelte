@@ -12,6 +12,7 @@
   // Code into staged and not (+ / − on a file stages or unstages it), with a commit box over the
   // staged files (Ctrl+Enter commits); and the history of all branches as a graph.
   import { heldView, type Held } from "../lib/heldlists";
+  import { ahead, commitUrl, diffTag, diffUrl } from "../lib/ahead";
   import { api } from "../lib/code";
   import { graphRows, graphSvg } from "../lib/graph";
   import { askAboutThread, cur, openCommit, openDiff, openFile, store } from "../lib/state.svelte";
@@ -33,6 +34,9 @@
   const width = $derived(18 + 12 * Math.max(1, ...rows.map((r) => Math.max(r.before.length, r.after.length))));
   const selSha = $derived.by(() => { const t = cur(); return t.kind === "commit" && (t.project ?? null) === (p.here ? null : p.name) ? t.sha : null; });
   const commitOf = (sha: string) => openCommit(sha, p.here ? undefined : p.name);
+  // Reaching a row asks for what a click on it shows, so it opens at once (lib/ahead.ts).
+  const soonDiff = (path: string, staged: boolean) => ahead(diffUrl(B, path, staged), diffTag(L, path)).catch(() => {});
+  const soonCommit = (sha: string) => ahead(commitUrl(B, sha)).catch(() => {});
   const g = $derived(L.git);
 
   // ---- review mode: this branch, or a merge request picked from the open ones ----
@@ -245,7 +249,7 @@
   {@const conflict = mark === "C"}
   <div class="gitrow" class:gmoved={moved} class:sel={cur().kind === "diff" && (cur() as { path: string; staged: boolean }).path === f.path && (cur() as { staged: boolean }).staged === staged}>
     <!-- a click shows what changed (a conflict opens the file, to resolve it) -->
-    <button class="gitfile" onclick={() => (conflict ? openFile(pre + f.path) : openDiff(pre + f.path, staged))} title={(conflict ? "Open " : staged ? "Staged changes in " : "Changes in ") + f.path}>
+    <button class="gitfile" onpointerenter={() => { if (!conflict) soonDiff(f.path, staged); }} onclick={() => (conflict ? openFile(pre + f.path) : openDiff(pre + f.path, staged))} title={(conflict ? "Open " : staged ? "Staged changes in " : "Changes in ") + f.path}>
       <span class="mark {mark === 'U' ? 'A' : mark}">{mark}</span><span class="gname" class:gdel={mark === "D"}>{nameOf(f.path)}</span><span class="gdir">{dirOf(f.path)}</span>{#if moved}<span class="gwent">{staged ? "staged" : "unstaged"}</span>{/if}
       {#if n}<span class="gnum">{#if n[0] < 0}bin{:else}{#if n[0]}<i class="a">+{n[0]}</i>{/if}{#if n[1]}<i class="d">−{n[1]}</i>{/if}{/if}</span>{/if}
     </button>
@@ -447,7 +451,7 @@
         <div class="grow-wrap">
         {#if sw.length}<button class="gco raised" title={sw.length === 1 ? `Switch to ${sw[0]}` : `Switch to one of ${sw.join(", ")}`} aria-label="Switch branch" onclick={(e) => checkoutRow(e, r.c)}>
           <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M5 3v10M5 9c0-2 6-1 6-4.5M5 3.2a1.2 1.2 0 1 0 0 .1M11 4.3a1.2 1.2 0 1 0 0 .1M5 12.8a1.2 1.2 0 1 0 0 .1" /></svg>checkout</button>{/if}
-        <button class="grow-row" class:sel={selSha === r.c.sha} onclick={() => commitOf(r.c.sha)} oncontextmenu={(e) => openMenu(e, r.c)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
+        <button class="grow-row" class:sel={selSha === r.c.sha} onpointerenter={() => soonCommit(r.c.sha)} onclick={() => commitOf(r.c.sha)} oncontextmenu={(e) => openMenu(e, r.c)} title={r.c.sha + "  " + r.c.subject + "\n" + r.c.author + " · " + new Date(r.c.date).toLocaleString() + (r.c.refs.length ? "\n" + r.c.refs.join(", ") : "")}>
           {@html graphSvg(r, width)}
           <span class="msg">{#each rf.shown as x}<span class="ref" class:head={x.head} class:remote={x.remote} class:synced={x.synced} title={x.synced ? `${x.name} (same as origin/${x.name})` : x.name}>{x.name}</span>{/each}{#if rf.more}<span class="ref more" title={r.c.refs.join(", ")}>+{rf.more}</span>{/if}{r.c.subject}</span>
         </button>

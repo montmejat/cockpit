@@ -10,6 +10,7 @@
   import MiniMap from "./MiniMap.svelte";
   import FileEditor from "./FileEditor.svelte";
   import { api, parsePatch } from "../lib/code";
+  import { ahead, commitUrl, diffTag, diffUrl, have } from "../lib/ahead";
   import { askAboutThread, cur, openFile, S, store } from "../lib/state.svelte";
   import { projectNamed, split } from "../lib/projects.svelte";
   import { lspKey, lspStatus, serverOf } from "../lib/lsp.svelte";
@@ -34,9 +35,12 @@
   const dkey = $derived(dtab ? dtab.path + "@" + dtab.staged + "@" + (L.fileRevs[at.path] ?? 0) + "@" + L.git.head + "@" + JSON.stringify(L.status.find((x) => x.path === at.path) ?? null) : "");
   $effect(() => {
     if (!dtab) return;
-    const k = dkey, d = dtab, a = at;
+    const k = dkey, d = dtab, a = at, url = diffUrl(a.p.base, a.path, d.staged), tag = diffTag(a.p.L, a.path);
+    // Asked for when the pointer reached its row in the git pane (lib/ahead.ts): then here already.
+    const hit = have<DiffData>(url, tag);
+    if (hit) { diff = { ...hit, path: d.path }; return; }
     if (diff && (diff.path !== d.path || diff.staged !== d.staged)) diff = null;
-    api.get<DiffData>(`${a.p.base}api/git/diff?path=${encodeURIComponent(a.path)}&staged=${d.staged ? 1 : 0}`).then((r) => { if (dkey === k) diff = { ...r, path: d.path }; }).catch(() => {});
+    ahead<DiffData>(url, tag).then((r) => { if (dkey === k) diff = { ...r, path: d.path }; }).catch(() => {});
   });
   const dfiles = $derived(diff?.patch ? parsePatch(diff.patch) : []);
   // The file is loaded again when it changes on disk, when HEAD moves, or when a review starts or
@@ -68,8 +72,11 @@
     if (!sha) return;
     const s = sha, c = cproj!;
     if (commit?.sha.startsWith(s) && shownFor === c) return;
-    commit = null; shownFor = c;
-    api.get<CommitData>(c.base + "api/git/commit?sha=" + encodeURIComponent(s)).then((x) => { if (sha === s) commit = x; });
+    const url = commitUrl(c.base, s), hit = have<CommitData>(url);
+    shownFor = c;
+    if (hit) { commit = hit; return; }
+    commit = null;
+    ahead<CommitData>(url).then((x) => { if (sha === s) commit = x; }).catch(() => {});
   });
 
   // ---- the file: an editor (FileEditor.svelte) ------------------------------------------
