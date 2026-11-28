@@ -145,8 +145,7 @@ body:has(.sgrip.dragging){cursor:col-resize;user-select:none}
 .node{border-top:1px solid var(--line);margin-top:14px;padding-top:10px}
 a.code{display:block;font-size:var(--fs-s);padding:2px 0;word-break:break-all}
 a.code .chg{color:var(--warn)}
-.zfile .rev{color:var(--rev)}
-.zstat{margin-left:8px;font-variant-numeric:tabular-nums}.zstat .a{color:var(--add)}.zstat .d{color:var(--del);margin-left:5px}
+.zfile button.link.chg{color:var(--warn)}.zfile button.link.rev{color:var(--rev)}
 .zhead{display:flex;align-items:baseline;gap:0}.zhead .muted{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 button.zexplain{margin-left:10px;flex-shrink:0;font-size:var(--fs-s);padding:1px 9px;color:var(--rev);border:1px solid color-mix(in oklab,var(--rev) 45%,var(--line));background:none;border-radius:var(--r-pill)}
 button.zexplain:hover{background:color-mix(in oklab,var(--rev) 10%,transparent)}
@@ -313,7 +312,7 @@ body.desktop header.wleft{padding-left:6px}
 .cchip.cview{border-style:dashed}
 .cchip button{padding:0 2px;border:0;background:none;color:var(--muted);font-size:var(--fs-m);line-height:1;cursor:pointer}.cchip button:hover{color:var(--fg)}
 .cthumb{position:relative}.cthumb button{position:absolute;top:-6px;right:-6px;display:grid;place-items:center;width:var(--ctl-xs);height:var(--ctl-xs);padding:0;border-radius:50%;border:0;background:var(--fg);color:var(--bg);font-size:var(--fs-s);line-height:1}
-.ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:20px}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
+.ctext p{margin:4px 0}.ctext ul,.ctext ol{margin:4px 0;padding-left:28px}.ctext li ul,.ctext li ol{margin:2px 0;padding-left:20px}.ctext ul>li::marker{font-size:.8em}.ctext h4{margin:8px 0 2px;font-size:var(--fs-m)}
 .ctext code{background:var(--bg);border-radius:var(--r-xs);padding:0 3px;font-size:var(--fs-s)}
 .ctext .cblock{position:relative}.msgs .cblock pre{padding-right:30px}
 .ctext .copy{position:absolute;top:4px;right:4px;padding:3px;line-height:0;border-radius:var(--r-s);color:var(--muted);background:var(--card);border:1px solid var(--line);opacity:.55;cursor:pointer}

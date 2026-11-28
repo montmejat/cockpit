@@ -203,8 +203,12 @@ export function md(src: string, refs?: Refs) {
     .replace(/(^|[\s(])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
     .replace(/\[((?:[^[\]]|\[[^[\]]*\])+)\]\((https?:[^)\s]+)\)/g, "<a href='$2' target=_blank rel=noopener>$1</a>");
   const out: string[] = [], lines = String(src ?? "").split("\n");
-  let list: string | null = null, para: string[] = [];
-  const flush = () => { if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = []; if (list) { out.push("</" + list + ">"); list = null; } };
+  // The lists open at this point, outermost first, each with its last item still open. An item
+  // indented past its list's starts a list inside that item.
+  const lists: { kind: string; indent: number }[] = [];
+  let para: string[] = [];
+  const close = () => { while (lists.length) out.push("</li></" + lists.pop()!.kind + ">"); };
+  const flush = () => { if (para.length) out.push("<p>" + para.map(inline).join("<br>") + "</p>"); para = []; close(); };
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     if (/^```/.test(l)) {
@@ -224,17 +228,22 @@ export function md(src: string, refs?: Refs) {
       out.push(html + "</tbody></table></div>");
     } else if (/^#{1,4}\s/.test(l)) { flush(); out.push("<h4>" + inline(l.replace(/^#+\s*/, "")) + "</h4>"); }
     else if (/^\s*([-*]|\d+\.)\s+/.test(l)) {
-      if (para.length) { const keep: string | null = list; list = null; flush(); list = keep; }
-      const kind = /^\s*\d+\./.test(l) ? "ol" : "ul";
-      if (list !== kind) { if (list) out.push("</" + list + ">"); out.push("<" + kind + ">"); list = kind; }
-      out.push("<li>" + inline(l.replace(/^\s*([-*]|\d+\.)\s+/, "")) + "</li>");
+      if (para.length) flush();
+      const m = /^(\s*)([-*]|(\d+)\.)\s+/.exec(l)!, indent = m[1].length, kind = m[3] ? "ol" : "ul";
+      while (lists.length && lists[lists.length - 1].indent > indent) out.push("</li></" + lists.pop()!.kind + ">");
+      const top = lists[lists.length - 1];
+      if (top && top.indent === indent && top.kind !== kind) out.push("</li></" + lists.pop()!.kind + ">");
+      if (lists.length && lists[lists.length - 1].indent === indent) out.push("</li>");
+      // A numbered list starts at its first number: a reply's "2." after a blank line or a nested list is still 2.
+      else { out.push("<" + kind + (m[3] && m[3] !== "1" ? ` start=${+m[3]}` : "") + ">"); lists.push({ kind, indent }); }
+      out.push("<li>" + inline(l.slice(m[0].length)));
     } else if (!l.trim()) flush();
-    else if (/^\s*`[^`]+`\s*$/.test(l) && !list) {
+    else if (/^\s*`[^`]+`\s*$/.test(l) && !lists.length) {
       // A line that is only code ("Please run:\n`sudo dnf install x`") is a command to copy.
       flush();
       out.push(copyable("<pre>" + esc(l.trim().slice(1, -1)) + "</pre>"));
     }
-    else { if (list) { out.push("</" + list + ">"); list = null; } para.push(l); }
+    else { close(); para.push(l); }
   }
   flush();
   const html = out.join("");

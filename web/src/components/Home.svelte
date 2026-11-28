@@ -68,7 +68,6 @@
         {:else}
           <div class="hacts">
             <button disabled={busy} onclick={() => (win ? add() : (adding = true))}>+ Add project</button>
-            {#if win}<button class="link" onclick={() => (adding = true)}>type a path</button>{/if}
             <span class="grow"></span>
             <button class="link" class:hstale={stale} title="Load the page again, with the projects its workspace.json lists now" onclick={() => location.reload()}>{stale ? "Reload: the workspace changed" : "Reload"}</button>
           </div>

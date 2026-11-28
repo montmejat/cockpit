@@ -37,17 +37,13 @@
     const to = line ? Math.min(lines.length, end ?? line) : changed ? lines.length : Math.min(lines.length, 40);
     const inside = src.hunks.filter((h) => h.at + Math.max(h.added, 1) - 1 >= from && h.at <= to);
     const rows: Row[] = [];
-    let adds = 0, dels = 0;
     for (let i = from; i <= to; i++) {
-      for (const h of inside) if (h.at === i && h.removed.length) {
+      for (const h of inside) if (h.at === i && h.removed.length)
         hlLines(h.removed.join("\n"), lang).forEach((html) => rows.push({ kind: "del", html }));
-        dels += h.removed.length;
-      }
       const add = inside.some((h) => i >= h.at && i < h.at + h.added);
-      if (add) adds++;
       rows.push({ kind: add ? "add" : "ctx", n: i, html: lines[i - 1] ?? "" });
     }
-    return { rows, adds, dels, more: !line && !changed && lines.length > to ? lines.length - to : 0 };
+    return { rows, more: !line && !changed && lines.length > to ? lines.length - to : 0 };
   }
   // Changed in the review, or (outside one) not committed.
   const changedHere = (a: string) => (M.review ? anchorChanged(a, C.rFiles, C.rItems) : anchorChanged(a));
@@ -65,10 +61,7 @@
       {@const s = src ? rowsOf(w.file, w.line, w.end) : null}
       <div class="zpart">
         <div class="zfile">
-          <button class="link" onclick={() => openFile(mapFile(w.file), w.line, w.end)}>{a}</button>
-          {#if changedHere(a)}<span class={M.review ? "rev" : "chg"}> {M.review ? "◆ changed in this review" : "● changed"}</span>{/if}
-          {#if s && (s.adds || s.dels)}<span class="zstat">{#if s.adds}<span class="a">+{s.adds}</span>{/if}{#if s.dels}<span class="d">−{s.dels}</span>{/if}</span>{/if}
-          <span class="muted"> · {w.file}{w.line ? ":" + w.line : ""}</span>
+          <button class={"link" + (changedHere(a) ? (M.review ? " rev" : " chg") : "")} title={a} onclick={() => openFile(mapFile(w.file), w.line, w.end)}>{w.file}{w.line ? ":" + w.line : ""}</button>
         </div>
         {#if !s}<p class="dnote">loading…</p>
         {:else}
