@@ -15,7 +15,8 @@
   import Chats from "./components/Chats.svelte";
   import Guardrails from "./components/Guardrails.svelte";
   import Home from "./components/Home.svelte";
-  import { byId, homeOf, M, openCommit, openDiagram, openFile, openGuardrails, showChat, showProject, ui, cur, mapTab, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
+  import MrTab from "./components/MrTab.svelte";
+  import { byId, homeOf, M, openCommit, openDiagram, openFile, openGuardrails, openMrs, showChat, showProject, ui, cur, mapTab, saveTabs, toggleChat, toggleHelp } from "./lib/state.svelte";
   import { projects } from "./lib/projects.svelte";
   import Grip, { savedWidth } from "./components/Grip.svelte";
   import { api } from "./lib/code";
@@ -35,6 +36,7 @@
   else if (H.startsWith("f=")) openFile(H.slice(2));
   else if (H.startsWith("c=")) openCommit(H.slice(2));
   else if (Q.get("tab") === "guardrails" || H === "guardrails") openGuardrails();
+  else if (Q.get("tab") === "mrs" || H === "mrs") openMrs();
   else if (byId(Q.get("at"))) { openDiagram(Q.get("at")!); mapTab().code = Q.get("box") || null; }
   else if (/^[^:=]+:./.test(H) && projects.some((p) => !p.here && p.name === H.split(":")[0])) openDiagram(H.slice(H.indexOf(":") + 1), undefined, H.split(":")[0]); // another project's (its diagrams arrive once its server answers)
   else if (byId(H)) openDiagram(H);
@@ -42,7 +44,7 @@
   // The address follows what's open, so a reload comes back to it.
   $effect(() => {
     const t = cur();
-    const hash = ui.home ? "" : t.kind === "map" ? (t.project ? t.project + ":" : "") + (t.id ?? "") : t.kind === "guardrails" ? "guardrails" : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
+    const hash = ui.home ? "" : t.kind === "map" ? (t.project ? t.project + ":" : "") + (t.id ?? "") : t.kind === "guardrails" ? "guardrails" : t.kind === "mrs" ? "mrs" : t.kind === "file" || t.kind === "diff" ? "f=" + t.path : "c=" + t.sha;
     history.replaceState(null, "", location.pathname + (hash ? "#" + encodeURIComponent(hash) : ""));
   });
   // A diagram that disappeared from .cockpit/: the map goes back home.
@@ -103,7 +105,7 @@
     <TabBar />
     <div id="work">
       <MapView hidden={ui.home || cur().kind !== "map"} />
-      {#if ui.home}<Home />{:else if cur().kind === "guardrails"}<Guardrails />{:else if cur().kind !== "map"}<CodeView />{/if}
+      {#if ui.home}<Home />{:else if cur().kind === "guardrails"}<Guardrails />{:else if cur().kind === "mrs"}<MrTab />{:else if cur().kind !== "map"}<CodeView />{/if}
     </div>
     <Terminal bind:this={term} />
   </section>

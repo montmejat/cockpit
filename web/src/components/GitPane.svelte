@@ -15,8 +15,9 @@
   import { ahead, commitUrl, diffTag, diffUrl } from "../lib/ahead";
   import { api } from "../lib/code";
   import { graphRows, graphSvg } from "../lib/graph";
-  import { askAboutThread, cur, openCommit, openDiff, openFile, store } from "../lib/state.svelte";
+  import { askAboutThread, cur, openCommit, openDiff, openFile, openMrs, store } from "../lib/state.svelte";
   import Tab from "./ui/Tab.svelte";
+  import MrList from "./MrList.svelte";
   import { here, type Project } from "../lib/projects.svelte";
   import type { BranchMr, Commit, MergeRequest, Thread } from "../lib/types";
 
@@ -41,13 +42,8 @@
 
   // ---- review mode: this branch, or a merge request picked from the open ones ----
   let picking = $state(false), busy = $state(""), err = $state(""), note = $state("");
-  let mrs = $state<{ list: MergeRequest[]; forge: string | null; error?: string } | null>(null);
-  function openPicker() {
-    picking = !picking; err = "";
-    if (!picking) return;
-    mrs = null;
-    api.get(B + "api/review/mrs").then((r) => (mrs = r)).catch((e) => (mrs = { list: [], forge: null, error: String(e) }));
-  }
+  // the open MRs to pick from: MrList.svelte, compact (the same list as the Merge requests tab)
+  function openPicker() { picking = !picking; err = ""; }
   // The server answers before its new state reaches the page: the busy line stays until the review
   // has started or ended here too (or 4 s), so the card doesn't blink out in between.
   let awaitReview: boolean | null = $state(null), awaitTimer: ReturnType<typeof setTimeout> | undefined;
@@ -357,20 +353,10 @@
   {/if}
 
   {#if picking && !R}
-    <div class="gcard review">
-      <div class="rhead"><b>◆ open merge requests</b><span class="grow"></span><button class="gx" onclick={() => (picking = false)} title="Close" aria-label="Close">
+    <div class="gcard review gpick">
+      <div class="rhead"><b>◆ review a merge request</b><span class="grow"></span><button class="gx" onclick={() => (picking = false)} title="Close" aria-label="Close">
         <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg></button></div>
-      {#if !mrs}<div class="gmuted"><span class="spin"></span> loading…</div>
-      {:else if mrs.error}<div class="gmuted">{mrs.error}</div>
-      {:else if !mrs.list.length}<div class="gmuted">none open</div>{/if}
-      <div class="mrlist">
-        {#each mrs?.list ?? [] as m (m.id)}
-          <button class="mrrow" disabled={!!busy} onclick={() => startMr(m)} title={m.title + "\n" + m.source + " → " + m.target + " · " + m.author}>
-            <span class="mt"><b>{m.ref}</b> {m.title}{#if m.draft}<span class="tag">draft</span>{/if}{#if m.fork}<span class="tag">fork</span>{/if}</span>
-            <span class="mm">{m.source} → {m.target} · {m.author}</span>
-          </button>
-        {/each}
-      </div>
+      <MrList {p} compact onpick={(m) => { if (!busy) startMr(m); }} onall={() => { picking = false; openMrs(p.here ? undefined : p.name); }} />
     </div>
   {/if}
 

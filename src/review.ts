@@ -50,7 +50,7 @@ export function threadsText(threads: Thread[], headSha: string) {
   }).join("\n\n");
 }
 
-const run = (cmd: string, args: string[], cwd: string, timeout = 60_000) => new Promise<string>((done, fail) =>
+export const run = (cmd: string, args: string[], cwd: string, timeout = 60_000) => new Promise<string>((done, fail) =>
   execFile(cmd, args, { cwd, timeout, maxBuffer: 64 << 20, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } }, (e, out, err) =>
     e ? fail(new Error(String(err || e.message).trim().split("\n").slice(-3).join("\n"))) : done(out.trimEnd())));
 const git = (root: string, ...a: string[]) => run("git", a, root);

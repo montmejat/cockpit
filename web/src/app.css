@@ -163,11 +163,6 @@ header .revpill > *{white-space:nowrap}
 header .revpill .rt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--fg)}
 header .revpill button{border:0;background:none;color:var(--muted);padding:0 5px;font-size:var(--fs-s)}header .revpill button:hover{color:var(--fg)}
 .review .err{color:var(--bad);white-space:pre-wrap}.review .note{color:var(--warn)}
-button.mrrow{display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:4px 12px;text-align:left;border:0;background:none;border-left:2px solid transparent;font:inherit;color:inherit;cursor:pointer}
-button.mrrow:hover{background:var(--sel);border-left-color:var(--rev)}
-button.mrrow .mt{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-button.mrrow .mm{font-size:var(--fs-s);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.mrrow .tag{font-size:var(--fs-xs);border:1px solid var(--line);border-radius:var(--r-m);padding:0 4px;margin-left:4px;color:var(--muted)}
 .review select{font:inherit;font-size:var(--fs-s);color:var(--fg);background:var(--card);border:1px solid var(--line);border-radius:var(--r-s);padding:1px 4px;width:100%;margin-top:3px}
 .mark.rev{color:var(--rev)}
 #dlist .rc{color:var(--rev);font-size:var(--fs-s);margin-left:6px}#dlist .rn{color:var(--add);font-size:var(--fs-xs);margin-left:6px}
@@ -629,7 +624,6 @@ button.gpbtn:hover{background:color-mix(in oklab,var(--accent) 10%,transparent)}
 .review .rtitle{margin-top:2px}
 .review .rbtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .gcard.review h4{margin:10px 0 4px}
-.gcard .mrlist{margin:0 -10px}.gcard button.mrrow{padding:4px 10px}
 .gcard label{display:block;margin-top:4px}
 /* the review's merge request discussions (GitPane) */
 .thrrow .gitfile.thr{flex-direction:column;align-items:flex-start;gap:0;text-decoration:none;color:inherit;display:flex;padding-top:2px;padding-bottom:3px}
@@ -854,3 +848,58 @@ button.ftfold.folding svg{animation:foldup .22s cubic-bezier(.2,.8,.3,1)}
 .grev{margin:2px 8px 6px;padding:4px 6px 6px;border-radius:var(--r-l);background:color-mix(in oklab,var(--rev) 6%,color-mix(in oklab,var(--well) 55%,transparent))}
 #side .grev .gsec{background:none;border:0;margin:0;padding:0}
 .grev .ghead{padding:0 6px;margin-top:4px}
+
+/* The merge requests (MrList.svelte): a stack from its base down, indented; each row says where
+   the MR stands in one word, coloured only when it's ready (green) or stuck (red). Full in its tab,
+   one line each in the git panel's picker. */
+.mrtab{min-width:0;padding:18px 28px 40px;overflow-y:auto}.mrtab .mrs{max-width:1180px;margin:0 auto}
+.mrbusy{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:var(--fs-s);margin:0 0 8px}.mrerr{margin:0 0 8px}
+.mrhead{display:flex;align-items:center;gap:10px;min-height:var(--ctl);margin-bottom:8px}
+.mrhead h3{margin:0;font-size:var(--fs-l);font-weight:600}
+.segs.mrfilter{flex:none}.mrfilter .gcount{margin-left:4px}
+.mrat{font-size:var(--fs-s)}
+.mrlist2{display:flex;flex-direction:column;gap:1px;border-radius:var(--r-l);background:color-mix(in oklab,var(--well) 55%,transparent);padding:4px;outline:0}
+.mrs{container-type:inline-size}
+.mrrow2{display:grid;grid-template-columns:12px minmax(0,1fr) 112px 8px 116px 34px 84px 58px 48px;align-items:center;gap:8px;min-height:32px;padding:0 6px;border-radius:var(--r-m);cursor:default;outline:0;transition:background-color .15s}
+.mrrow2:hover{background:var(--btn);transition-duration:0s}.mrrow2:focus-visible{box-shadow:inset 0 0 0 2px var(--accent)}
+.mrrow2.on{background:color-mix(in oklab,var(--rev) 10%,transparent)}
+.mrrow2.dim{opacity:.5}.mrrow2.drag{opacity:.4}
+.mrrow2.dropbefore{box-shadow:inset 0 2px 0 var(--accent)}.mrrow2.dropafter{box-shadow:inset 0 -2px 0 var(--accent)}
+.mrgrip{display:grid;place-items:center;color:var(--muted);opacity:0;cursor:grab}.mrrow2:hover .mrgrip{opacity:.7}
+.mrgrip svg{fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round}
+.mrmain{display:flex;align-items:center;gap:6px;min-width:0;padding-left:calc(var(--depth) * 14px)}
+.mrel{flex:none;width:9px;height:9px;margin:-6px 1px 0 -2px;border-left:1.5px solid var(--edge);border-bottom:1.5px solid var(--edge);border-bottom-left-radius:var(--r-xs)}
+.mrref{flex:none;color:var(--muted);font-variant-numeric:tabular-nums;font-size:var(--fs-s)}
+.mrtitle{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mrneed{flex:none;font-size:var(--fs-xs);padding:0 6px;border-radius:var(--r-pill);line-height:1.6}
+.mrneed.review{color:var(--rev);background:color-mix(in oklab,var(--rev) 13%,transparent)}
+.mrneed.yours{color:var(--muted);background:var(--btn)}
+.mrstate{justify-self:start;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-s);color:var(--muted)}
+.mrstate.ok{color:var(--ok)}.mrstate.bad{color:var(--bad)}
+.mrci{width:8px;height:8px;border-radius:50%}.mrci.pass{background:var(--ok)}.mrci.fail{background:var(--bad)}.mrci.running{background:var(--warn);animation:breathe 1.6s ease-in-out infinite}
+.mrrev{display:flex;align-items:center;gap:3px;min-width:0}
+.mrav{display:grid;place-items:center;flex:none;width:var(--ctl-xs);height:var(--ctl-xs);border-radius:50%;font-size:var(--fs-2xs);font-weight:600;color:var(--muted);background:var(--card);box-shadow:inset 0 0 0 1.5px var(--line)}
+.mrav.approved{color:var(--ok);box-shadow:inset 0 0 0 1.5px var(--ok)}.mrav.changes{color:var(--bad);box-shadow:inset 0 0 0 1.5px var(--bad)}.mrav.reviewed{box-shadow:inset 0 0 0 1.5px var(--accent)}
+.mrav.me{color:var(--fg)}
+.mrmore{font-size:var(--fs-xs);color:var(--muted)}
+.mrappr{margin-left:4px;font-size:var(--fs-s);color:var(--muted);font-variant-numeric:tabular-nums}.mrappr.ok{color:var(--ok)}
+.mrthr,.mrwho{font-size:var(--fs-s);color:var(--muted);white-space:nowrap}
+.mrsize{font-size:var(--fs-xs);white-space:nowrap;font-variant-numeric:tabular-nums}.mrsize i{font-style:normal}.mrsize .a{color:var(--add)}.mrsize .d{color:var(--del)}
+.mracts{display:flex;justify-content:flex-end;gap:2px;opacity:0}.mrrow2:hover .mracts,.mrrow2:focus-within .mracts{opacity:1}
+.mracts a.gicon{display:grid;place-items:center;text-decoration:none;color:var(--muted)}
+.mrhint{margin:10px 6px 0;font-size:var(--fs-s)}
+@media (prefers-reduced-motion:reduce){.mrci.running{animation:none}}
+/* narrower: the size and who/when go first (they're in the row's tooltip), then the discussions */
+@container (max-width:820px){.mrrow2{grid-template-columns:12px minmax(0,1fr) 104px 8px 108px 34px 48px}.mrsize,.mrwho{display:none}}
+@container (max-width:620px){.mrrow2{grid-template-columns:12px minmax(0,1fr) 96px 8px 48px}.mrrev,.mrthr{display:none}}
+/* compact, in the git panel's picker: one line each, where it stands as a dot */
+.mrs.compact .mrhead{min-height:0;margin:0 0 4px;gap:6px}
+.mrs.compact .mrlist2{background:none;padding:0;margin:0 -6px;max-height:min(50vh,420px);overflow-y:auto}
+.mrs.compact .mrrow2{display:flex;gap:6px;min-height:var(--ctl-s);cursor:pointer}
+.mrs.compact .mrmain{flex:1;padding-left:calc(var(--depth) * 12px)}
+.mrdot{flex:none;width:7px;height:7px;border-radius:50%;background:var(--line)}.mrdot.ok{background:var(--ok)}.mrdot.bad{background:var(--bad)}.mrdot.warn{background:var(--warn)}
+button.mrall{font-size:var(--fs-s);color:var(--accent)}
+/* the git panel's review picker: a soft block like the work's, not a ringed card */
+.gcard.review.gpick{margin:0 8px 8px;padding:6px 8px 4px 10px;border-color:transparent;background:color-mix(in oklab,var(--rev) 5%,color-mix(in oklab,var(--well) 55%,transparent))}
+.gpick .rhead b{font-weight:500;font-size:var(--fs-s);color:var(--rev)}
+

@@ -37,6 +37,10 @@ export function viewing(): Viewing | null {
     return { key: `c:${p.name}:${t.sha}`, label: `commit ${t.sha.slice(0, 8)}`, text: `${INTRO}Commit ${t.sha} of project ${p.name} (${p.path}).` };
   }
   if (t.kind === "guardrails") return { key: "g", label: "guardrails", text: `${INTRO}cockpit's guardrails page (.cockpit/guardrails.json).` };
+  if (t.kind === "mrs") {
+    const p = projectNamed(t.project);
+    return { key: `m:${p.name}`, label: "merge requests", text: `${INTRO}The open merge requests of project ${p.name} (${p.path}): stacks, where each stands, the order its owner set (glab or gh can tell you more).` };
+  }
   // the map: the diagram shown, and the box picked or zoomed into
   const d = byId(t.id);
   if (!d) return null;

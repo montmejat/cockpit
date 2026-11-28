@@ -22,6 +22,7 @@ import { installUpdate, update, watchUpdates } from "./update.ts";
 import { createTerminals } from "./term.ts";
 import { createAsk } from "./ask.ts";
 import { createReview, threadsText } from "./review.ts";
+import { createTracker } from "./mrs.ts";
 import { createPrivate } from "./private.ts";
 import { createWorkspace, isWorkspace, listWorkspaces, loadWorkspace } from "./workspace.ts";
 import { createGit } from "./git.ts";
@@ -52,6 +53,7 @@ const index = createIndex(root, name); // the code index (rust-analyzer or scip-
 const terms = createTerminals(root, name); // shells in the bottom drawer, readable by the agent
 const ask = createAsk(root); // the terminal's ask line: words → a command
 const review = createReview(root, name, () => changed()); // reviewing a merge request against its target
+const tracker = createTracker(root); // the open merge requests and where each stands (mrs.ts)
 const chat = createChat(root, name, terms, index, () => changed(), workspace, reviewForAgent); // the agent, run by cockpit itself
 const lsp = createLsp(root); // language servers for the editor
 // Started by a workspace's host: go when it goes.
@@ -362,6 +364,7 @@ const routes: Record<string, Handler> = {
 
   // review mode
   "GET /api/review/mrs": async (_req, res) => json(res, await review.mergeRequests()),
+  "GET /api/mrs": async (_req, res, url) => json(res, await tracker.get(q(url, "fresh") === "1")),
   "GET /api/git/mr": async (_req, res, url) => { const h = await git.head(); json(res, h.branch ? await review.branchMr(h.branch + "@" + h.head, q(url, "fresh") === "1") : { mr: null }); },
   "GET /api/review/branches": async (_req, res) => json(res, await review.branches()),
   "POST /api/review/start": post(async (body) => { const r = await review.start(body ?? {}); await recompute(); return r; }),

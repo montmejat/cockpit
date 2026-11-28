@@ -13,7 +13,7 @@
         "cockpit/web/src/components/MapView", "cockpit/web/src/components/MiniMap", "cockpit/web/src/components/DiagramList",
         "cockpit/web/src/components/NodeCard", "cockpit/web/src/components/ProjectPane", "cockpit/web/src/components/ZoomCode", "cockpit/web/src/components/Header",
         "cockpit/web/src/components/TabBar", "cockpit/web/src/components/Sidebar", "cockpit/web/src/components/Grip",
-        "cockpit/web/src/components/Palette",
+        "cockpit/web/src/components/Palette", "cockpit/web/src/components/ui/Tooltips",
         "cockpit/web/src/components/ui/IconButton", "cockpit/web/src/components/ui/Menu", "cockpit/web/src/components/ui/Confirm", "cockpit/web/src/components/ui/Tab",
         "cockpit/listpatch", "cockpit/web/src/lib/listmerge", "cockpit/http", "cockpit/live-turn", "cockpit/tests-of"
       ]
@@ -26,7 +26,7 @@
       "modules": [
         "cockpit/serve", "cockpit/git", "cockpit/search", "cockpit/lsp",
         "cockpit/web/src/components/FileTree", "cockpit/web/src/components/FileEditor", "cockpit/web/src/components/CodeView",
-        "cockpit/web/src/components/GitPane",
+        "cockpit/web/src/components/GitPane", "cockpit/web/src/lib/ahead", "cockpit/web/src/lib/heldlists",
         "cockpit/web/src/lib/code", "cockpit/web/src/lib/editor", "cockpit/web/src/lib/fileicons", "cockpit/web/src/lib/graph",
         "cockpit/web/src/lib/lang/zig","cockpit/web/src/lib/lsp.svelte", "cockpit/web/src/lib/smoothwheel", "cockpit/web/src/lib/confirm.svelte"
       ]
@@ -54,10 +54,10 @@
     },
     {
       "id": "review",
-      "name": "Review mode",
+      "name": "Review mode and merge requests",
       "status": "working",
-      "description": "Check out a merge request or two branches and see changed boxes, files and git lists against the point where the branch left its target. The merge request's discussions (glab/gh) show under their lines in the editor and in the git tab, and the agent reads them through its review_threads tool.",
-      "modules": ["cockpit/review", "cockpit/review-state"]
+      "description": "Check out a merge request or two branches and see changed boxes, files and git lists against the point where the branch left its target. The merge request's discussions (glab/gh) show under their lines in the editor and in the git tab, and the agent reads them through its review_threads tool. A Merge requests tab (and a compact list in the git tab's review picker) tracks every open MR/PR: stacks from their base down (an MR targeting another's branch merges after it), where each stands (CI, merge blockers, reviewers and approvals, open discussions, size), what waits on your review, in an order you set by dragging.",
+      "modules": ["cockpit/review", "cockpit/review-state", "cockpit/mrs", "cockpit/web/src/components/MrList", "cockpit/web/src/components/MrTab", "cockpit/web/src/lib/mrs.svelte", "cockpit/web/src/lib/mrstack"]
     },
     {
       "id": "guardrails",
@@ -72,7 +72,7 @@
       "status": "working",
       "description": "A project's .cockpit/ can be kept out of its repo, per branch, and synced between machines through a private repo; a workspace (a folder in cockpit's settings with a workspace.json; listed, created and extended from the project menu) opens all its projects in one window, like an editor's multi-root workspace, while opening one of its projects opens just that one. The workspace's host is none of its projects: it runs a server per project, and the window shows every project's files (a root folder each), git (a section each), quick open, search and diagrams (the map's breadcrumb and list pick the project).",
       "note": "The chat and terminals start in the viewed project (its server). The agent reads and edits every project of the workspace; a project it edits gets the turn in its own history and map, and its .cockpit/ and guardrails are checked at the end of the turn",
-      "modules": ["cockpit/private", "cockpit/workspace", "cockpit/workspace-servers", "cockpit/workspace-host", "cockpit/web/src/lib/projects.svelte"]
+      "modules": ["cockpit/private", "cockpit/workspace", "cockpit/workspace-servers", "cockpit/workspace-host", "cockpit/web/src/lib/projects.svelte", "cockpit/web/src/components/Home"]
     },
     {
       "id": "code-index",
@@ -87,7 +87,7 @@
       "name": "CI and releases",
       "status": "working",
       "description": "GitHub CI (.github/workflows/ci.yml, on Fedora) runs the guardrails' checks on every push and pull request through npm run guardrails, the same ones a turn ends with; when master passes it is tagged vYYYY.MM.DD.N with a GitHub release. desktop/release.sh installs a tag on its own (~/.local/share/cockpit/releases, newest 5 kept) and points the app at it, or goes back to an older one; the project tab says which cockpit runs, a release or a checkout.",
-      "modules": ["cockpit/version", "cockpit/guardrails-cli"]
+      "modules": ["cockpit/version", "cockpit/guardrails-cli", "cockpit/update"]
     },
     {
       "id": "desktop-app",

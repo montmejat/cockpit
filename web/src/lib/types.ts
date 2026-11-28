@@ -54,6 +54,16 @@ export type Guardrails =
 // The workspace this project is in (src/workspace.ts): projects that work together.
 export interface Workspace { name: string; dir: string; system: string | null; projects: { name: string; path: string; summary: string | null; here: boolean }[] }
 export interface MergeRequest { id: number; ref: string; title: string; source: string; target: string; author: string; url: string; draft: boolean; fork: boolean }
+// An open MR in the tracker (src/mrs.ts): where it stands and who reviews it.
+export type ReviewState = "approved" | "changes" | "reviewed" | "waiting";
+export interface TrackedMr extends MergeRequest {
+  created: string; updated: string; assignees: string[];
+  reviewers: { name: string; state: ReviewState }[];
+  approvals: { left: number; required: number } | null; approved: boolean;
+  ci: "pass" | "fail" | "running" | null; ready: boolean; blocker: string | null;
+  threads: { open: number; all: number } | null; size: { add: number; del: number; files: number } | null; labels: string[];
+}
+export interface Tracker { forge: "gitlab" | "github" | null; me: string | null; list: TrackedMr[]; error?: string; at: number }
 export interface BranchMr extends MergeRequest { state: "open" | "merged" | "closed"; review: "approved" | "changes" | "required" | null; checks: { pass: number; fail: number; pending: number } }
 // Review mode (src/review.ts): what the checked-out branch changes against its target.
 export interface Review {
@@ -83,7 +93,8 @@ export type Tab =
   | { kind: "file"; path: string; line?: number; end?: number; mini?: string; at?: number }
   | { kind: "commit"; sha: string; project?: string } // project: another project of the workspace (projects.svelte.ts)
   | { kind: "diff"; path: string; staged: boolean }
-  | { kind: "guardrails" };
+  | { kind: "guardrails" }
+  | { kind: "mrs"; project?: string } // the open merge requests (MrList.svelte); project: another of the workspace's
 
 export interface Hunk { at: number; added: number; removed: string[] }
 export interface Commit { hash: string; parents: string[]; sha: string; subject: string; author: string; date: string; refs: string[] }

@@ -214,7 +214,7 @@ export function askAboutThread(th: Thread, r: Review | null, project?: string) {
 type Insp = "about" | "features" | "tests" | "problems" | null;
 export type Side = "files" | "git" | "project";
 const saved = (): Tab[] => {
-  try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff" || t.kind === "guardrails")); } catch { return []; }
+  try { return (JSON.parse(store.get("cockpit-tabs-" + S.project, "[]")) as Tab[]).filter((t) => t && (t.kind === "file" || t.kind === "commit" || t.kind === "diff" || t.kind === "guardrails" || t.kind === "mrs")); } catch { return []; }
 };
 const sideTab = store.get("cockpit-tab", "files");
 
@@ -243,7 +243,7 @@ export function saveTabs() {
 const sameTab = (a: Tab, b: Tab) => a.kind === b.kind && (a.kind === "file" ? a.path === (b as any).path : a.kind === "commit" ? a.sha === (b as any).sha && a.project === (b as any).project
   : a.kind === "diff" ? a.path === (b as any).path && a.staged === (b as any).staged : true);
 // A tab's key and label, for the tab bar and the address.
-export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : t.kind === "guardrails" ? "guardrails" : t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + (t.project ? t.project + ":" : "") + t.sha : (t.staged ? "s:" : "d:") + t.path);
+export const tabKey = (t: Tab) => (t.kind === "map" ? "map" : t.kind === "guardrails" ? "guardrails" : t.kind === "mrs" ? "mrs:" + (t.project ?? "") : t.kind === "file" ? "f:" + t.path : t.kind === "commit" ? "c:" + (t.project ? t.project + ":" : "") + t.sha : (t.staged ? "s:" : "d:") + t.path);
 // Open (or focus) a tab next to the current one. Old file tabs make room past 14.
 export function openTab(spec: Tab) {
   ui.home = false;
@@ -262,6 +262,7 @@ export const openFile = (path: string, line?: number, end?: number) => openTab({
 // `project`: a commit of another project of the workspace (projects.svelte.ts).
 export const openCommit = (sha: string, project?: string) => openTab({ kind: "commit", sha, ...(project ? { project } : {}) });
 export const openGuardrails = () => openTab({ kind: "guardrails" });
+export const openMrs = (project?: string) => openTab({ kind: "mrs", ...(project ? { project } : {}) });
 // A changed file's diff: staged (index against HEAD) or not (working tree against the index).
 export const openDiff = (path: string, staged: boolean) => openTab({ kind: "diff", path, staged });
 // Files with unsaved changes in the editor (FileEditor.svelte keeps the buffers).

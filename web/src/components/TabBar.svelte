@@ -19,9 +19,9 @@
       </Tab>
     {:else}
       {@const st = t.kind === "file" ? statusOf(t.path) : null}
-      <Tab class="ctab" on={!ui.home && i === ui.active} title={t.kind === "guardrails" ? "Guardrails: what keeps the agents' work right" : t.kind === "file" ? t.path : t.kind === "diff" ? (t.staged ? "staged changes in " : "changes in ") + t.path : "commit " + t.sha}
+      <Tab class="ctab" on={!ui.home && i === ui.active} title={t.kind === "guardrails" ? "Guardrails: what keeps the agents' work right" : t.kind === "mrs" ? "The open merge requests" + (t.project ? " of " + t.project : "") : t.kind === "file" ? t.path : t.kind === "diff" ? (t.staged ? "staged changes in " : "changes in ") + t.path : "commit " + t.sha}
         onselect={() => pick(i)} onclose={() => closeTab(i)}>
-        {#if t.kind === "guardrails"}<svg class="ti" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 1.75l5 2v4c0 3-2.2 5.3-5 6.5-2.8-1.2-5-3.5-5-6.5v-4z" /></svg>guardrails{:else if t.kind === "file"}{t.path.split("/").pop()}{:else if t.kind === "diff"}<span class="ti" title={t.staged ? "staged" : "not staged"}>Δ</span>{t.path.split("/").pop()}{#if t.staged}<span class="muted tstaged">staged</span>{/if}{:else}<span class="ti">●</span>{t.sha}{/if}
+        {#if t.kind === "guardrails"}<svg class="ti" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M8 1.75l5 2v4c0 3-2.2 5.3-5 6.5-2.8-1.2-5-3.5-5-6.5v-4z" /></svg>guardrails{:else if t.kind === "mrs"}<svg class="ti" viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M4.5 3v10M11.5 7v6M4.5 3.2a1.3 1.3 0 1 0 0 .1M11.5 12.8a1.3 1.3 0 1 0 0 .1M11.5 7c0-2-1-3-3-3H7" /></svg>merge requests{#if t.project}<span class="muted"> · {t.project}</span>{/if}{:else if t.kind === "file"}{t.path.split("/").pop()}{:else if t.kind === "diff"}<span class="ti" title={t.staged ? "staged" : "not staged"}>Δ</span>{t.path.split("/").pop()}{#if t.staged}<span class="muted tstaged">staged</span>{/if}{:else}<span class="ti">●</span>{t.sha}{/if}
         {#if st}<span class="mark {st}">{st}</span>{/if}
         {#if t.kind === "file" && dirtyFiles.has(t.path)}<span class="unsaved" title="Unsaved changes">●</span>{/if}
       </Tab>
